@@ -88,6 +88,12 @@ final class HexKeyControl: UIControl {
     }
 
     override func cancelTracking(with event: UIEvent?) {
+        cancelHold()
+    }
+
+    /// Forget a press in progress, so a hold already counting never dictates later
+    /// (the keyboard is being swapped for the compact bar).
+    func cancelHold() {
         stopTimer()
         isHighlighted = false
         gesture.cancel()

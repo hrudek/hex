@@ -202,5 +202,45 @@ final class FullKeyboardSettingsTests: XCTestCase {
 
     func testNoAppGroupReadsAsOff() {
         XCTAssertFalse(FullKeyboardSettings(defaults: nil).isEnabled)
+        XCTAssertEqual(FullKeyboardSettings(defaults: nil).layoutChoice, .full)
+    }
+
+    func testLayoutChoiceDefaultsToFullAndPersists() throws {
+        let suite = "FullKeyboardSettingsTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = FullKeyboardSettings(defaults: defaults)
+
+        XCTAssertEqual(settings.layoutChoice, .full)
+        settings.layoutChoice = .compact
+        XCTAssertEqual(FullKeyboardSettings(defaults: defaults).layoutChoice, .compact)
+
+        // Turning the experiment off and on again keeps the choice.
+        settings.isEnabled = true
+        settings.isEnabled = false
+        settings.isEnabled = true
+        XCTAssertEqual(settings.layoutChoice, .compact)
+
+        defaults.set("tiny", forKey: "keyboard.layout")
+        XCTAssertEqual(settings.layoutChoice, .full)
+    }
+
+    func testFullKeyboardShowsOnlyWhereOfferedAndChosen() {
+        for experiment in [false, true] {
+            for phone in [false, true] {
+                for choice in [KeyboardLayoutChoice.full, .compact] {
+                    let shows = FullKeyboardSettings.showsFullKeyboard(
+                        experimentEnabled: experiment,
+                        isPhone: phone,
+                        choice: choice
+                    )
+                    XCTAssertEqual(shows, experiment && phone && choice == .full, "\(experiment) \(phone) \(choice)")
+                }
+                XCTAssertEqual(
+                    FullKeyboardSettings.offersFullKeyboard(experimentEnabled: experiment, isPhone: phone),
+                    experiment && phone
+                )
+            }
+        }
     }
 }

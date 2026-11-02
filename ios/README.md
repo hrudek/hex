@@ -59,6 +59,17 @@ it never accesses the microphone, speech model, or network.
     to** menu; releasing over a row picks it, and releasing elsewhere leaves
     the menu open for taps (`HexKeyGesture`). VoiceOver activation dictates,
     and the **Dictation styles** action opens the menu.
+  - **Full and compact keyboard (Experiments › Full keyboard, iPhone):**
+    The full keyboard's strip ends in a `keyboard.chevron.compact.down`
+    button (**Show compact keyboard**, also a VoiceOver action on the Hex
+    key) that switches to the compact dictation bar; the bar's utility row
+    then shows a `keyboard` key (**Show full keyboard**) left of space that
+    switches back. Switching works only while Hex isn't recording,
+    transcribing, or waiting on a command, resizes at once (140 pt ↔ 267 pt
+    portrait / 190 pt landscape), and is remembered in the App Group
+    (`keyboard.layout`, default full) and for the rest of the extension
+    session. Without Full Access the App Group reads as experiment off, so
+    the compact bar shows. Undo dictation does not survive a switch.
 - **Resilient capture & expiry contract (`DictationController`):**
   - Monotonic `jobGeneration`, retained `transcriptionTask`, and unique
     per-capture WAV filenames ensure an expiring warm session never drops an

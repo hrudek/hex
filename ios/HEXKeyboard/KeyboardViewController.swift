@@ -13,6 +13,12 @@ final class KeyboardViewController: UIInputViewController {
     private var fullKeyboard: FullKeyboardView?
     private var heightConstraint: NSLayoutConstraint?
     private var pollInterval: TimeInterval = 0
+    /// The keyboard the person switched to in this extension session. It wins over the
+    /// App Group value, so a poll never undoes a fresh switch, and it still holds when
+    /// the App Group can't be written.
+    private var sessionLayoutChoice: KeyboardLayoutChoice?
+
+    private static let compactHeight: CGFloat = 140
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -37,8 +43,8 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        if let fullKeyboard, heightConstraint?.constant != fullKeyboard.preferredHeight {
-            heightConstraint?.constant = fullKeyboard.preferredHeight
+        if let fullKeyboard {
+            applyHeight(fullKeyboard.preferredHeight)
         }
     }
 
@@ -78,21 +84,59 @@ final class KeyboardViewController: UIInputViewController {
             guard let self else { return }
             ContainingAppOpener.open(url, from: self)
         }
+        viewModel.onShowFullKeyboard = { [weak self] in self?.switchLayout(to: .full) }
+        viewModel.onShowCompactKeyboard = { [weak self] in self?.switchLayout(to: .compact) }
 
-        let heightConstraint = view.heightAnchor.constraint(equalToConstant: 140)
+        let heightConstraint = view.heightAnchor.constraint(equalToConstant: Self.compactHeight)
         heightConstraint.priority = UILayoutPriority(999)
         heightConstraint.isActive = true
         self.heightConstraint = heightConstraint
         mountSurface()
     }
 
-    /// The dictation bar, or the full keyboard when its experiment is on (iPhone only).
-    /// Only switches while idle.
-    private func mountSurface() {
-        let wantsFull = FullKeyboardSettings().isEnabled && UIDevice.current.userInterfaceIdiom == .phone
-        guard surface == nil || wantsFull != (fullKeyboard != nil) else { return }
-        guard surface == nil || viewModel.stagePhase == .idle || viewModel.stagePhase == .failed else { return }
+    /// No recording, transcription, or unanswered command: the surface may be swapped.
+    private var canSwapSurface: Bool {
+        (viewModel.stagePhase == .idle || viewModel.stagePhase == .failed) && viewModel.pendingCommand == nil
+    }
 
+    /// The compact bar's keyboard key or the full keyboard's compact button. Ignored while
+    /// Hex records or waits on a command, without remembering it for later.
+    private func switchLayout(to choice: KeyboardLayoutChoice) {
+        guard canSwapSurface else { return }
+        sessionLayoutChoice = choice
+        FullKeyboardSettings().layoutChoice = choice
+        viewModel.focusesFullKeyboardKeyOnAppear = choice == .compact
+        mountSurface()
+        fullKeyboard?.prepareForField()
+        syncFromBridge(animated: false)
+        // VoiceOver lands on the way back: the full keyboard's compact button here; the
+        // compact bar moves focus to its keyboard key itself (`focusesFullKeyboardKeyOnAppear`).
+        if let fullKeyboard {
+            UIAccessibility.post(notification: .screenChanged, argument: fullKeyboard.compactKeyboardAccessibilityElement)
+        }
+    }
+
+    /// The dictation bar, or the full keyboard when its experiment is on (iPhone only) and
+    /// the person hasn't switched to the compact bar. Only switches while idle.
+    private func mountSurface() {
+        let settings = FullKeyboardSettings()
+        let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+        let offersFull = FullKeyboardSettings.offersFullKeyboard(experimentEnabled: settings.isEnabled, isPhone: isPhone)
+        if viewModel.canShowFullKeyboard != offersFull {
+            viewModel.canShowFullKeyboard = offersFull
+        }
+        let wantsFull = FullKeyboardSettings.showsFullKeyboard(
+            experimentEnabled: settings.isEnabled,
+            isPhone: isPhone,
+            choice: sessionLayoutChoice ?? settings.layoutChoice
+        )
+        guard surface == nil || wantsFull != (fullKeyboard != nil) else { return }
+        guard surface == nil || canSwapSurface else { return }
+
+        fullKeyboard?.prepareForRemoval()
+        if viewModel.activeTray != .none {
+            viewModel.setActiveTray(.none, reduceMotion: true)
+        }
         children.forEach { child in
             child.willMove(toParent: nil)
             child.removeFromParent()
@@ -110,16 +154,16 @@ final class KeyboardViewController: UIInputViewController {
             keyboard.allowsHaptics = { [weak self] in self?.hasFullAccess ?? false }
             fullKeyboard = keyboard
             mounted = keyboard
-            heightConstraint?.constant = keyboard.preferredHeight
+            // The new view has no traits until it is added; size it from the controller's.
+            applyHeight(KeyboardLayout.height(for: FullKeyboardView.orientation(for: traitCollection)))
         } else {
             let hosting = UIHostingController(rootView: KeyboardSurfaceView(model: viewModel))
             hosting.view.backgroundColor = .clear
             addChild(hosting)
             hosting.didMove(toParent: self)
             mounted = hosting.view
-            heightConstraint?.constant = 140
+            applyHeight(Self.compactHeight)
         }
-        preferredContentSize.height = heightConstraint?.constant ?? 140
         mounted.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(mounted)
         NSLayoutConstraint.activate([
@@ -130,6 +174,16 @@ final class KeyboardViewController: UIInputViewController {
         ])
         surface = mounted
         schedulePoll(force: false)
+    }
+
+    /// The one place the keyboard's height changes: mount, rotation, and switching.
+    private func applyHeight(_ height: CGFloat) {
+        if heightConstraint?.constant != height {
+            heightConstraint?.constant = height
+        }
+        if preferredContentSize.height != height {
+            preferredContentSize.height = height
+        }
     }
 
     /// The dictation bar polls at 25 Hz; the full keyboard at 4 Hz, and 30 Hz while recording.

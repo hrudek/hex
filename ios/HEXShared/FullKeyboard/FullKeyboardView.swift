@@ -26,6 +26,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private let globeButton = UIButton(type: .custom)
     private let strip = UIView()
     private let undoChip = UIButton(type: .custom)
+    /// Trailing end of the strip: back to the compact dictation bar.
+    private let compactButton = UIButton(type: .custom)
     private let stripLabel = UILabel()
     private var recordingPanel: HexKeyRecordingPanel?
     private var styleMenu: HexStyleMenuView?
@@ -54,6 +56,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         stripLabel.textAlignment = .center
         stripLabel.adjustsFontSizeToFitWidth = true
         stripLabel.minimumScaleFactor = 0.8
+        // Two lines, since the compact button narrows the strip for failure messages.
+        stripLabel.numberOfLines = 2
         strip.addSubview(stripLabel)
 
         var chip = UIButton.Configuration.plain()
@@ -67,10 +71,27 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         undoChip.addTarget(self, action: #selector(undoDictation), for: .touchUpInside)
         strip.addSubview(undoChip)
 
+        var compact = UIButton.Configuration.plain()
+        compact.image = UIImage(
+            systemName: "keyboard.chevron.compact.down",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        )
+        compactButton.configuration = compact
+        compactButton.accessibilityLabel = "Show compact keyboard"
+        compactButton.addTarget(self, action: #selector(showCompactKeyboard), for: .touchUpInside)
+        strip.addSubview(compactButton)
+
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
 
         hexKey.onHold = { [weak self] in self?.hexKeyHeld() }
+        hexKey.accessibilityCustomActions = (hexKey.accessibilityCustomActions ?? []) + [
+            UIAccessibilityCustomAction(name: "Show compact keyboard") { [weak self] _ in
+                guard let self, !self.showsRecording else { return false }
+                self.showCompactKeyboard()
+                return true
+            },
+        ]
         hexKey.onMenuOpen = { [weak self] point in
             guard let self else { return }
             self.showStyleMenu()
@@ -147,6 +168,19 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         dismissStyleMenu()
     }
 
+    /// The controller is about to swap this view for the compact bar: end touches, delete
+    /// repeat, callouts, the style menu, and the undo timer.
+    func prepareForRemoval() {
+        plane.cancelAllTouches()
+        hexKey.cancelHold()
+        updateCallout()
+        dismissStyleMenu()
+        hideUndo()
+    }
+
+    /// VoiceOver lands here after switching from the compact bar.
+    var compactKeyboardAccessibilityElement: UIView { compactButton }
+
     /// Hex inserted a dictation; offer to take it back until the next edit.
     func didInsertDictation(_ text: String) {
         lastDictation = text
@@ -178,12 +212,26 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         plane.frame = bounds
         callout.frame = bounds
         strip.frame = layout.stripFrame
-        stripLabel.frame = strip.bounds.insetBy(dx: 16, dy: 0)
-        let chipSize = undoChip.sizeThatFits(CGSize(width: strip.bounds.width, height: 34))
+        // The compact button keeps a 44 pt wide target at the trailing end (as tall as the
+        // strip: 44 pt in portrait, 36 in landscape). Label and chip stay centred and keep
+        // the same clearance on both sides, so they never run under it.
+        let compactWidth: CGFloat = 44
+        let edge = engine.horizontalInset + 4
+        compactButton.frame = CGRect(
+            x: strip.bounds.width - edge - compactWidth,
+            y: 0,
+            width: compactWidth,
+            height: strip.bounds.height
+        )
+        let clearance = edge + compactWidth + 4
+        stripLabel.frame = strip.bounds.insetBy(dx: clearance, dy: 0)
+        let maxChipWidth = max(0, strip.bounds.width - 2 * clearance)
+        let chipSize = undoChip.sizeThatFits(CGSize(width: maxChipWidth, height: 34))
+        let chipWidth = min(chipSize.width, maxChipWidth)
         undoChip.frame = CGRect(
-            x: (strip.bounds.width - chipSize.width) / 2,
+            x: (strip.bounds.width - chipWidth) / 2,
             y: (strip.bounds.height - 34) / 2,
-            width: chipSize.width,
+            width: chipWidth,
             height: 34
         )
 
@@ -232,6 +280,9 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         chip?.baseForegroundColor = next.textMuted
         chip?.background.backgroundColor = next.chipFill
         undoChip.configuration = chip
+        var compact = compactButton.configuration
+        compact?.baseForegroundColor = next.textMuted
+        compactButton.configuration = compact
     }
 
     private func refreshReturnKey() {
@@ -365,6 +416,12 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         if allowsHaptics() {
             haptics.impactOccurred(intensity: 0.6)
         }
+    }
+
+    @objc private func showCompactKeyboard() {
+        guard !showsRecording else { return }
+        keyFeedback()
+        model.onShowCompactKeyboard?()
     }
 
     /// A still hold on the Hex key; a tap does nothing, so a stray one while typing is harmless.
