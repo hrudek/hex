@@ -315,7 +315,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard gestureRecognizer === resizePan, resizeDragZone > 0 else { return false }
         // Decide by the distance moved, not the speed: a fast flick still reads as vertical.
         let t = resizePan.translation(in: view)
-        return abs(t.y) >= abs(t.x) * 0.8
+        return abs(t.y) > abs(t.x) * 1.3
     }
 
     @objc private func handleResizePan(_ pan: UIPanGestureRecognizer) {
@@ -374,9 +374,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             translation: translation,
             direction: drag.direction
         )
-        if heightConstraint?.constant != height {
-            heightConstraint?.constant = height
-        }
+        applyHeight(height)
         let armed = KeyboardGrabberDrag.isArmed(translation: translation, direction: drag.direction)
         if armed != drag.isArmed {
             drag.isArmed = armed
@@ -450,6 +448,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         #endif
 
         guard effectiveFullAccess else {
+            cancelResizeDrag()
             viewModel.applyBridgeState(
                 hasFullAccess: false,
                 snapshot: .offline,
@@ -503,6 +502,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             animated: animated
         )
 
+        // A status change cancels the drag even while the finger is held still. Once
+        // cancelled it cannot become eligible again when the bridge returns to idle.
+        if !canSwapSurface { cancelResizeDrag() }
         refreshColdStartURL(now: now, force: false)
         schedulePoll(force: false)
     }

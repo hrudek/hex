@@ -54,13 +54,18 @@ it never accesses the microphone, speech model, or network.
     insertion spacing and repeating backspace.
   - **Full and compact keyboard (Experiments › Full keyboard › Compact
     keyboard, iPhone, on by default):** Both keyboards get a 12 pt drag-handle
-    zone at the top (`KeyboardGrabber.swift`). Dragging the full keyboard's
-    handle down, or the compact bar's handle up, past 36 pt (or a quick flick)
-    and releasing switches; only the pill moves, a reversed or cancelled drag
-    never switches. The compact bar also has a `keyboard` key left of space,
-    and VoiceOver activates the handles (plus a **Show compact keyboard**
-    action on the Hex key). Switching waits for idle (no recording,
-    transcription, or pending command) and resizes at once. The choice lives in
+    zone at the top (`KeyboardGrabber.swift`), with a 64 pt wide pill.
+    Vertical drags may start across that zone and the suggestion strip (full)
+    or top bar (compact); suggestion taps and horizontal drags stay separate.
+    The keyboard height follows the finger live. Releasing past 36 pt, or a
+    quick flick of at least 16 pt, switches; otherwise it settles back.
+    Cancelled drags never switch. The compact bar also has a `keyboard` key
+    left of space; the full keyboard has a compact key at the far left,
+    before 123/ABC. VoiceOver activates the handles (plus a **Show compact
+    keyboard** action on the Hex key). Switching requires idle (no recording,
+    transcription, or pending command); bridge status changes cancel a drag
+    immediately. Live host resizing and physical gesture reliability still
+    require testing on the iPhone. The choice lives in
     the App Group (`keyboard.layout`, default full) and for the extension
     session. With Compact keyboard off the full keyboard always shows and
     the choice is kept. Undo dictation does not survive a switch.
