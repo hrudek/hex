@@ -86,6 +86,8 @@ final class FullKeyboardEngine {
     var orientation: KeyboardOrientation = .portrait { didSet { if orientation != oldValue { rebuildLayout() } } }
     var showsGlobe = false { didSet { if showsGlobe != oldValue { rebuildLayout() } } }
     var horizontalInset: CGFloat = 0 { didSet { if horizontalInset != oldValue { rebuildLayout() } } }
+    /// Room above the strip for the drag handle (`KeyboardLayout.grabberZoneHeight`), or 0.
+    var topInset: CGFloat = 0 { didSet { if topInset != oldValue { rebuildLayout() } } }
     private(set) var layout = KeyboardLayout(width: 375)
 
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
@@ -536,7 +538,8 @@ final class FullKeyboardEngine {
             layer: layerState.layer,
             field: field,
             showsGlobe: showsGlobe,
-            horizontalInset: horizontalInset
+            horizontalInset: horizontalInset,
+            topInset: topInset
         )
     }
 }

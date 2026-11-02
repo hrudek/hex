@@ -115,6 +115,16 @@ nonisolated struct KeyboardMetrics: Equatable, Sendable {
         )
     }
 
+    /// The same metrics with `inset` more room above the strip (the drag handle's zone).
+    func addingTopInset(_ inset: CGFloat) -> KeyboardMetrics {
+        guard inset > 0 else { return self }
+        return KeyboardMetrics(
+            side: side, gap: gap, rowGap: rowGap, keyHeight: keyHeight,
+            stripTop: stripTop + inset, stripHeight: stripHeight, stripBottom: stripBottom,
+            keysTop: keysTop, keysBottom: keysBottom, cornerRadius: cornerRadius
+        )
+    }
+
     var stripArea: CGFloat { stripTop + stripHeight + stripBottom }
     var keysArea: CGFloat { keysTop + 4 * keyHeight + 3 * rowGap + keysBottom }
     var totalHeight: CGFloat { stripArea + keysArea }
@@ -135,8 +145,13 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
     let field: KeyboardFieldKind
     let showsGlobe: Bool
     let horizontalInset: CGFloat
+    /// Room above the strip for the drag handle that switches to the compact bar.
+    let topInset: CGFloat
     let metrics: KeyboardMetrics
     let keys: [KeyboardKey]
+
+    /// The drag handle's zone above the strip, when switching keyboards is allowed.
+    static let grabberZoneHeight: CGFloat = 12
 
     init(
         width: CGFloat,
@@ -144,7 +159,8 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         layer: KeyboardLayer = .letters,
         field: KeyboardFieldKind = .text,
         showsGlobe: Bool = false,
-        horizontalInset: CGFloat = 0
+        horizontalInset: CGFloat = 0,
+        topInset: CGFloat = 0
     ) {
         self.width = width
         self.orientation = orientation
@@ -152,8 +168,9 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         self.field = field
         self.showsGlobe = showsGlobe
         self.horizontalInset = max(0, horizontalInset)
+        self.topInset = max(0, topInset)
         let innerWidth = width - 2 * self.horizontalInset
-        let metrics = KeyboardMetrics.for(orientation, innerWidth: innerWidth)
+        let metrics = KeyboardMetrics.for(orientation, innerWidth: innerWidth).addingTopInset(self.topInset)
         self.metrics = metrics
         self.keys = Self.buildKeys(
             width: width,
@@ -165,8 +182,8 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         )
     }
 
-    static func height(for orientation: KeyboardOrientation) -> CGFloat {
-        KeyboardMetrics.for(orientation).totalHeight
+    static func height(for orientation: KeyboardOrientation, topInset: CGFloat = 0) -> CGFloat {
+        KeyboardMetrics.for(orientation).addingTopInset(max(0, topInset)).totalHeight
     }
 
     var totalHeight: CGFloat { metrics.totalHeight }

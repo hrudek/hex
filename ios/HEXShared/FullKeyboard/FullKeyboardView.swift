@@ -21,6 +21,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     var drawsBackdrop = false { didSet { applyAppearance() } }
 
     private let stripView = KeyboardStripView()
+    private let grabber = KeyboardGrabberView()
     private let plane: KeyboardKeyPlaneView
     private let callout = KeyCalloutView()
     private let accentCallout = AccentCalloutView()
@@ -37,6 +38,19 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private let haptics = UIImpactFeedbackGenerator(style: .light)
     private let selectionHaptics = UISelectionFeedbackGenerator()
 
+    /// The drag handle above the strip switches to the compact bar. Set by the controller from
+    /// the settings; it adds `KeyboardLayout.grabberZoneHeight` to the keyboard's height.
+    var allowsCompactKeyboard = false {
+        didSet {
+            guard allowsCompactKeyboard != oldValue else { return }
+            grabber.reset()
+            engine.topInset = allowsCompactKeyboard ? KeyboardLayout.grabberZoneHeight : 0
+            grabber.isHidden = !allowsCompactKeyboard || showsRecording
+            updateHexKeyActions()
+            setNeedsLayout()
+        }
+    }
+
     /// Exposed so unit tests can verify lazy allocation and teardown of the Metal recording panel.
     var hasAllocatedRecordingPanel: Bool { recordingPanel != nil }
 
@@ -48,6 +62,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         backgroundColor = .clear
 
         addSubview(stripView)
+        addSubview(grabber)
         addSubview(plane)
         addSubview(hexKey)
         addSubview(globeButton)
@@ -61,6 +76,10 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             self.engine.acceptSuggestion(suggestion)
         }
         stripView.onUndoDictation = { [weak self] in self?.undoDictation() }
+
+        grabber.isHidden = true
+        grabber.onArm = { [weak self] in self?.selectionFeedback() }
+        grabber.onCommit = { [weak self] in self?.showCompactKeyboard() }
 
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
@@ -114,7 +133,12 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     }
 
     var preferredHeight: CGFloat {
-        KeyboardLayout.height(for: orientation)
+        Self.height(for: orientation, allowsCompactKeyboard: allowsCompactKeyboard)
+    }
+
+    /// The keyboard's height before it is on screen (the controller sizes it from its own traits).
+    static func height(for orientation: KeyboardOrientation, allowsCompactKeyboard: Bool) -> CGFloat {
+        KeyboardLayout.height(for: orientation, topInset: allowsCompactKeyboard ? KeyboardLayout.grabberZoneHeight : 0)
     }
 
     // MARK: - Host events
@@ -173,6 +197,20 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
+    /// The controller is about to swap this view for the compact bar: end touches, delete
+    /// repeat, the Hex key's hold timer, callouts, the style menu, the drag, and the undo timer.
+    func prepareForRemoval() {
+        plane.cancelAllTouches()
+        hexKey.cancelHold()
+        grabber.reset()
+        updateCallout()
+        dismissStyleMenu()
+        hideUndo()
+    }
+
+    /// VoiceOver lands here after switching from the compact bar.
+    var compactKeyboardAccessibilityElement: UIView { grabber }
+
     /// Frees non-essential UI and Metal drawables when the extension approaches its memory ceiling.
     func handleMemoryWarning() {
         dismissStyleMenu()
@@ -229,6 +267,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         callout.frame = bounds
         accentCallout.frame = bounds
         stripView.frame = layout.stripFrame
+        // The handle's zone spans the full width above the strip, so a drag can start anywhere along the top.
+        grabber.frame = CGRect(x: 0, y: 0, width: bounds.width, height: layout.topInset)
 
         hexKey.cornerRadius = layout.metrics.cornerRadius
         if let hex = layout.key(.hex) {
@@ -268,6 +308,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         didApplyPalette = true
         palette = next
         stripView.palette = next
+        grabber.palette = next
         plane.palette = next
         callout.palette = next
         callout.setNeedsDisplay()
@@ -360,10 +401,14 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             panel.frame = bounds
             refreshRecordingPanel()
             panel.isHidden = false
-            fade(in: [panel], out: [stripView, plane, hexKey, globeButton, callout, accentCallout])
+            grabber.reset()
+            fade(in: [panel], out: [stripView, grabber, plane, hexKey, globeButton, callout, accentCallout])
         } else if let panel = recordingPanel {
             panel.scope.phase = .hidden
-            fade(in: [stripView, plane, hexKey, globeButton, callout], out: [panel]) { [weak self, weak panel] in
+            let returning: [UIView] = allowsCompactKeyboard
+                ? [stripView, grabber, plane, hexKey, globeButton, callout]
+                : [stripView, plane, hexKey, globeButton, callout]
+            fade(in: returning, out: [panel]) { [weak self, weak panel] in
                 guard let self, !self.showsRecording, let panel, panel === self.recordingPanel else { return }
                 panel.tearDown()
                 panel.removeFromSuperview()
@@ -455,6 +500,26 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             selectionHaptics.selectionChanged()
             selectionHaptics.prepare()
         }
+    }
+
+    private func showCompactKeyboard() {
+        guard allowsCompactKeyboard, !showsRecording else { return }
+        if allowsHaptics() {
+            haptics.impactOccurred()
+            haptics.prepare()
+        }
+        model.onShowCompactKeyboard?()
+    }
+
+    /// VoiceOver: the Hex key also offers the switch, so it never needs the drag.
+    private func updateHexKeyActions() {
+        hexKey.accessibilityCustomActions = allowsCompactKeyboard
+            ? [UIAccessibilityCustomAction(name: "Show compact keyboard") { [weak self] _ in
+                guard let self, self.allowsCompactKeyboard, !self.showsRecording else { return false }
+                self.showCompactKeyboard()
+                return true
+            }]
+            : nil
     }
 
     private func hexKeyTapped() {

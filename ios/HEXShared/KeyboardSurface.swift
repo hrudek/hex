@@ -50,6 +50,8 @@ final class KeyboardViewModel: ObservableObject {
 
     @Published var hasFullAccess = true
     @Published var needsGlobeKey = true
+    /// The full keyboard is offered (experiment on, iPhone), so the compact bar shows a key for it.
+    @Published var canShowFullKeyboard = false
     @Published var returnKeyLabel = "Return"
     @Published var isModelInstalled = false
     @Published private(set) var isWarmAvailable = false
@@ -66,7 +68,15 @@ final class KeyboardViewModel: ObservableObject {
     var currentTimestamp: TimeInterval = Date().timeIntervalSince1970
     private(set) var currentSnapshot: KeyboardSnapshot = .offline
     var coldStartURL: URL = KeyboardLaunchRequest.startSession(requestedAt: nil, returnAppID: nil).url
-    private(set) var pendingCommand: PendingCommand?
+    private(set) var pendingCommand: PendingCommand? {
+        // Not @Published (polls clear it at 25 Hz), but the compact bar's keyboard key is
+        // disabled while a command is unanswered, so announce when one starts or ends.
+        willSet {
+            if (newValue == nil) != (pendingCommand == nil) {
+                objectWillChange.send()
+            }
+        }
+    }
 
     var onDictateTap: (() -> Void)?
     var onStopTap: (() -> Void)?
@@ -77,6 +87,11 @@ final class KeyboardViewModel: ObservableObject {
     var onDelete: (() -> Void)?
     var onReturn: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
+    var onShowFullKeyboard: (() -> Void)?
+    var onShowCompactKeyboard: (() -> Void)?
+    /// Set when the person just switched to the compact bar, so VoiceOver lands on its
+    /// keyboard key; the bar clears it once used.
+    var focusesFullKeyboardKeyOnAppear = false
     weak var inputViewController: UIInputViewController?
 
     var selectedReturnApp: HostApp? {
@@ -415,7 +430,67 @@ private struct RepeatDeleteKey: View {
                         repeatTask = nil
                     }
             )
+            // Switching to the full keyboard removes this key mid-press; stop repeating then.
+            .onDisappear {
+                isPressing = false
+                repeatTask?.cancel()
+                repeatTask = nil
+            }
             .accessibilityLabel("Delete")
+    }
+}
+
+/// The compact bar's drag handle, in its own zone above the top bar: drag up past the
+/// threshold and release for the full keyboard (`KeyboardGrabberDrag`). Only the pill moves.
+private struct CompactKeyboardGrabber: View {
+    static let zoneHeight = KeyboardLayout.grabberZoneHeight
+
+    let palette: KeyboardChromePalette
+    let isEnabled: Bool
+    let onCommit: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var translation: CGFloat = 0
+
+    private var isArmed: Bool {
+        KeyboardGrabberDrag.isArmed(translation: translation, direction: .up)
+    }
+
+    var body: some View {
+        Capsule()
+            .fill(isArmed ? palette.textBase.opacity(0.6) : palette.textMuted.opacity(0.45))
+            .frame(width: isArmed ? 44 : 36, height: 5)
+            .offset(y: reduceMotion ? 0 : KeyboardGrabberDrag.pillOffset(translation: translation, direction: .up))
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.zoneHeight)
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? 1 : 0)
+            .allowsHitTesting(isEnabled)
+            .gesture(
+                DragGesture(minimumDistance: 6)
+                    .updating($translation) { value, state, _ in
+                        // Mostly vertical only; a sideways slide never arms.
+                        let size = value.translation
+                        state = abs(size.height) > abs(size.width) ? size.height : 0
+                    }
+                    .onEnded { value in
+                        let size = value.translation
+                        guard isEnabled, abs(size.height) > abs(size.width) else { return }
+                        if KeyboardGrabberDrag.commits(
+                            translation: size.height,
+                            velocity: value.velocity.height,
+                            direction: .up
+                        ) {
+                            onCommit()
+                        }
+                    }
+            )
+            .sensoryFeedback(.selection, trigger: isArmed) { old, new in !old && new }
+            .accessibilityElement()
+            .accessibilityLabel("Show full keyboard")
+            .accessibilityHint("Or drag the handle up")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { if isEnabled { onCommit() } }
+            .accessibilityHidden(!isEnabled)
     }
 }
 
@@ -468,6 +543,7 @@ struct KeyboardSurfaceView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: KeyboardViewModel
+    @AccessibilityFocusState private var fullKeyboardKeyFocused: Bool
 
     private static let wellHeight: CGFloat = 44
     private static let controlHeight: CGFloat = 34
@@ -491,10 +567,19 @@ struct KeyboardSurfaceView: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
-            topBar
-            primaryStage
-            utilityRow
+        VStack(spacing: 0) {
+            if model.canShowFullKeyboard {
+                CompactKeyboardGrabber(
+                    palette: palette,
+                    isEnabled: !isStageActive && model.pendingCommand == nil,
+                    onCommit: { model.onShowFullKeyboard?() }
+                )
+            }
+            VStack(spacing: 8) {
+                topBar
+                primaryStage
+                utilityRow
+            }
         }
         .padding(.horizontal, 10)
         .padding(.top, isHostedExtension ? 4 : 6)
@@ -857,6 +942,28 @@ struct KeyboardSurfaceView: View {
                         in: RoundedRectangle(cornerRadius: HexTheme.controlRadius, style: .continuous)
                     )
                     .shadow(color: p.keyShadow, radius: 0.5, x: 0, y: 1)
+            }
+
+            if model.canShowFullKeyboard {
+                let switchBlocked = isStageActive || model.pendingCommand != nil
+                Button {
+                    model.onShowFullKeyboard?()
+                } label: {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(switchBlocked ? p.textMuted : p.textBase)
+                        .frame(width: 44, height: 42)
+                        .contentShape(RoundedRectangle(cornerRadius: HexTheme.controlRadius, style: .continuous))
+                }
+                .buttonStyle(KeyboardKeyButtonStyle(palette: p))
+                .disabled(switchBlocked)
+                .accessibilityLabel("Show full keyboard")
+                .accessibilityFocused($fullKeyboardKeyFocused)
+                .onAppear {
+                    guard model.focusesFullKeyboardKeyOnAppear else { return }
+                    model.focusesFullKeyboardKeyOnAppear = false
+                    DispatchQueue.main.async { fullKeyboardKeyFocused = true }
+                }
             }
 
             Button {

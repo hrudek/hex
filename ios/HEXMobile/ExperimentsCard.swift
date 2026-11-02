@@ -5,6 +5,7 @@ import SwiftUI
 struct ExperimentsCard: View {
     @State private var fullKeyboard = FullKeyboardSettings().isEnabled
     @State private var autocorrect = FullKeyboardSettings().autocorrect
+    @State private var compactAllowed = FullKeyboardSettings().compactAllowed
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -52,6 +53,27 @@ struct ExperimentsCard: View {
                     .onChange(of: autocorrect) { _, enabled in
                         FullKeyboardSettings().autocorrect = enabled
                     }
+
+                    Divider()
+                        .overlay(HexTheme.borderWeak)
+                        .padding(.leading, 16)
+
+                    Toggle(isOn: $compactAllowed) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Compact keyboard")
+                                .font(.system(size: 15, weight: .regular))
+                                .foregroundStyle(HexTheme.textBase)
+                            Text("Drag the handle at the top to switch to the dictation bar and back. Off always shows the full keyboard.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(HexTheme.textMuted)
+                        }
+                    }
+                    .tint(HexTheme.success)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .onChange(of: compactAllowed) { _, enabled in
+                        FullKeyboardSettings().compactAllowed = enabled
+                    }
                 }
             }
             .background(
@@ -63,6 +85,7 @@ struct ExperimentsCard: View {
             let settings = FullKeyboardSettings()
             fullKeyboard = settings.isEnabled
             autocorrect = settings.autocorrect
+            compactAllowed = settings.compactAllowed
         }
     }
 }

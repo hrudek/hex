@@ -52,6 +52,18 @@ it never accesses the microphone, speech model, or network.
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
     `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
     insertion spacing and repeating backspace.
+  - **Full and compact keyboard (Experiments › Full keyboard › Compact
+    keyboard, iPhone, on by default):** Both keyboards get a 12 pt drag-handle
+    zone at the top (`KeyboardGrabber.swift`). Dragging the full keyboard's
+    handle down, or the compact bar's handle up, past 36 pt (or a quick flick)
+    and releasing switches; only the pill moves, a reversed or cancelled drag
+    never switches. The compact bar also has a `keyboard` key left of space,
+    and VoiceOver activates the handles (plus a **Show compact keyboard**
+    action on the Hex key). Switching waits for idle (no recording,
+    transcription, or pending command) and resizes at once. The choice lives in
+    the App Group (`keyboard.layout`, default full) and for the extension
+    session. With Compact keyboard off the full keyboard always shows and
+    the choice is kept. Undo dictation does not survive a switch.
 - **Resilient capture & expiry contract (`DictationController`):**
   - Monotonic `jobGeneration`, retained `transcriptionTask`, and unique
     per-capture WAV filenames ensure an expiring warm session never drops an

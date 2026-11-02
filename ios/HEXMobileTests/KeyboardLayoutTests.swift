@@ -21,6 +21,42 @@ final class KeyboardLayoutTests: XCTestCase {
         return layouts
     }
 
+    func testTheDragHandleZoneAddsItsHeightAboveTheStrip() {
+        let zone = KeyboardLayout.grabberZoneHeight
+        for orientation in [KeyboardOrientation.portrait, .landscape] {
+            let plain = KeyboardLayout(width: 393, orientation: orientation)
+            let handle = KeyboardLayout(width: 393, orientation: orientation, topInset: zone)
+            XCTAssertEqual(handle.totalHeight, plain.totalHeight + zone)
+            XCTAssertEqual(KeyboardLayout.height(for: orientation, topInset: zone), KeyboardLayout.height(for: orientation) + zone)
+            XCTAssertEqual(handle.stripFrame, plain.stripFrame.offsetBy(dx: 0, dy: zone))
+            XCTAssertEqual(handle.keys.count, plain.keys.count)
+            for (key, moved) in zip(plain.keys, handle.keys) {
+                XCTAssertEqual(moved.kind, key.kind)
+                XCTAssertEqual(moved.frame, key.frame.offsetBy(dx: 0, dy: zone), "\(key.label)")
+            }
+        }
+    }
+
+    func testDragHandleSwitchesOnlyPastTheThresholdTowardTheSwitch() {
+        typealias Drag = KeyboardGrabberDrag
+        XCTAssertFalse(Drag.isArmed(translation: 35, direction: .down))
+        XCTAssertTrue(Drag.isArmed(translation: 36, direction: .down))
+        XCTAssertFalse(Drag.isArmed(translation: 60, direction: .up))
+        XCTAssertTrue(Drag.isArmed(translation: -40, direction: .up))
+
+        XCTAssertTrue(Drag.commits(translation: 40, velocity: 0, direction: .down))
+        XCTAssertFalse(Drag.commits(translation: 40, velocity: -400, direction: .down), "moving back cancels")
+        XCTAssertFalse(Drag.commits(translation: 20, velocity: 100, direction: .down))
+        XCTAssertTrue(Drag.commits(translation: 20, velocity: 900, direction: .down), "a flick")
+        XCTAssertFalse(Drag.commits(translation: 10, velocity: 2000, direction: .down), "too short for a flick")
+        XCTAssertTrue(Drag.commits(translation: -40, velocity: -50, direction: .up))
+        XCTAssertFalse(Drag.commits(translation: 40, velocity: 900, direction: .up))
+
+        XCTAssertEqual(Drag.pillOffset(translation: -30, direction: .down), 0)
+        XCTAssertEqual(Drag.pillOffset(translation: 100, direction: .down), Drag.maxPillOffset)
+        XCTAssertEqual(Drag.pillOffset(translation: -100, direction: .up), -Drag.maxPillOffset)
+    }
+
     func testPortraitIs253PointsAndLandscapeIs176Points() {
         for width in portraitWidths {
             XCTAssertEqual(KeyboardLayout(width: width).totalHeight, 253, "width \(width)")
@@ -220,5 +256,70 @@ final class FullKeyboardSettingsTests: XCTestCase {
 
     func testNoAppGroupReadsAsOff() {
         XCTAssertFalse(FullKeyboardSettings(defaults: nil).isEnabled)
+        XCTAssertEqual(FullKeyboardSettings(defaults: nil).layoutChoice, .full)
+    }
+
+    func testLayoutChoiceDefaultsToFullAndPersists() throws {
+        let suite = "FullKeyboardSettingsTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = FullKeyboardSettings(defaults: defaults)
+
+        XCTAssertEqual(settings.layoutChoice, .full)
+        settings.layoutChoice = .compact
+        XCTAssertEqual(FullKeyboardSettings(defaults: defaults).layoutChoice, .compact)
+
+        // Turning the experiment off and on again keeps the choice.
+        settings.isEnabled = true
+        settings.isEnabled = false
+        settings.isEnabled = true
+        XCTAssertEqual(settings.layoutChoice, .compact)
+
+        defaults.set("tiny", forKey: "keyboard.layout")
+        XCTAssertEqual(settings.layoutChoice, .full)
+    }
+
+    func testFullKeyboardShowsOnlyWhereOfferedAndChosen() {
+        for experiment in [false, true] {
+            for phone in [false, true] {
+                for allowed in [false, true] {
+                    for choice in [KeyboardLayoutChoice.full, .compact] {
+                        let shows = FullKeyboardSettings.showsFullKeyboard(
+                            experimentEnabled: experiment,
+                            isPhone: phone,
+                            compactAllowed: allowed,
+                            choice: choice
+                        )
+                        let offered = experiment && phone
+                        XCTAssertEqual(shows, offered && (!allowed || choice == .full), "\(experiment) \(phone) \(allowed) \(choice)")
+                    }
+                    XCTAssertEqual(
+                        FullKeyboardSettings.offersSwitching(experimentEnabled: experiment, isPhone: phone, compactAllowed: allowed),
+                        experiment && phone && allowed
+                    )
+                }
+                XCTAssertEqual(
+                    FullKeyboardSettings.offersFullKeyboard(experimentEnabled: experiment, isPhone: phone),
+                    experiment && phone
+                )
+            }
+        }
+    }
+
+    func testCompactKeyboardIsAllowedByDefaultAndKeepsTheChoiceWhenOff() throws {
+        let suite = "FullKeyboardSettingsTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = FullKeyboardSettings(defaults: defaults)
+
+        XCTAssertTrue(settings.compactAllowed)
+        XCTAssertTrue(FullKeyboardSettings(defaults: nil).compactAllowed)
+        settings.layoutChoice = .compact
+        settings.compactAllowed = false
+        XCTAssertFalse(FullKeyboardSettings(defaults: defaults).compactAllowed)
+        XCTAssertEqual(settings.layoutChoice, .compact)
+        XCTAssertTrue(FullKeyboardSettings.showsFullKeyboard(
+            experimentEnabled: true, isPhone: true, compactAllowed: false, choice: settings.layoutChoice
+        ))
     }
 }
