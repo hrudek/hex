@@ -1,8 +1,9 @@
 import UIKit
 
-/// The Hex key right of space. Warm session: an orange core, and a tap records here.
-/// Otherwise the mark is faded with ↗, and a tap leaves for Hex to start one.
-/// Holding it opens the style menu, and sliding up selects a row on release.
+/// The Hex key right of space. Warm session: an orange core, and dictation records here.
+/// Otherwise the mark is faded with ↗. A tap does nothing; holding it still starts
+/// dictation here (warm) or leaves for Hex to start one (cold), and holding and sliding
+/// opens the style menu, where the slide selects a row on release (`HexKeyGesture`).
 @MainActor
 final class HexKeyControl: UIControl {
     var palette = FullKeyboardPalette(isDark: false) { didSet { if palette != oldValue { setNeedsDisplay() } } }
@@ -11,12 +12,14 @@ final class HexKeyControl: UIControl {
     /// The drawn keycap inside the control's (larger) touch target.
     var keycapFrame: CGRect = .zero { didSet { if keycapFrame != oldValue { setNeedsDisplay() } } }
 
-    var onTap: (() -> Void)?
+    /// The finger stayed still for `HexKeyGesture.holdDuration`.
+    var onHold: (() -> Void)?
     var onLongPress: (() -> Void)?
     /// Finger location in `superview` coordinates during a hold-and-slide gesture.
     var onLongPressDrag: ((CGPoint) -> Void)?
     var onLongPressEnd: ((CGPoint) -> Void)?
-    private var longPressFired = false
+    private var gesture = HexKeyGesture()
+    private var holdTimer: Timer?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -26,13 +29,7 @@ final class HexKeyControl: UIControl {
         isAccessibilityElement = true
         accessibilityTraits = .button
         updateAccessibility()
-
-        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        longPress.minimumPressDuration = 0.35
-        longPress.cancelsTouchesInView = true
-        addGestureRecognizer(longPress)
-        addTarget(self, action: #selector(handleTouchUp), for: .touchUpInside)
-        addTarget(self, action: #selector(redraw), for: [.touchDown, .touchDragEnter, .touchDragExit, .touchCancel, .touchUpOutside])
+        addTarget(self, action: #selector(redraw), for: [.touchDown, .touchDragEnter, .touchDragExit, .touchCancel, .touchUpOutside, .touchUpInside])
     }
 
     @available(*, unavailable)
@@ -44,36 +41,76 @@ final class HexKeyControl: UIControl {
 
     private func updateAccessibility() {
         accessibilityLabel = isWarm ? "Dictate with Hex" : "Open Hex to dictate"
-        accessibilityHint = "Hold for dictation styles"
+        accessibilityHint = "Hold to dictate. Hold and slide for dictation styles"
+    }
+
+    override func accessibilityActivate() -> Bool {
+        onHold?()
+        return true
     }
 
     @objc private func redraw() { setNeedsDisplay() }
 
-    @objc private func handleTouchUp() {
-        setNeedsDisplay()
-        guard !longPressFired else {
-            longPressFired = false
-            return
-        }
-        onTap?()
+    private func parentPoint(_ touch: UITouch) -> CGPoint {
+        touch.location(in: superview ?? self)
     }
 
-    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-        let pointInParent = superview.map { gesture.location(in: $0) } ?? gesture.location(in: self)
-        switch gesture.state {
-        case .began:
-            longPressFired = true
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        gesture.touchDown(at: parentPoint(touch), now: touch.timestamp)
+        holdTimer?.invalidate()
+        holdTimer = Timer.scheduledTimer(withTimeInterval: HexKeyGesture.holdDuration, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.holdTimerFired() }
+        }
+        return super.beginTracking(touch, with: event)
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        let actions = gesture.touchMoved(to: parentPoint(touch), now: touch.timestamp)
+        actions.forEach(perform)
+        return super.continueTracking(touch, with: event)
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        stopHoldTimer()
+        if let touch, let action = gesture.touchUp(at: parentPoint(touch)) {
+            perform(action)
+        }
+        gesture.cancel()
+        super.endTracking(touch, with: event)
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        stopHoldTimer()
+        gesture.cancel()
+        super.cancelTracking(with: event)
+    }
+
+    private func holdTimerFired() {
+        holdTimer = nil
+        if let action = gesture.holdElapsed() {
+            perform(action)
+        }
+    }
+
+    private func stopHoldTimer() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+    }
+
+    private func perform(_ action: HexKeyGesture.Action) {
+        switch action {
+        case .hold:
+            stopHoldTimer()
+            isHighlighted = false
+            onHold?()
+        case .openMenu:
+            stopHoldTimer()
             isHighlighted = false
             onLongPress?()
-        case .changed:
-            onLongPressDrag?(pointInParent)
-        case .ended:
-            onLongPressEnd?(pointInParent)
-            DispatchQueue.main.async { self.longPressFired = false }
-        case .cancelled, .failed:
-            DispatchQueue.main.async { self.longPressFired = false }
-        default:
-            break
+        case .drag(let point):
+            onLongPressDrag?(point)
+        case .finishMenu(let point):
+            onLongPressEnd?(point)
         }
     }
 

@@ -65,7 +65,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
 
-        hexKey.onTap = { [weak self] in self?.hexKeyTapped() }
+        hexKey.onHold = { [weak self] in self?.hexKeyTapped() }
         hexKey.onLongPress = { [weak self] in self?.showStyleMenu() }
         hexKey.onLongPressDrag = { [weak self] point in self?.styleMenu?.updateDrag(at: point) }
         hexKey.onLongPressEnd = { [weak self] point in self?.styleMenu?.finishDrag(at: point) }
