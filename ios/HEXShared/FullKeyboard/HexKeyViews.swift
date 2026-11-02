@@ -66,14 +66,14 @@ final class HexKeyControl: UIControl {
 
     override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         let actions = gesture.touchMoved(to: parentPoint(touch), now: touch.timestamp)
-        actions.forEach(perform)
+        actions.forEach(handle)
         return super.continueTracking(touch, with: event)
     }
 
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
         stopHoldTimer()
         if let touch, let action = gesture.touchUp(at: parentPoint(touch)) {
-            perform(action)
+            handle(action)
         }
         gesture.cancel()
         super.endTracking(touch, with: event)
@@ -88,7 +88,7 @@ final class HexKeyControl: UIControl {
     private func holdTimerFired() {
         holdTimer = nil
         if let action = gesture.holdElapsed() {
-            perform(action)
+            handle(action)
         }
     }
 
@@ -97,7 +97,7 @@ final class HexKeyControl: UIControl {
         holdTimer = nil
     }
 
-    private func perform(_ action: HexKeyGesture.Action) {
+    private func handle(_ action: HexKeyGesture.Action) {
         switch action {
         case .hold:
             stopHoldTimer()
