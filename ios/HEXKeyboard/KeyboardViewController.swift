@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 @MainActor
-final class KeyboardViewController: UIInputViewController {
+final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDelegate {
     private let bridge = KeyboardBridge()
     private let viewModel = KeyboardViewModel()
     private var pollTimer: Timer?
@@ -21,6 +21,29 @@ final class KeyboardViewController: UIInputViewController {
     private var sessionLayoutChoice: KeyboardLayoutChoice?
 
     private static let compactBarHeight: CGFloat = 140
+    /// The compact bar's drag zone: the handle, the top padding, and the 26 pt top bar.
+    private static let compactDragZone: CGFloat = KeyboardLayout.grabberZoneHeight + 4 + 26
+
+    /// A drag on the top of either keyboard resizes it live; release switches or settles back.
+    private struct ResizeDrag {
+        let direction: KeyboardGrabberDrag.Direction
+        let fromHeight: CGFloat
+        let toHeight: CGFloat
+        var isArmed = false
+    }
+
+    private lazy var resizePan: UIPanGestureRecognizer = {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleResizePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = true
+        pan.delaysTouchesBegan = false
+        pan.delegate = self
+        return pan
+    }()
+    private var resizeDrag: ResizeDrag?
+    private var surfaceBottom: NSLayoutConstraint?
+    private var surfaceDragHeight: NSLayoutConstraint?
+    private let dragHaptics = UISelectionFeedbackGenerator()
 
     /// The compact bar, plus the drag handle's zone when it can switch to the full keyboard.
     private var compactHeight: CGFloat {
@@ -49,8 +72,14 @@ final class KeyboardViewController: UIInputViewController {
         warmFullKeyboardLexiconIfNeeded()
     }
 
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        cancelResizeDrag()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        cancelResizeDrag()
         pollTimer?.invalidate()
         pollTimer = nil
     }
@@ -62,7 +91,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        if let fullKeyboard {
+        if let fullKeyboard, resizeDrag == nil {
             applyHeight(fullKeyboard.preferredHeight)
         }
     }
@@ -148,6 +177,7 @@ final class KeyboardViewController: UIInputViewController {
         heightConstraint.priority = UILayoutPriority(999)
         heightConstraint.isActive = true
         self.heightConstraint = heightConstraint
+        view.addGestureRecognizer(resizePan)
         mountSurface()
     }
 
@@ -160,6 +190,7 @@ final class KeyboardViewController: UIInputViewController {
     /// on a command, without remembering it for later.
     private func switchLayout(to choice: KeyboardLayoutChoice) {
         guard canSwapSurface else { return }
+        endResizeDrag()
         sessionLayoutChoice = choice
         FullKeyboardSettings().layoutChoice = choice
         viewModel.focusesFullKeyboardKeyOnAppear = choice == .compact
@@ -196,7 +227,7 @@ final class KeyboardViewController: UIInputViewController {
         let swaps = mounted && wantsFull != (fullKeyboard != nil)
         // Handles and their zone change height, so they wait for idle like a swap. A swap
         // sizes the new surface itself, so the old one isn't resized first.
-        if !swaps && (!mounted || canSwapSurface) {
+        if !swaps && resizeDrag == nil && (!mounted || canSwapSurface) {
             if viewModel.canShowFullKeyboard != switching {
                 viewModel.canShowFullKeyboard = switching
             }
@@ -207,6 +238,8 @@ final class KeyboardViewController: UIInputViewController {
                 applyHeight(compactHeight)
             }
         }
+        // A resize drag owns the height until it ends.
+        guard resizeDrag == nil else { return }
         guard !mounted || swaps else { return }
         guard !mounted || canSwapSurface else { return }
         if viewModel.canShowFullKeyboard != switching {
@@ -251,14 +284,132 @@ final class KeyboardViewController: UIInputViewController {
         }
         next.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(next)
+        let bottom = next.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         NSLayoutConstraint.activate([
             next.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             next.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             next.topAnchor.constraint(equalTo: view.topAnchor),
-            next.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            bottom,
         ])
+        surfaceBottom = bottom
+        surfaceDragHeight = nil
         surface = next
         schedulePoll(force: false)
+    }
+
+    // MARK: - Resize drag
+
+    /// Where a drag may start: the top zone of the shown keyboard, while switching is offered and idle.
+    private var resizeDragZone: CGFloat {
+        guard viewModel.canShowFullKeyboard, canSwapSurface else { return 0 }
+        if let fullKeyboard { return fullKeyboard.dragZoneHeight }
+        return surface == nil ? 0 : Self.compactDragZone
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === resizePan else { return true }
+        return touch.location(in: view).y < resizeDragZone
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === resizePan, resizeDragZone > 0 else { return false }
+        // Decide by the distance moved, not the speed: a fast flick still reads as vertical.
+        let t = resizePan.translation(in: view)
+        return abs(t.y) >= abs(t.x) * 0.8
+    }
+
+    @objc private func handleResizePan(_ pan: UIPanGestureRecognizer) {
+        let translation = pan.translation(in: view).y
+        switch pan.state {
+        case .began:
+            beginResizeDrag()
+            updateResizeDrag(translation: translation)
+        case .changed:
+            guard canSwapSurface else { return cancelResizeDrag() }
+            updateResizeDrag(translation: translation)
+        case .ended:
+            guard let drag = resizeDrag else { return }
+            let commits = canSwapSurface && KeyboardGrabberDrag.commits(
+                translation: translation,
+                velocity: pan.velocity(in: view).y,
+                direction: drag.direction
+            )
+            if commits {
+                switchLayout(to: drag.direction == .down ? .compact : .full)
+            } else {
+                cancelResizeDrag()
+            }
+        default:
+            cancelResizeDrag()
+        }
+    }
+
+    private func beginResizeDrag() {
+        guard let surface, resizeDrag == nil else { return }
+        let full = FullKeyboardView.height(
+            for: FullKeyboardView.orientation(for: traitCollection),
+            allowsCompactKeyboard: true
+        )
+        let from = heightConstraint?.constant ?? compactHeight
+        let direction: KeyboardGrabberDrag.Direction = fullKeyboard != nil ? .down : .up
+        resizeDrag = ResizeDrag(direction: direction, fromHeight: from, toHeight: direction == .down ? compactHeight : full)
+        fullKeyboard?.dragDidBegin()
+        if viewModel.activeTray != .none {
+            viewModel.setActiveTray(.none, reduceMotion: true)
+        }
+        // The surface keeps its own height and rides the top edge, like a sheet; the rest clips.
+        view.clipsToBounds = true
+        surfaceBottom?.isActive = false
+        let height = surface.heightAnchor.constraint(equalToConstant: from)
+        height.isActive = true
+        surfaceDragHeight = height
+        if hasFullAccess { dragHaptics.prepare() }
+    }
+
+    private func updateResizeDrag(translation: CGFloat) {
+        guard var drag = resizeDrag else { return }
+        let height = KeyboardGrabberDrag.height(
+            from: drag.fromHeight,
+            to: drag.toHeight,
+            translation: translation,
+            direction: drag.direction
+        )
+        if heightConstraint?.constant != height {
+            heightConstraint?.constant = height
+        }
+        let armed = KeyboardGrabberDrag.isArmed(translation: translation, direction: drag.direction)
+        if armed != drag.isArmed {
+            drag.isArmed = armed
+            if armed && hasFullAccess { dragHaptics.selectionChanged() }
+            fullKeyboard?.setDragArmed(armed)
+            if viewModel.isGrabberArmed != armed { viewModel.isGrabberArmed = armed }
+        }
+        resizeDrag = drag
+    }
+
+    /// Back to the shown keyboard's own height.
+    private func cancelResizeDrag() {
+        guard let drag = resizeDrag else { return }
+        endResizeDrag()
+        let duration = UIAccessibility.isReduceMotionEnabled ? 0 : 0.22
+        heightConstraint?.constant = drag.fromHeight
+        UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            self.view.superview?.layoutIfNeeded()
+            self.view.layoutIfNeeded()
+        }
+        applyHeight(drag.fromHeight)
+    }
+
+    /// Restores the surface's constraints; the caller sets the height.
+    private func endResizeDrag() {
+        guard resizeDrag != nil else { return }
+        resizeDrag = nil
+        surfaceDragHeight?.isActive = false
+        surfaceDragHeight = nil
+        surfaceBottom?.isActive = true
+        view.clipsToBounds = false
+        fullKeyboard?.setDragArmed(false)
+        if viewModel.isGrabberArmed { viewModel.isGrabberArmed = false }
     }
 
     /// The one place the keyboard's height changes: mount, rotation, handles, and switching.

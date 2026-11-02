@@ -52,9 +52,33 @@ final class KeyboardLayoutTests: XCTestCase {
         XCTAssertTrue(Drag.commits(translation: -40, velocity: -50, direction: .up))
         XCTAssertFalse(Drag.commits(translation: 40, velocity: 900, direction: .up))
 
-        XCTAssertEqual(Drag.pillOffset(translation: -30, direction: .down), 0)
-        XCTAssertEqual(Drag.pillOffset(translation: 100, direction: .down), Drag.maxPillOffset)
-        XCTAssertEqual(Drag.pillOffset(translation: -100, direction: .up), -Drag.maxPillOffset)
+        XCTAssertTrue(Drag.commits(translation: 18, velocity: 650, direction: .down), "a quick flick")
+    }
+
+    func testDragHeightFollowsTheFingerAndStretchesOnlyALittle() {
+        typealias Drag = KeyboardGrabberDrag
+        // Full (265) → compact (152), dragging down.
+        XCTAssertEqual(Drag.height(from: 265, to: 152, translation: 0, direction: .down), 265)
+        XCTAssertEqual(Drag.height(from: 265, to: 152, translation: -40, direction: .down), 265, "never past the start")
+        XCTAssertEqual(Drag.height(from: 265, to: 152, translation: 50, direction: .down), 215)
+        XCTAssertEqual(Drag.height(from: 265, to: 152, translation: 113, direction: .down), 152)
+        let far = Drag.height(from: 265, to: 152, translation: 400, direction: .down)
+        XCTAssertLessThan(far, 152)
+        XCTAssertGreaterThan(far, 152 - Drag.overshoot)
+        // Compact → full, dragging up.
+        XCTAssertEqual(Drag.height(from: 152, to: 265, translation: -60, direction: .up), 212)
+        XCTAssertLessThan(Drag.height(from: 152, to: 265, translation: -500, direction: .up), 265 + Drag.overshoot)
+    }
+
+    func testCompactSwitchKeyLeadsTheBottomRow() {
+        for globe in [false, true] {
+            let layout = KeyboardLayout(width: 393, showsGlobe: globe, showsCompactSwitch: true)
+            let bottom = layout.keys.filter { $0.row == 3 }.sorted { $0.frame.minX < $1.frame.minX }
+            XCTAssertEqual(bottom.first?.kind, .compactSwitch)
+            XCTAssertEqual(bottom.dropFirst().first?.kind, .layerSwitch(.numbers))
+            XCTAssertNotNil(layout.key(.space))
+        }
+        XCTAssertNil(KeyboardLayout(width: 393).key(.compactSwitch))
     }
 
     func testPortraitIs253PointsAndLandscapeIs176Points() {

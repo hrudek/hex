@@ -88,6 +88,10 @@ final class FullKeyboardEngine {
     var horizontalInset: CGFloat = 0 { didSet { if horizontalInset != oldValue { rebuildLayout() } } }
     /// Room above the strip for the drag handle (`KeyboardLayout.grabberZoneHeight`), or 0.
     var topInset: CGFloat = 0 { didSet { if topInset != oldValue { rebuildLayout() } } }
+    /// The bottom row starts with the compact-bar key (`KeyKind.compactSwitch`).
+    var showsCompactSwitch = false { didSet { if showsCompactSwitch != oldValue { rebuildLayout() } } }
+    /// The compact-bar key was released on itself.
+    var onCompactSwitch: (() -> Void)?
     private(set) var layout = KeyboardLayout(width: 375)
 
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
@@ -232,7 +236,7 @@ final class FullKeyboardEngine {
             if next == .letters { shift.reset() }
             rebuildLayout()
             if next == .letters { refreshAutoCapitalization() }
-        case .character, .space, .returnKey, .hex, .globe:
+        case .character, .space, .returnKey, .hex, .globe, .compactSwitch:
             break
         }
         touches[id] = touch
@@ -365,6 +369,12 @@ final class FullKeyboardEngine {
                 layerState.switchTo(returnLayer)
                 rebuildLayout()
                 refreshAutoCapitalization()
+            }
+        case .compactSwitch:
+            if layout.hitTest(point)?.kind == .compactSwitch {
+                onChange?()
+                onCompactSwitch?()
+                return
             }
         case .delete, .hex, .globe:
             break
@@ -539,7 +549,8 @@ final class FullKeyboardEngine {
             field: field,
             showsGlobe: showsGlobe,
             horizontalInset: horizontalInset,
-            topInset: topInset
+            topInset: topInset,
+            showsCompactSwitch: showsCompactSwitch
         )
     }
 }

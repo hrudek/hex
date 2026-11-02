@@ -43,8 +43,9 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     var allowsCompactKeyboard = false {
         didSet {
             guard allowsCompactKeyboard != oldValue else { return }
-            grabber.reset()
+            grabber.isArmed = false
             engine.topInset = allowsCompactKeyboard ? KeyboardLayout.grabberZoneHeight : 0
+            engine.showsCompactSwitch = allowsCompactKeyboard
             grabber.isHidden = !allowsCompactKeyboard || showsRecording
             // A recording may have faded it out while hidden; show it fully again.
             if allowsCompactKeyboard && !showsRecording { grabber.alpha = 1 }
@@ -82,8 +83,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         stripView.onUndoDictation = { [weak self] in self?.undoDictation() }
 
         grabber.isHidden = true
-        grabber.onArm = { [weak self] in self?.selectionFeedback() }
         grabber.onCommit = { [weak self] in self?.showCompactKeyboard() }
+        engine.onCompactSwitch = { [weak self] in self?.showCompactKeyboard() }
 
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
@@ -114,7 +115,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitVerticalSizeClass.self]) { (view: FullKeyboardView, previous) in
             // A drag in progress never survives a rotation.
-            if previous.verticalSizeClass != view.traitCollection.verticalSizeClass { view.grabber.reset() }
+            if previous.verticalSizeClass != view.traitCollection.verticalSizeClass { view.grabber.isArmed = false }
             view.applyAppearance()
             view.setNeedsLayout()
         }
@@ -208,10 +209,29 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     func prepareForRemoval() {
         plane.cancelAllTouches()
         hexKey.cancelHold()
-        grabber.reset()
+        grabber.isArmed = false
         updateCallout()
         dismissStyleMenu()
         hideUndo()
+    }
+
+    /// Drags that start this far from the top resize the keyboard (handle zone and strip).
+    /// Taps there still reach the suggestions; only a vertical drag is claimed.
+    var dragZoneHeight: CGFloat {
+        allowsCompactKeyboard && !showsRecording ? engine.layout.metrics.stripArea : 0
+    }
+
+    /// The controller's drag: show whether a release now would switch.
+    func setDragArmed(_ armed: Bool) {
+        grabber.isArmed = armed
+    }
+
+    /// A drag began on the top zone: drop presses and menus, like the system keyboard does.
+    func dragDidBegin() {
+        plane.cancelAllTouches()
+        hexKey.cancelHold()
+        dismissStyleMenu()
+        updateCallout()
     }
 
     /// VoiceOver lands here after switching from the compact bar.
@@ -407,7 +427,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             panel.frame = bounds
             refreshRecordingPanel()
             panel.isHidden = false
-            grabber.reset()
+            grabber.isArmed = false
             let leaving: [UIView] = allowsCompactKeyboard
                 ? [stripView, grabber, plane, hexKey, globeButton, callout, accentCallout]
                 : [stripView, plane, hexKey, globeButton, callout, accentCallout]

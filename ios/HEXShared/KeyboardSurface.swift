@@ -93,6 +93,8 @@ final class KeyboardViewModel: ObservableObject {
     /// Set when the person just switched to the compact bar, so VoiceOver lands on its
     /// keyboard key; the bar clears it once used.
     var focusesFullKeyboardKeyOnAppear = false
+    /// The controller's drag on the compact bar would switch on release.
+    @Published var isGrabberArmed = false
     weak var inputViewController: UIInputViewController?
 
     var selectedReturnApp: HostApp? {
@@ -441,56 +443,30 @@ private struct RepeatDeleteKey: View {
     }
 }
 
-/// The compact bar's drag handle, in its own zone above the top bar: drag up past the
-/// threshold and release for the full keyboard (`KeyboardGrabberDrag`). Only the pill moves.
+/// The compact bar's drag handle, in its own zone above the top bar. The drag itself is the
+/// keyboard controller's (it resizes the keyboard live, from anywhere along the top); this
+/// draws the long pill and lets VoiceOver switch like a button.
 private struct CompactKeyboardGrabber: View {
     static let zoneHeight = KeyboardLayout.grabberZoneHeight
 
     let palette: KeyboardChromePalette
     let isEnabled: Bool
-    /// Haptics need Full Access.
-    let allowsHaptics: Bool
+    let isArmed: Bool
     let onCommit: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @GestureState private var translation: CGFloat = 0
-
-    private var isArmed: Bool {
-        KeyboardGrabberDrag.isArmed(translation: translation, direction: .up)
-    }
 
     var body: some View {
         Capsule()
             .fill(isArmed ? palette.textBase.opacity(0.6) : palette.textMuted.opacity(0.45))
-            .frame(width: isArmed ? 44 : 36, height: 5)
-            .offset(y: reduceMotion ? 0 : KeyboardGrabberDrag.pillOffset(translation: translation, direction: .up))
+            .frame(
+                width: isArmed ? KeyboardGrabberDrag.armedPillWidth : KeyboardGrabberDrag.pillWidth,
+                height: KeyboardGrabberDrag.pillHeight
+            )
             .frame(maxWidth: .infinity)
             .frame(height: Self.zoneHeight)
-            .contentShape(Rectangle())
             .opacity(isEnabled ? 1 : 0)
-            .allowsHitTesting(isEnabled)
-            .gesture(
-                DragGesture(minimumDistance: 6)
-                    .updating($translation) { value, state, _ in
-                        // Mostly vertical only; a sideways slide never arms.
-                        let size = value.translation
-                        state = abs(size.height) > abs(size.width) ? size.height : 0
-                    }
-                    .onEnded { value in
-                        let size = value.translation
-                        guard isEnabled, abs(size.height) > abs(size.width) else { return }
-                        if KeyboardGrabberDrag.commits(
-                            translation: size.height,
-                            velocity: value.velocity.height,
-                            direction: .up
-                        ) {
-                            onCommit()
-                        }
-                    }
-            )
-            .sensoryFeedback(.selection, trigger: isArmed) { old, new in allowsHaptics && !old && new }
             .accessibilityElement()
             .accessibilityLabel("Show full keyboard")
-            .accessibilityHint("Or drag the handle up")
+            .accessibilityHint("Or drag the top of the keyboard up")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { if isEnabled { onCommit() } }
             .accessibilityHidden(!isEnabled)
@@ -575,7 +551,7 @@ struct KeyboardSurfaceView: View {
                 CompactKeyboardGrabber(
                     palette: palette,
                     isEnabled: !isStageActive && model.pendingCommand == nil,
-                    allowsHaptics: model.hasFullAccess,
+                    isArmed: model.isGrabberArmed,
                     onCommit: { model.onShowFullKeyboard?() }
                 )
             }

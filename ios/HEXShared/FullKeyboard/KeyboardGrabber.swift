@@ -2,7 +2,8 @@ import UIKit
 
 /// The drag handle's rules, shared by the full keyboard (drag down to the compact bar) and
 /// the compact bar (drag up to the full keyboard). Translations and velocities are in
-/// points, positive downward.
+/// points, positive downward. While dragging, the keyboard's height follows the finger
+/// (`KeyboardViewController`); these decide when a release switches.
 nonisolated enum KeyboardGrabberDrag {
     enum Direction: Sendable {
         /// Full keyboard → compact bar.
@@ -15,11 +16,16 @@ nonisolated enum KeyboardGrabberDrag {
     static let threshold: CGFloat = 36
     /// A quick flick switches from this far, if it is still moving toward the switch.
     static let flickDistance: CGFloat = 16
-    static let flickVelocity: CGFloat = 700
+    static let flickVelocity: CGFloat = 600
     /// Moving back faster than this on release cancels even past the threshold.
     static let reverseVelocity: CGFloat = 150
-    /// The pill follows the finger at most this far (it stays inside the 12 pt zone).
-    static let maxPillOffset: CGFloat = 3
+    /// How far past the other keyboard's height the drag stretches, with resistance.
+    static let overshoot: CGFloat = 14
+
+    /// The handle's pill: long, and longer once a release would switch.
+    static let pillWidth: CGFloat = 64
+    static let armedPillWidth: CGFloat = 76
+    static let pillHeight: CGFloat = 5
 
     /// Travel toward the switch; negative when the finger went the other way.
     static func travel(_ translation: CGFloat, _ direction: Direction) -> CGFloat {
@@ -39,29 +45,32 @@ nonisolated enum KeyboardGrabberDrag {
         return distance >= flickDistance && speed >= flickVelocity
     }
 
-    /// Where the pill sits: a damped share of the travel toward the switch, nothing the other way.
-    static func pillOffset(translation: CGFloat, direction: Direction) -> CGFloat {
+    /// The keyboard's height while dragging from `from` toward `to`: follows the finger
+    /// 1:1 between the two, never past `from`, and stretches at most `overshoot` past `to`.
+    static func height(from: CGFloat, to: CGFloat, translation: CGFloat, direction: Direction) -> CGFloat {
+        let span = abs(to - from)
         let distance = max(0, travel(translation, direction))
-        let damped = min(maxPillOffset, distance * 0.2)
-        return direction == .down ? damped : -damped
+        let moved: CGFloat
+        if distance <= span {
+            moved = distance
+        } else {
+            let extra = distance - span
+            moved = span + overshoot * (1 - 1 / (extra / overshoot + 1))
+        }
+        return to >= from ? from + moved : from - moved
     }
 }
 
-/// The full keyboard's drag handle: a pill centred in a zone above the suggestion strip.
-/// Dragging down past the threshold and releasing switches to the compact bar. The whole
-/// zone is the touch target, and VoiceOver activates it like a button.
+/// The full keyboard's drag handle: a long pill centred in a zone above the suggestion
+/// strip. The drag itself belongs to the keyboard's controller (it resizes the keyboard
+/// live); this draws the handle and lets VoiceOver activate the switch like a button.
 @MainActor
 final class KeyboardGrabberView: UIView {
     var palette = FullKeyboardPalette(isDark: false) { didSet { if palette != oldValue { setNeedsDisplay() } } }
-    /// Release past the threshold, or VoiceOver activation.
+    /// A release now would switch: the pill is longer and darker.
+    var isArmed = false { didSet { if isArmed != oldValue { setNeedsDisplay() } } }
+    /// VoiceOver activation.
     var onCommit: (() -> Void)?
-    /// The drag crossed the threshold toward the switch (once per crossing).
-    var onArm: (() -> Void)?
-
-    private let direction: KeyboardGrabberDrag.Direction = .down
-    private var translation: CGFloat = 0
-    private var isArmed = false
-    private lazy var pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -71,9 +80,7 @@ final class KeyboardGrabberView: UIView {
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = "Show compact keyboard"
-        accessibilityHint = "Or drag the handle down"
-        pan.maximumNumberOfTouches = 1
-        addGestureRecognizer(pan)
+        accessibilityHint = "Or drag the top of the keyboard down"
     }
 
     @available(*, unavailable)
@@ -84,63 +91,10 @@ final class KeyboardGrabberView: UIView {
         return true
     }
 
-    /// Drops a drag in progress without switching (the view is going away or recording began).
-    func reset() {
-        if pan.state == .began || pan.state == .changed {
-            pan.isEnabled = false
-            pan.isEnabled = true
-        }
-        settle()
-    }
-
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        // Claim only a mostly vertical drag that starts here; sideways ones fall through.
-        guard gestureRecognizer === pan else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
-        let velocity = pan.velocity(in: self)
-        return abs(velocity.y) > abs(velocity.x)
-    }
-
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        switch gesture.state {
-        case .began, .changed:
-            translation = gesture.translation(in: self).y
-            let armed = KeyboardGrabberDrag.isArmed(translation: translation, direction: direction)
-            if armed && !isArmed { onArm?() }
-            isArmed = armed
-            setNeedsDisplay()
-        case .ended:
-            let commit = KeyboardGrabberDrag.commits(
-                translation: gesture.translation(in: self).y,
-                velocity: gesture.velocity(in: self).y,
-                direction: direction
-            )
-            settle()
-            if commit { onCommit?() }
-        default:
-            // .cancelled and .failed never switch.
-            settle()
-        }
-    }
-
-    private func settle() {
-        translation = 0
-        isArmed = false
-        setNeedsDisplay()
-    }
-
     override func draw(_ rect: CGRect) {
-        let offset = UIAccessibility.isReduceMotionEnabled
-            ? 0
-            : KeyboardGrabberDrag.pillOffset(translation: translation, direction: direction)
-        // Armed: wider and darker, so the state reads without motion too.
-        let width: CGFloat = isArmed ? 44 : 36
-        let height: CGFloat = 5
-        let pill = CGRect(
-            x: bounds.midX - width / 2,
-            y: bounds.midY - height / 2 + offset,
-            width: width,
-            height: height
-        )
+        let width = isArmed ? KeyboardGrabberDrag.armedPillWidth : KeyboardGrabberDrag.pillWidth
+        let height = KeyboardGrabberDrag.pillHeight
+        let pill = CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
         let ink = isArmed ? palette.textBase.withAlphaComponent(0.6) : palette.textMuted.withAlphaComponent(0.45)
         ink.setFill()
         UIBezierPath(roundedRect: pill, cornerRadius: height / 2).fill()

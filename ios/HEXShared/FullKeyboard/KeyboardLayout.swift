@@ -30,6 +30,8 @@ nonisolated enum KeyKind: Equatable, Hashable, Sendable {
     case returnKey
     case hex
     case globe
+    /// Far left of the bottom row: switch to the compact dictation bar.
+    case compactSwitch
 }
 
 nonisolated struct KeyboardKey: Equatable, Sendable {
@@ -144,6 +146,8 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
     let layer: KeyboardLayer
     let field: KeyboardFieldKind
     let showsGlobe: Bool
+    /// The bottom row starts with the key that switches to the compact bar.
+    let showsCompactSwitch: Bool
     let horizontalInset: CGFloat
     /// Room above the strip for the drag handle that switches to the compact bar.
     let topInset: CGFloat
@@ -160,13 +164,15 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         field: KeyboardFieldKind = .text,
         showsGlobe: Bool = false,
         horizontalInset: CGFloat = 0,
-        topInset: CGFloat = 0
+        topInset: CGFloat = 0,
+        showsCompactSwitch: Bool = false
     ) {
         self.width = width
         self.orientation = orientation
         self.layer = layer
         self.field = field
         self.showsGlobe = showsGlobe
+        self.showsCompactSwitch = showsCompactSwitch
         self.horizontalInset = max(0, horizontalInset)
         self.topInset = max(0, topInset)
         let innerWidth = width - 2 * self.horizontalInset
@@ -178,6 +184,7 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
             layer: layer,
             field: field,
             showsGlobe: showsGlobe,
+            showsCompactSwitch: showsCompactSwitch,
             inset: self.horizontalInset
         )
     }
@@ -262,6 +269,7 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         layer: KeyboardLayer,
         field: KeyboardFieldKind,
         showsGlobe: Bool,
+        showsCompactSwitch: Bool,
         inset: CGFloat
     ) -> [KeyboardKey] {
         let innerWidth = width - 2 * inset
@@ -321,15 +329,19 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         }
         add(.delete, row: 2, x: right - modW, w: modW, label: "delete")
 
-        // Row 4: 123/ABC, globe?, space, field extras (@ . / . /), Hex, return.
-        let isCompactBottomRow = showsGlobe || field != .text
+        // Row 4: compact switch?, 123/ABC, globe?, space, field extras (@ . / . /), Hex, return.
+        let isCompactBottomRow = showsGlobe || showsCompactSwitch || field != .text
         let switchW = isCompactBottomRow ? modW : lw * bottomSwitchWidthRatio
         let returnW = isCompactBottomRow ? (lw * compactReturnWidthRatio) : (lw * returnWidthRatio + m.gap)
-        var leading: [(KeyKind, CGFloat, String)] = [
+        var leading: [(KeyKind, CGFloat, String)] = []
+        if showsCompactSwitch {
+            leading.append((.compactSwitch, lw, "compact"))
+        }
+        leading.append(
             layer == .letters
                 ? (.layerSwitch(.numbers), switchW, "123")
-                : (.layerSwitch(.letters), switchW, "ABC"),
-        ]
+                : (.layerSwitch(.letters), switchW, "ABC")
+        )
         if showsGlobe {
             leading.append((.globe, modW, "globe"))
         }

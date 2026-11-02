@@ -135,6 +135,11 @@ final class KeyboardKeyPlaneView: UIView {
                 context.fillKeycap(key.frame, fill: lit ? palette.keyPressedFill : palette.keyFill, radius: radius)
                 guard !hideGlyphs else { continue }
                 drawSymbol("globe", in: key.frame, color: palette.textBase, pointSize: isLandscape ? 16 : 18)
+            case .compactSwitch:
+                let lit = pressed.contains(.compactSwitch)
+                context.fillKeycap(key.frame, fill: lit ? palette.keyPressedFill : palette.keyFill, radius: radius)
+                guard !hideGlyphs else { continue }
+                drawSymbol("keyboard.chevron.compact.down", in: key.frame, color: palette.textBase, pointSize: isLandscape ? 15 : 17)
             }
         }
     }
