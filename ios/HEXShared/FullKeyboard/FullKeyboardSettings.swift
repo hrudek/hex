@@ -1,5 +1,11 @@
 import Foundation
 
+/// Which Hex keyboard the person last chose: the full keyboard or the compact dictation bar.
+enum KeyboardLayoutChoice: String {
+    case full
+    case compact
+}
+
 /// The full keyboard's switches in the shared App Group.
 ///
 /// Without Full Access the keyboard cannot read the App Group, so `isEnabled` reads
@@ -11,6 +17,7 @@ struct FullKeyboardSettings {
     private enum Key {
         static let fullKeyboard = "experiments.fullKeyboard"
         static let autocorrect = "settings.keyboardAutocorrect"
+        static let layout = "keyboard.layout"
     }
 
     private let defaults: UserDefaults?
@@ -29,6 +36,24 @@ struct FullKeyboardSettings {
     var autocorrect: Bool {
         get { defaults?.object(forKey: Key.autocorrect) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.autocorrect) }
+    }
+
+    /// The keyboard the person switched to last. Missing or unknown values read as `.full`,
+    /// so turning the experiment on keeps showing the full keyboard.
+    var layoutChoice: KeyboardLayoutChoice {
+        get { defaults?.string(forKey: Key.layout).flatMap(KeyboardLayoutChoice.init(rawValue:)) ?? .full }
+        nonmutating set { defaults?.set(newValue.rawValue, forKey: Key.layout) }
+    }
+
+    /// Whether the person can switch to the full keyboard at all: the experiment is on, on an iPhone.
+    static func offersFullKeyboard(experimentEnabled: Bool, isPhone: Bool) -> Bool {
+        experimentEnabled && isPhone
+    }
+
+    /// The full keyboard shows only where it is offered and chosen; otherwise the compact bar.
+    /// The choice is kept while the experiment is off, so it returns when it is on again.
+    static func showsFullKeyboard(experimentEnabled: Bool, isPhone: Bool, choice: KeyboardLayoutChoice) -> Bool {
+        offersFullKeyboard(experimentEnabled: experimentEnabled, isPhone: isPhone) && choice == .full
     }
 
     /// Simulator scenes pass `--experiment-full-keyboard` to turn the experiment on.

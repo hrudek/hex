@@ -26,6 +26,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private let accentCallout = AccentCalloutView()
     private let hexKey = HexKeyControl()
     private let globeButton = UIButton(type: .custom)
+    /// Trailing end of the strip: back to the compact dictation bar.
+    private let compactButton = UIButton(type: .custom)
     private var recordingPanel: HexKeyRecordingPanel?
     private var styleMenu: HexStyleMenuView?
     private var palette = FullKeyboardPalette(isDark: false)
@@ -62,6 +64,16 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
         stripView.onUndoDictation = { [weak self] in self?.undoDictation() }
 
+        var compact = UIButton.Configuration.plain()
+        compact.image = UIImage(
+            systemName: "keyboard.chevron.compact.down",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        )
+        compactButton.configuration = compact
+        compactButton.accessibilityLabel = "Show compact keyboard"
+        compactButton.addTarget(self, action: #selector(showCompactKeyboard), for: .touchUpInside)
+        addSubview(compactButton)
+
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
 
@@ -69,6 +81,13 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         hexKey.onLongPress = { [weak self] in self?.showStyleMenu() }
         hexKey.onLongPressDrag = { [weak self] point in self?.styleMenu?.updateDrag(at: point) }
         hexKey.onLongPressEnd = { [weak self] point in self?.styleMenu?.finishDrag(at: point) }
+        hexKey.accessibilityCustomActions = (hexKey.accessibilityCustomActions ?? []) + [
+            UIAccessibilityCustomAction(name: "Show compact keyboard") { [weak self] _ in
+                guard let self, !self.showsRecording else { return false }
+                self.showCompactKeyboard()
+                return true
+            },
+        ]
 
         plane.onKeyDown = { [weak self] _ in self?.keyFeedback() }
         plane.onAccentMenuOpened = { [weak self] in self?.selectionFeedback() }
@@ -183,6 +202,19 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
+    /// The controller is about to swap this view for the compact bar: end touches, delete
+    /// repeat, callouts, the style menu, and the undo timer.
+    func prepareForRemoval() {
+        plane.cancelAllTouches()
+        hexKey.cancelHold()
+        updateCallout()
+        dismissStyleMenu()
+        hideUndo()
+    }
+
+    /// VoiceOver lands here after switching from the compact bar.
+    var compactKeyboardAccessibilityElement: UIView { compactButton }
+
     /// Hex inserted a dictation; offer to take it back until the next edit.
     func didInsertDictation(_ text: String) {
         lastDictation = text
@@ -228,7 +260,20 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         plane.frame = bounds
         callout.frame = bounds
         accentCallout.frame = bounds
-        stripView.frame = layout.stripFrame
+        // The compact button keeps a 44 pt wide target at the trailing end of the strip
+        // (as tall as the strip); the suggestions take the rest.
+        let compactWidth: CGFloat = 44
+        let edge = engine.horizontalInset + 4
+        let stripFrame = layout.stripFrame
+        compactButton.frame = CGRect(
+            x: stripFrame.maxX - edge - compactWidth,
+            y: stripFrame.minY,
+            width: compactWidth,
+            height: stripFrame.height
+        )
+        var suggestionsFrame = stripFrame
+        suggestionsFrame.size.width = max(0, compactButton.frame.minX - stripFrame.minX)
+        stripView.frame = suggestionsFrame
 
         hexKey.cornerRadius = layout.metrics.cornerRadius
         if let hex = layout.key(.hex) {
@@ -275,6 +320,9 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         hexKey.palette = next
         recordingPanel?.palette = next
         styleMenu?.palette = next
+        var compact = compactButton.configuration
+        compact?.baseForegroundColor = next.textMuted
+        compactButton.configuration = compact
     }
 
     private func refreshReturnKey() {
@@ -360,10 +408,10 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             panel.frame = bounds
             refreshRecordingPanel()
             panel.isHidden = false
-            fade(in: [panel], out: [stripView, plane, hexKey, globeButton, callout, accentCallout])
+            fade(in: [panel], out: [stripView, compactButton, plane, hexKey, globeButton, callout, accentCallout])
         } else if let panel = recordingPanel {
             panel.scope.phase = .hidden
-            fade(in: [stripView, plane, hexKey, globeButton, callout], out: [panel]) { [weak self, weak panel] in
+            fade(in: [stripView, compactButton, plane, hexKey, globeButton, callout], out: [panel]) { [weak self, weak panel] in
                 guard let self, !self.showsRecording, let panel, panel === self.recordingPanel else { return }
                 panel.tearDown()
                 panel.removeFromSuperview()
@@ -455,6 +503,12 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             selectionHaptics.selectionChanged()
             selectionHaptics.prepare()
         }
+    }
+
+    @objc private func showCompactKeyboard() {
+        guard !showsRecording else { return }
+        keyFeedback()
+        model.onShowCompactKeyboard?()
     }
 
     private func hexKeyTapped() {
