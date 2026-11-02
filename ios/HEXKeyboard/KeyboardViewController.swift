@@ -193,8 +193,10 @@ final class KeyboardViewController: UIInputViewController {
             choice: sessionLayoutChoice ?? settings.layoutChoice
         )
         let mounted = surface != nil
-        // Handles and their zone change height, so they wait for idle like a swap.
-        if !mounted || canSwapSurface {
+        let swaps = mounted && wantsFull != (fullKeyboard != nil)
+        // Handles and their zone change height, so they wait for idle like a swap. A swap
+        // sizes the new surface itself, so the old one isn't resized first.
+        if !swaps && (!mounted || canSwapSurface) {
             if viewModel.canShowFullKeyboard != switching {
                 viewModel.canShowFullKeyboard = switching
             }
@@ -205,8 +207,11 @@ final class KeyboardViewController: UIInputViewController {
                 applyHeight(compactHeight)
             }
         }
-        guard !mounted || wantsFull != (fullKeyboard != nil) else { return }
+        guard !mounted || swaps else { return }
         guard !mounted || canSwapSurface else { return }
+        if viewModel.canShowFullKeyboard != switching {
+            viewModel.canShowFullKeyboard = switching
+        }
 
         fullKeyboard?.prepareForRemoval()
         if viewModel.activeTray != .none {

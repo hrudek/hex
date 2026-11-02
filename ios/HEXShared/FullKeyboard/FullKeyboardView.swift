@@ -46,6 +46,10 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             grabber.reset()
             engine.topInset = allowsCompactKeyboard ? KeyboardLayout.grabberZoneHeight : 0
             grabber.isHidden = !allowsCompactKeyboard || showsRecording
+            // A recording may have faded it out while hidden; show it fully again.
+            if allowsCompactKeyboard && !showsRecording { grabber.alpha = 1 }
+            // The strip no longer sits right under iOS 26's crown, so centre its content.
+            stripView.inSystemPlatter = !drawsBackdrop && !allowsCompactKeyboard
             updateHexKeyActions()
             setNeedsLayout()
         }
@@ -108,7 +112,9 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             .sink { [weak self] _ in self?.refreshRecordingPanel() }
             .store(in: &subscriptions)
 
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitVerticalSizeClass.self]) { (view: FullKeyboardView, _) in
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitVerticalSizeClass.self]) { (view: FullKeyboardView, previous) in
+            // A drag in progress never survives a rotation.
+            if previous.verticalSizeClass != view.traitCollection.verticalSizeClass { view.grabber.reset() }
             view.applyAppearance()
             view.setNeedsLayout()
         }
@@ -303,7 +309,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             ?? FullKeyboardPalette.isDark(appearance: engine.target.keyboardAppearance, traits: traitCollection)
         let next = FullKeyboardPalette(isDark: isDark)
         backgroundColor = drawsBackdrop ? next.backdrop : .clear
-        stripView.inSystemPlatter = !drawsBackdrop
+        stripView.inSystemPlatter = !drawsBackdrop && !allowsCompactKeyboard
         guard next != palette || !didApplyPalette else { return }
         didApplyPalette = true
         palette = next
@@ -402,7 +408,10 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             refreshRecordingPanel()
             panel.isHidden = false
             grabber.reset()
-            fade(in: [panel], out: [stripView, grabber, plane, hexKey, globeButton, callout, accentCallout])
+            let leaving: [UIView] = allowsCompactKeyboard
+                ? [stripView, grabber, plane, hexKey, globeButton, callout, accentCallout]
+                : [stripView, plane, hexKey, globeButton, callout, accentCallout]
+            fade(in: [panel], out: leaving)
         } else if let panel = recordingPanel {
             panel.scope.phase = .hidden
             let returning: [UIView] = allowsCompactKeyboard

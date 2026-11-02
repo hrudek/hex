@@ -50,7 +50,8 @@ final class KeyboardViewModel: ObservableObject {
 
     @Published var hasFullAccess = true
     @Published var needsGlobeKey = true
-    /// The full keyboard is offered (experiment on, iPhone), so the compact bar shows a key for it.
+    /// Switching to the full keyboard is offered (experiment on, iPhone, Compact keyboard
+    /// allowed), so the compact bar shows its drag handle and keyboard key.
     @Published var canShowFullKeyboard = false
     @Published var returnKeyLabel = "Return"
     @Published var isModelInstalled = false
@@ -447,6 +448,8 @@ private struct CompactKeyboardGrabber: View {
 
     let palette: KeyboardChromePalette
     let isEnabled: Bool
+    /// Haptics need Full Access.
+    let allowsHaptics: Bool
     let onCommit: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var translation: CGFloat = 0
@@ -484,7 +487,7 @@ private struct CompactKeyboardGrabber: View {
                         }
                     }
             )
-            .sensoryFeedback(.selection, trigger: isArmed) { old, new in !old && new }
+            .sensoryFeedback(.selection, trigger: isArmed) { old, new in allowsHaptics && !old && new }
             .accessibilityElement()
             .accessibilityLabel("Show full keyboard")
             .accessibilityHint("Or drag the handle up")
@@ -572,6 +575,7 @@ struct KeyboardSurfaceView: View {
                 CompactKeyboardGrabber(
                     palette: palette,
                     isEnabled: !isStageActive && model.pendingCommand == nil,
+                    allowsHaptics: model.hasFullAccess,
                     onCommit: { model.onShowFullKeyboard?() }
                 )
             }

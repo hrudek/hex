@@ -18,8 +18,8 @@ nonisolated enum KeyboardGrabberDrag {
     static let flickVelocity: CGFloat = 700
     /// Moving back faster than this on release cancels even past the threshold.
     static let reverseVelocity: CGFloat = 150
-    /// The pill follows the finger at most this far.
-    static let maxPillOffset: CGFloat = 6
+    /// The pill follows the finger at most this far (it stays inside the 12 pt zone).
+    static let maxPillOffset: CGFloat = 3
 
     /// Travel toward the switch; negative when the finger went the other way.
     static func travel(_ translation: CGFloat, _ direction: Direction) -> CGFloat {
