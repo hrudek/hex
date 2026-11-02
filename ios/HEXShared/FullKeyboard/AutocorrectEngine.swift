@@ -27,28 +27,67 @@ protocol TextChecking: AnyObject {
     func isWordValid(_ word: String) -> Bool
     func guesses(for word: String) -> [String]
     func completions(for prefix: String) -> [String]
+    /// The word is valid in a language other than English that the person types, so
+    /// English-only fixes (`im` -> `I'm`) must leave it alone (German `im`).
+    func isValidOutsideEnglish(_ word: String) -> Bool
+}
+
+extension TextChecking {
+    func isValidOutsideEnglish(_ word: String) -> Bool { false }
 }
 
 @MainActor
 final class SystemTextChecker: TextChecking {
     private var checker: UITextChecker?
-    private let language: String
+    /// `UITextChecker` languages, most preferred first. A word is valid when any of them
+    /// knows it, and guesses and completions come from all of them.
+    let languages: [String]
 
-    init(language: String = "en_US") {
-        self.language = language
+    init(languages: [String] = SystemTextChecker.typingLanguages()) {
+        self.languages = languages.isEmpty ? ["en_US"] : languages
+    }
+
+    convenience init(language: String) {
+        self.init(languages: [language])
+    }
+
+    /// The languages the person types: their keyboards and preferred languages that
+    /// `UITextChecker` has a dictionary for, plus English, at most three.
+    static func typingLanguages(
+        preferred: [String] = Locale.preferredLanguages,
+        keyboards: [String] = UITextInputMode.activeInputModes.compactMap(\.primaryLanguage),
+        available: [String] = UITextChecker.availableLanguages
+    ) -> [String] {
+        var result: [String] = []
+        func add(_ identifier: String) {
+            let normalized = identifier.replacingOccurrences(of: "-", with: "_")
+            let base = normalized.split(separator: "_").first.map(String.init) ?? normalized
+            let match = available.first { $0 == normalized }
+                ?? available.first { $0 == base }
+                ?? available.first { $0.hasPrefix(base + "_") }
+            guard let match else { return }
+            let matchBase = match.split(separator: "_").first.map(String.init) ?? match
+            guard !result.contains(where: { $0.hasPrefix(matchBase) }) else { return }
+            result.append(match)
+        }
+        (keyboards + preferred).forEach(add)
+        add("en_US")
+        return Array(result.prefix(3))
     }
 
     /// Warms `UITextChecker` after the keyboard's first frame commits so cold open stays < 12 ms.
     func warmUp() {
         guard checker == nil else { return }
         let instance = UITextChecker()
-        _ = instance.rangeOfMisspelledWord(
-            in: "hello",
-            range: NSRange(location: 0, length: 5),
-            startingAt: 0,
-            wrap: false,
-            language: language
-        )
+        for language in languages {
+            _ = instance.rangeOfMisspelledWord(
+                in: "hello",
+                range: NSRange(location: 0, length: 5),
+                startingAt: 0,
+                wrap: false,
+                language: language
+            )
+        }
         checker = instance
     }
 
@@ -59,9 +98,8 @@ final class SystemTextChecker: TextChecking {
         return instance
     }
 
-    func isWordValid(_ word: String) -> Bool {
-        let ns = word as NSString
-        let range = NSRange(location: 0, length: ns.length)
+    private func isValid(_ word: String, in language: String) -> Bool {
+        let range = NSRange(location: 0, length: (word as NSString).length)
         guard range.length > 0 else { return true }
         let misspelled = activeChecker.rangeOfMisspelledWord(
             in: word,
@@ -73,18 +111,43 @@ final class SystemTextChecker: TextChecking {
         return misspelled.location == NSNotFound
     }
 
+    func isWordValid(_ word: String) -> Bool {
+        languages.contains { isValid(word, in: $0) }
+    }
+
+    func isValidOutsideEnglish(_ word: String) -> Bool {
+        languages.contains { !$0.hasPrefix("en") && isValid(word, in: $0) }
+    }
+
     func guesses(for word: String) -> [String] {
-        let ns = word as NSString
-        let range = NSRange(location: 0, length: ns.length)
+        let range = NSRange(location: 0, length: (word as NSString).length)
         guard range.length > 0 else { return [] }
-        return activeChecker.guesses(forWordRange: range, in: word, language: language) ?? []
+        return Self.interleave(languages.map {
+            activeChecker.guesses(forWordRange: range, in: word, language: $0) ?? []
+        })
     }
 
     func completions(for prefix: String) -> [String] {
-        let ns = prefix as NSString
-        let range = NSRange(location: 0, length: ns.length)
+        let range = NSRange(location: 0, length: (prefix as NSString).length)
         guard range.length > 0 else { return [] }
-        return activeChecker.completions(forPartialWordRange: range, in: prefix, language: language) ?? []
+        return Self.interleave(languages.map {
+            activeChecker.completions(forPartialWordRange: range, in: prefix, language: $0) ?? []
+        })
+    }
+
+    /// Takes each language's best candidate in turn, dropping duplicates.
+    static func interleave(_ lists: [[String]]) -> [String] {
+        var result: [String] = []
+        var seen: Set<String> = []
+        let longest = lists.map(\.count).max() ?? 0
+        for index in 0..<longest {
+            for list in lists where index < list.count {
+                if seen.insert(list[index].lowercased()).inserted {
+                    result.append(list[index])
+                }
+            }
+        }
+        return result
     }
 }
 
@@ -268,7 +331,7 @@ final class AutocorrectEngine {
 
         if let autoFix {
             pool.append(autoFix)
-        } else if let suggested = Self.suggestOnlyContractions[lower] {
+        } else if let suggested = Self.suggestOnlyContractions[lower], !checker.isValidOutsideEnglish(token) {
             pool.append(Self.matchCase(of: token, onto: suggested))
         }
 
@@ -360,8 +423,9 @@ final class AutocorrectEngine {
         let hasInternalCaps = token.dropFirst().contains(where: \.isUppercase) && !isAllCaps
         if hasInternalCaps { return nil }
 
-        // 2. Deterministic contractions and common QWERTY transpositions.
-        if let fixed = Self.unambiguousFixes[lower] {
+        // 2. Deterministic contractions and common QWERTY transpositions, unless the word
+        // belongs to another language the person types (German `im`, `wich`).
+        if let fixed = Self.unambiguousFixes[lower], !checker.isValidOutsideEnglish(token) {
             if isAllCaps && token.count < 3 { return nil }
             return Self.matchCase(of: token, onto: fixed)
         }
@@ -444,6 +508,8 @@ final class AutocorrectEngine {
             }
             if diffs.count == 1 {
                 let i = diffs[0]
+                // A missing umlaut on QWERTY (`grun` -> `grün`) is as likely as a neighbour key.
+                if isUmlautPair(s[i], t[i]) { return 0.55 }
                 return areAdjacentKeys(s[i], t[i]) ? 0.65 : 1.15
             }
             if diffs.count == 2, diffs[1] == diffs[0] + 1,
@@ -483,6 +549,11 @@ final class AutocorrectEngine {
         for (col, ch) in "zxcvbnm".enumerated() { map[ch] = (2, Double(col) + 1.5) }
         return map
     }()
+
+    static func isUmlautPair(_ a: Character, _ b: Character) -> Bool {
+        let pairs: Set<String> = ["aä", "oö", "uü"]
+        return pairs.contains(String([a, b])) || pairs.contains(String([b, a]))
+    }
 
     static func areAdjacentKeys(_ a: Character, _ b: Character) -> Bool {
         guard let pa = keyCoordinates[a], let pb = keyCoordinates[b] else { return false }
