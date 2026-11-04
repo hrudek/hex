@@ -478,28 +478,35 @@ final class AutocorrectEngine {
             }
         }
 
-        // 5. A missing space (`wiegehts` -> `wie geht's`), each half allowed its own typo.
-        if let split = splitReplacement(for: token), split.cost < bestCost {
-            return split.text
-        }
-        guard let bestGuess else { return nil }
-        return Self.matchCase(of: token, onto: bestGuess)
+        if let bestGuess { return Self.matchCase(of: token, onto: bestGuess) }
+        // 5. A missing space (`wiegehts` -> `wie geht's`), only when no single word fits.
+        return splitReplacement(for: token)?.text
     }
 
     /// Fixed cost of inserting the missing space.
     static let splitPenalty = 0.4
-    /// Most a guessed half of a split may cost: about one typo.
-    static let splitPartBudget = 1.2
+    /// Most a guessed half of a split may cost: one neighbour key or swapped pair.
+    static let splitPartBudget = 0.7
+    /// Most a whole split may cost, space included.
+    static let splitTotalBudget = 1.2
+    /// Two-letter words a split may produce; any other half needs three letters.
+    static let splitShortWords: Set<String> = [
+        "an", "am", "im", "in", "zu", "um", "da", "du", "er", "es", "ob", "so", "wo", "ja",
+        "is", "it", "at", "be", "by", "do", "go", "he", "if", "me", "my", "no", "of", "on",
+        "or", "to", "up", "us", "we",
+    ]
 
     /// Best way to read `token` as two words run together, or `nil`. Each half is a valid word,
     /// a known slip, or one cheap typo away from a guess; only one half may need a guess.
     private func splitReplacement(for token: String) -> (text: String, cost: Double)? {
         let chars = Array(token)
-        guard chars.count >= 5, chars.count <= 30 else { return nil }
+        guard chars.count >= 6, chars.count <= 30 else { return nil }
         var best: (text: String, cost: Double)?
         for cut in 2...(chars.count - 2) {
             let left = String(chars[..<cut])
             let right = String(chars[cut...])
+            guard left.count >= 3 || Self.splitShortWords.contains(left.lowercased()),
+                  right.count >= 3 || Self.splitShortWords.contains(right.lowercased()) else { continue }
             // Leave German compounds alone: `Haus` + `Tür` is one word, but `das` + `Haus` is two.
             if left.count >= 4, isNounOnly(right) { continue }
             guard let resolvedLeft = resolvePart(left, allowGuess: false)
@@ -507,7 +514,7 @@ final class AutocorrectEngine {
             let rightAllowsGuess = resolvedLeft.cost == 0
             guard let resolvedRight = resolvePart(right, allowGuess: rightAllowsGuess) else { continue }
             let cost = Self.splitPenalty + resolvedLeft.cost + resolvedRight.cost
-            guard cost <= Self.correctionBudget(forLength: chars.count) + Self.germanBonus else { continue }
+            guard cost <= Self.splitTotalBudget else { continue }
             if best == nil || cost < best!.cost {
                 let first = Self.matchCase(of: left, onto: resolvedLeft.word)
                 best = (first + " " + resolvedRight.word, cost)
@@ -529,14 +536,14 @@ final class AutocorrectEngine {
         }
         guard part.count >= 3 else { return nil }
         if let spelled = germanSpelling(of: part) { return (spelled, 0.3) }
-        guard allowGuess else { return nil }
+        guard allowGuess, part.count >= 4 else { return nil }
         var best: (word: String, cost: Double)?
-        for (rank, guess) in checker.guesses(for: part).prefix(6).enumerated() where !guess.contains(" ") {
+        for (rank, guess) in checker.guesses(for: part).prefix(3).enumerated() where !guess.contains(" ") {
             let normalized = guess.replacingOccurrences(of: "'", with: "").lowercased()
             guard let editCost = Self.keyboardEditCost(from: lower, to: normalized) else { continue }
             // One cheap typo per half: a split already guesses where the space goes.
-            let budget = min(Self.splitPartBudget, Self.correctionBudget(forLength: part.count))
-            let cost = editCost + Double(rank) * 0.05
+            let budget = Self.splitPartBudget
+            let cost = editCost + Double(rank) * 0.02
             if cost <= budget, cost < (best?.cost ?? .greatestFiniteMagnitude) {
                 best = (Self.matchCase(of: part, onto: guess), cost)
             }

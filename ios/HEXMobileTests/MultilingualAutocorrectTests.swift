@@ -130,6 +130,24 @@ final class MultilingualAutocorrectTests: XCTestCase {
         XCTAssertEqual(spaceFix(autocorrect, after: "ichhbae"), "ich habe")
     }
 
+    func testSplitRejectsOddHalves() {
+        let checker = FixedChecker()
+        checker.other = ["ge", "haus", "wie"]
+        checker.guessList = ["gtehs": ["geht's"]]
+        let autocorrect = engine(checker)
+        // `ge` is not a common two-letter word.
+        XCTAssertNil(spaceFix(autocorrect, after: "gehaus"))
+        // Two typos in one half are too many for a split.
+        XCTAssertNil(spaceFix(autocorrect, after: "wiegtehs"))
+    }
+
+    func testSingleWordFixWinsOverASplit() {
+        let checker = FixedChecker()
+        checker.other = ["das", "haus", "dashboard"]
+        checker.guessList = ["dashbaord": ["dashboard"]]
+        XCTAssertEqual(spaceFix(engine(checker), after: "dashbaord"), "dashboard")
+    }
+
     func testGermanCompoundIsNotSplit() {
         let checker = FixedChecker()
         checker.other = ["Haus", "Boot"]
