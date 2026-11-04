@@ -111,6 +111,40 @@ final class MultilingualAutocorrectTests: XCTestCase {
         XCTAssertNil(AutocorrectEngine.keyboardEditCost(from: "qwrt", to: "house"))
     }
 
+    func testMissingSpaceIsInserted() {
+        let checker = FixedChecker()
+        checker.other = ["wie", "geht", "das", "Haus", "ich", "habe"]
+        let autocorrect = engine(checker)
+        XCTAssertEqual(spaceFix(autocorrect, after: "hallo wiegehts"), "wie geht's")
+        XCTAssertEqual(spaceFix(autocorrect, after: "Wiegehts"), "Wie geht's")
+        XCTAssertEqual(spaceFix(autocorrect, after: "dashaus"), "das Haus")
+        XCTAssertEqual(spaceFix(autocorrect, after: "ichhabe"), "ich habe")
+    }
+
+    func testMissingSpaceWithATypoInOneHalf() {
+        let checker = FixedChecker()
+        checker.other = ["wie", "ich", "habe"]
+        checker.guessList = ["geths": ["geht's"], "hbae": ["habe"]]
+        let autocorrect = engine(checker)
+        XCTAssertEqual(spaceFix(autocorrect, after: "wiegeths"), "wie geht's")
+        XCTAssertEqual(spaceFix(autocorrect, after: "ichhbae"), "ich habe")
+    }
+
+    func testGermanCompoundIsNotSplit() {
+        let checker = FixedChecker()
+        checker.other = ["Haus", "Boot"]
+        XCTAssertNil(spaceFix(engine(checker), after: "das hausboot"))
+    }
+
+    func testContactNameIsNotSplit() {
+        let checker = FixedChecker()
+        checker.other = ["mich"]
+        checker.guessList = ["aela": ["aale"]]
+        let autocorrect = engine(checker)
+        autocorrect.loadLexiconEntries([("Michaela", "Michaela")])
+        XCTAssertNil(spaceFix(autocorrect, after: "Michaela"))
+    }
+
     func testTypingLanguagesPutKeyboardsFirstAndAlwaysIncludeEnglish() {
         let available = ["en_US", "en_GB", "de_DE", "fr_FR", "es_ES"]
         XCTAssertEqual(
