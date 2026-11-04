@@ -178,6 +178,14 @@ final class AutocorrectEngineTests: XCTestCase {
         XCTAssertNil(AutocorrectEngine.singleEditKeyboardCost(from: "abcdef", to: "abxyef"), "two substitutions are rejected")
     }
 
+    func testReturnCorrectsTheWordBeforeIt() {
+        typeWord("teh")
+        tap(.returnKey)
+        XCTAssertEqual(target.text, "the\n")
+        tap(.delete)
+        XCTAssertEqual(target.text, "teh")
+    }
+
     func testTurningAutocorrectSettingOffKeepsSuggestionsWithoutAutoReplacing() {
         engine.autocorrect.isEnabled = false
         typeWord("dont")

@@ -216,7 +216,7 @@ final class LearnedWordsStore {
     }
 }
 
-/// Cautious on-device suggestions and replace-on-space engine combining `UILexicon`,
+/// Aggressive (German-leaning) on-device suggestions and replace-on-space engine combining `UILexicon`,
 /// deterministic contractions/transpositions, QWERTY-ranked `UITextChecker`, and `LearnedWordsStore`.
 @MainActor
 final class AutocorrectEngine {
@@ -432,25 +432,92 @@ final class AutocorrectEngine {
 
         if isAllCaps { return nil }
 
-        // 3. Single-edit `UITextChecker` typo on words of 3+ characters, never rewriting valid words.
-        guard token.count >= 3, !token.contains("'") else { return nil }
-        guard !checker.isWordValid(token) else { return nil }
+        // 3. Common German slips (`nciht` -> `nicht`), when no language the person types knows the word.
+        let wordIsValid = checker.isWordValid(token)
+        if !wordIsValid, let fixed = Self.germanFixes[lower] {
+            return Self.matchCase(of: token, onto: fixed)
+        }
+
+        // 4. Aggressive `UITextChecker` typo fix on words of 3+ characters, never rewriting valid
+        // words. Several keyboard edits are allowed, more for longer words and for German.
+        guard token.count >= 3, !token.contains("'"), !wordIsValid else { return nil }
+
+        // German typed on QWERTY without umlauts or ß (`fuer`, `schoen`, `strasse`).
+        if let spelled = germanSpelling(of: token) {
+            return spelled
+        }
 
         var bestGuess: String?
-        var bestScore = Double.greatestFiniteMagnitude
-        for (rank, rawGuess) in checker.guesses(for: token).prefix(8).enumerated() {
-            // Skip multi-word splits (`alot` -> `a lot` is fine only if single space, keep v1 single-token + apostrophe).
+        var bestMargin = -Double.greatestFiniteMagnitude
+        for (rank, rawGuess) in checker.guesses(for: token).prefix(12).enumerated() {
+            // Keep v1 single-token: skip multi-word splits (`alot` -> `a lot`).
             guard !rawGuess.contains(" ") else { continue }
             let normalizedGuess = rawGuess.replacingOccurrences(of: "'", with: "").lowercased()
-            guard let editCost = Self.singleEditKeyboardCost(from: lower, to: normalizedGuess) else { continue }
-            let totalScore = editCost + Double(rank) * 0.08
-            if totalScore < bestScore {
-                bestScore = totalScore
+            guard normalizedGuess != lower || rawGuess != token else { continue }
+            guard let editCost = Self.keyboardEditCost(from: lower, to: normalizedGuess) else { continue }
+            let budget = Self.correctionBudget(forLength: token.count)
+                + (checker.isValidOutsideEnglish(rawGuess) ? Self.germanBonus : 0)
+            let margin = budget - (editCost + Double(rank) * 0.05)
+            if margin >= 0, margin > bestMargin {
+                bestMargin = margin
                 bestGuess = rawGuess
             }
         }
-        guard let bestGuess, bestScore <= 1.35 else { return nil }
+        guard let bestGuess else { return nil }
         return Self.matchCase(of: token, onto: bestGuess)
+    }
+
+    /// Extra edit budget for a guess from a non-English dictionary the person types (German).
+    static let germanBonus = 0.6
+
+    /// How much weighted keyboard edit cost a correction may spend, growing with the word.
+    static func correctionBudget(forLength length: Int) -> Double {
+        switch length {
+        case ..<4: 1.25
+        case 4: 1.6
+        case 5...6: 2.1
+        case 7...9: 2.7
+        default: 3.3
+        }
+    }
+
+    /// Rewrites `ae`/`oe`/`ue`/`ss` to `ä`/`ö`/`ü`/`ß` when that spelling is a valid word,
+    /// trying the capitalised form too for German nouns (`groesse` -> `Größe`).
+    private func germanSpelling(of token: String) -> String? {
+        let lower = token.lowercased()
+        let digraphs: [(String, String)] = [("ae", "ä"), ("oe", "ö"), ("ue", "ü"), ("ss", "ß")]
+        var positions: [(Range<String.Index>, String)] = []
+        for (pair, umlaut) in digraphs {
+            var search = lower.startIndex..<lower.endIndex
+            while let found = lower.range(of: pair, range: search) {
+                positions.append((found, umlaut))
+                search = found.upperBound..<lower.endIndex
+            }
+        }
+        guard !positions.isEmpty, positions.count <= 4 else { return nil }
+        positions.sort { $0.0.lowerBound < $1.0.lowerBound }
+        // Every non-empty subset, most replacements first.
+        let subsets = (1..<(1 << positions.count)).sorted { $0.nonzeroBitCount > $1.nonzeroBitCount }
+        for mask in subsets {
+            var candidate = ""
+            var cursor = lower.startIndex
+            var overlaps = false
+            for (index, (range, umlaut)) in positions.enumerated() where mask & (1 << index) != 0 {
+                if range.lowerBound < cursor { overlaps = true; break }
+                candidate += String(lower[cursor..<range.lowerBound]) + umlaut
+                cursor = range.upperBound
+            }
+            if overlaps { continue }
+            candidate += String(lower[cursor...])
+            if checker.isWordValid(candidate) {
+                return Self.matchCase(of: token, onto: candidate)
+            }
+            let noun = candidate.prefix(1).uppercased() + candidate.dropFirst()
+            if checker.isWordValid(noun) {
+                return Self.matchCase(of: token, onto: noun)
+            }
+        }
+        return nil
     }
 
     private func rankedGuesses(for token: String) -> [String] {
@@ -459,14 +526,14 @@ final class AutocorrectEngine {
             .prefix(8)
             .enumerated()
             .sorted { a, b in
-                let costA = Self.singleEditKeyboardCost(
+                let costA = Self.keyboardEditCost(
                     from: lower,
                     to: a.element.replacingOccurrences(of: "'", with: "").lowercased()
-                ) ?? (2.0 + Double(abs(a.element.count - token.count)) * 0.3)
-                let costB = Self.singleEditKeyboardCost(
+                ) ?? (4.0 + Double(abs(a.element.count - token.count)) * 0.3)
+                let costB = Self.keyboardEditCost(
                     from: lower,
                     to: b.element.replacingOccurrences(of: "'", with: "").lowercased()
-                ) ?? (2.0 + Double(abs(b.element.count - token.count)) * 0.3)
+                ) ?? (4.0 + Double(abs(b.element.count - token.count)) * 0.3)
                 return (costA + Double(a.offset) * 0.08) < (costB + Double(b.offset) * 0.08)
             }
             .map(\.element)
@@ -540,6 +607,70 @@ final class AutocorrectEngine {
         let leftAdj = extraIdx > 0 && areAdjacentKeys(extraChar, longer[extraIdx - 1])
         let rightAdj = extraIdx + 1 < longer.count && areAdjacentKeys(extraChar, longer[extraIdx + 1])
         return (leftAdj || rightAdj) ? 0.70 : 0.90
+    }
+
+    /// Weighted Damerau-Levenshtein distance on the keyboard: neighbour keys, missing umlauts,
+    /// doubled letters, and transpositions are cheap; `ae`/`oe`/`ue`/`ss` for `ä`/`ö`/`ü`/`ß` cheaper still.
+    /// Returns `nil` past `limit`, so long unrelated words are rejected early.
+    static func keyboardEditCost(from source: String, to target: String, limit: Double = 4.0) -> Double? {
+        if source == target { return 0 }
+        let s = Array(source)
+        let t = Array(target)
+        guard abs(s.count - t.count) <= 3 else { return nil }
+        let n = s.count
+        let m = t.count
+        var d = Array(repeating: Array(repeating: Double.infinity, count: m + 1), count: n + 1)
+        d[0][0] = 0
+        func indelCost(_ chars: [Character], _ index: Int) -> Double {
+            let ch = chars[index]
+            if index > 0, chars[index - 1] == ch { return 0.5 }
+            if index + 1 < chars.count, chars[index + 1] == ch { return 0.5 }
+            let leftAdj = index > 0 && areAdjacentKeys(ch, chars[index - 1])
+            let rightAdj = index + 1 < chars.count && areAdjacentKeys(ch, chars[index + 1])
+            return (leftAdj || rightAdj) ? 0.7 : 0.9
+        }
+        for i in 0...n {
+            for j in 0...m {
+                if i == 0 && j == 0 { continue }
+                var best = Double.infinity
+                if i > 0 { best = min(best, d[i - 1][j] + indelCost(s, i - 1)) }
+                if j > 0 { best = min(best, d[i][j - 1] + indelCost(t, j - 1)) }
+                if i > 0 && j > 0 {
+                    let a = s[i - 1]
+                    let b = t[j - 1]
+                    best = min(best, d[i - 1][j - 1] + substitutionCost(a, b))
+                    if i > 1 && j > 1 && a == t[j - 2] && s[i - 2] == b && a != b {
+                        best = min(best, d[i - 2][j - 2] + 0.6)
+                    }
+                    // `ae` -> `ä`, `ss` -> `ß` and back.
+                    if i > 1, isGermanDigraph(s[i - 2], a, for: b) {
+                        best = min(best, d[i - 2][j - 1] + 0.35)
+                    }
+                    if j > 1, isGermanDigraph(t[j - 2], b, for: a) {
+                        best = min(best, d[i - 1][j - 2] + 0.35)
+                    }
+                }
+                d[i][j] = best
+            }
+            if i > 0, let rowMin = d[i].min(), rowMin > limit { return nil }
+        }
+        let cost = d[n][m]
+        return cost <= limit ? cost : nil
+    }
+
+    private static func substitutionCost(_ a: Character, _ b: Character) -> Double {
+        if a == b { return 0 }
+        if isUmlautPair(a, b) || (a == "s" && b == "ß") || (a == "ß" && b == "s") { return 0.45 }
+        // QWERTZ habit: `y` and `z` swap places on German keyboards.
+        if (a == "y" && b == "z") || (a == "z" && b == "y") { return 0.6 }
+        return areAdjacentKeys(a, b) ? 0.65 : 1.15
+    }
+
+    private static func isGermanDigraph(_ first: Character, _ second: Character, for single: Character) -> Bool {
+        switch (first, second, single) {
+        case ("a", "e", "ä"), ("o", "e", "ö"), ("u", "e", "ü"), ("s", "s", "ß"): true
+        default: false
+        }
     }
 
     private static let keyCoordinates: [Character: (Double, Double)] = {
@@ -715,5 +846,31 @@ final class AutocorrectEngine {
         "keboard": "keyboard",
         "iphnoe": "iPhone",
         "ipohne": "iPhone",
+    ]
+
+    /// Frequent German slips, applied only when no dictionary the person types knows the word.
+    static let germanFixes: [String: String] = [
+        "ihc": "ich", "icg": "ich",
+        "nciht": "nicht", "nihct": "nicht", "nichz": "nicht", "nicth": "nicht", "ncht": "nicht",
+        "udn": "und", "nud": "und", "unf": "und",
+        "dsa": "das", "dsas": "dass", "dasss": "dass",
+        "dei": "die", "dier": "dir", "isr": "ist",
+        "afu": "auf", "auc": "auch", "acuh": "auch", "ahuc": "auch",
+        "ncoh": "noch", "nohc": "noch", "shcon": "schon", "scohn": "schon",
+        "eien": "eine", "enie": "eine", "eienn": "einen", "eienm": "einem", "eienr": "einer",
+        "wiel": "weil", "wnen": "wenn", "abre": "aber", "aebr": "aber",
+        "imemr": "immer", "imer": "immer",
+        "gehts": "geht's", "gibts": "gibt's", "habs": "hab's",
+        "jetzz": "jetzt", "jezt": "jetzt", "jetz": "jetzt",
+        "heuet": "heute", "huete": "heute", "morgne": "morgen", "mrogen": "morgen",
+        "vielelicht": "vielleicht", "vieleicht": "vielleicht",
+        "wirklcih": "wirklich", "wirklihc": "wirklich",
+        "eigentlcih": "eigentlich", "eigendlich": "eigentlich",
+        "bitet": "bitte", "btite": "bitte", "dnake": "danke", "dakne": "danke",
+        "geanu": "genau", "gnau": "genau", "sien": "sein", "wier": "wir", "iwr": "wir",
+        "hatet": "hatte", "hattte": "hatte",
+        "konnen": "können", "koennen": "können", "mussen": "müssen", "muessen": "müssen",
+        "fur": "für", "fuer": "für", "uber": "über", "ueber": "über",
+        "zeti": "Zeit", "ziet": "Zeit",
     ]
 }

@@ -356,8 +356,10 @@ final class FullKeyboardEngine {
             if target.enablesReturnKeyAutomatically == true && !target.hasText {
                 break
             }
-            autocorrect.clearPendingUndo()
-            insert("\n")
+            if !applyAutocorrect(followedBy: "\n") {
+                autocorrect.clearPendingUndo()
+                insert("\n")
+            }
         case .layerSwitch:
             // Hold 123, slide to a key, let go: type it and go back.
             if let returnLayer = touch.returnLayer,
@@ -473,8 +475,34 @@ final class FullKeyboardEngine {
         if layerState.layer == .letters {
             shift.didType()
         }
+        // Correct the word as soon as punctuation ends it, not only on Space.
+        if Self.wordEndingPunctuation.contains(text), applyAutocorrect(followedBy: text) {
+            return
+        }
         autocorrect.clearPendingUndo()
         insert(text)
+    }
+
+    private static let wordEndingPunctuation: Set<String> = [".", ",", "!", "?", ";", ":"]
+
+    /// Replaces the word before the caret when autocorrect is confident, then types `suffix`.
+    private func applyAutocorrect(followedBy suffix: String) -> Bool {
+        guard let (original, replacement) = autocorrect.replacementOnSpace(
+            beforeInput: target.documentContextBeforeInput,
+            field: field,
+            autocorrectionType: target.autocorrectionType
+        ) else { return false }
+        for _ in 0..<original.count {
+            target.deleteBackward()
+        }
+        let inserted = replacement + suffix
+        target.insertText(inserted)
+        autocorrect.recordAppliedCorrection(original: original, insertedText: inserted)
+        lastSpaceAt = suffix == " " ? clock() : nil
+        layerState.didInsert(suffix)
+        rebuildLayoutIfNeeded()
+        didEdit()
+        return true
     }
 
     private func commitAccentSelection(_ chosen: String) {
@@ -497,21 +525,8 @@ final class FullKeyboardEngine {
             didEdit()
             return
         }
-        if let (original, replacement) = autocorrect.replacementOnSpace(
-            beforeInput: target.documentContextBeforeInput,
-            field: field,
-            autocorrectionType: target.autocorrectionType
-        ) {
-            for _ in 0..<original.count {
-                target.deleteBackward()
-            }
-            let inserted = replacement + " "
-            target.insertText(inserted)
-            autocorrect.recordAppliedCorrection(original: original, insertedText: inserted)
+        if applyAutocorrect(followedBy: " ") {
             lastSpaceAt = now
-            layerState.didInsert(" ")
-            rebuildLayoutIfNeeded()
-            didEdit()
             return
         }
         autocorrect.clearPendingUndo()

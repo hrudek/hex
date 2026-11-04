@@ -42,7 +42,7 @@ struct ExperimentsCard: View {
                             Text("Autocorrect")
                                 .font(.system(size: 15, weight: .regular))
                                 .foregroundStyle(HexTheme.textBase)
-                            Text("Fix contractions, shortcuts, and one-edit typos on space")
+                            Text("Fix typos, contractions, and missing umlauts on space, punctuation, and return")
                                 .font(.system(size: 12))
                                 .foregroundStyle(HexTheme.textMuted)
                         }
