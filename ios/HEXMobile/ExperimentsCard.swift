@@ -4,7 +4,6 @@ import SwiftUI
 /// keyboard reads them too.
 struct ExperimentsCard: View {
     @State private var fullKeyboard = FullKeyboardSettings().isEnabled
-    @State private var autocorrect = FullKeyboardSettings().autocorrect
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -13,56 +12,29 @@ struct ExperimentsCard: View {
                 .foregroundStyle(HexTheme.textMuted)
                 .padding(.leading, 16)
 
-            VStack(spacing: 0) {
-                Toggle(isOn: $fullKeyboard) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Full keyboard")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(HexTheme.textBase)
-                        Text("Type with Hex, with a Hex key to dictate. Switch to the compact bar and back from the keyboard.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(HexTheme.textMuted)
-                    }
-                }
-                .tint(HexTheme.success)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .onChange(of: fullKeyboard) { _, enabled in
-                    FullKeyboardSettings().isEnabled = enabled
-                }
-
-                if fullKeyboard {
-                    Divider()
-                        .overlay(HexTheme.borderWeak)
-                        .padding(.leading, 16)
-
-                    Toggle(isOn: $autocorrect) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Autocorrect")
-                                .font(.system(size: 15, weight: .regular))
-                                .foregroundStyle(HexTheme.textBase)
-                            Text("Fix typos, contractions, and missing umlauts on space, punctuation, and return")
-                                .font(.system(size: 12))
-                                .foregroundStyle(HexTheme.textMuted)
-                        }
-                    }
-                    .tint(HexTheme.success)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .onChange(of: autocorrect) { _, enabled in
-                        FullKeyboardSettings().autocorrect = enabled
-                    }
+            Toggle(isOn: $fullKeyboard) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Full keyboard")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(HexTheme.textBase)
+                    Text("Type with Hex, with a Hex key to dictate")
+                        .font(.system(size: 12))
+                        .foregroundStyle(HexTheme.textMuted)
                 }
             }
+            .tint(HexTheme.success)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .background(
                 HexTheme.bgBase,
                 in: RoundedRectangle(cornerRadius: HexTheme.cardRadius, style: .continuous)
             )
+            .onChange(of: fullKeyboard) { _, enabled in
+                FullKeyboardSettings().isEnabled = enabled
+            }
         }
         .onAppear {
-            let settings = FullKeyboardSettings()
-            fullKeyboard = settings.isEnabled
-            autocorrect = settings.autocorrect
+            fullKeyboard = FullKeyboardSettings().isEnabled
         }
     }
 }
