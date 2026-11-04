@@ -230,6 +230,9 @@ final class AutocorrectEngine {
     var isEnabled = true
     private var lexiconShortcuts: [String: String] = [:]
     private var lexiconTerms: [String] = []
+    private var lexiconTermSet: Set<String> = []
+    /// Last token and its replacement: suggestions and Space ask for the same word.
+    private var replacementCache: (token: String, replacement: String?)?
     private var suppressedInSession: Set<String> = []
     private(set) var lastCorrection: AppliedCorrection?
 
@@ -260,6 +263,8 @@ final class AutocorrectEngine {
         }
         lexiconShortcuts = shortcuts
         lexiconTerms = terms
+        lexiconTermSet = Set(terms.map { $0.lowercased() })
+        replacementCache = nil
     }
 
     func clearPendingUndo() {
@@ -411,11 +416,20 @@ final class AutocorrectEngine {
     }
 
     private func cautiousReplacement(for token: String) -> String? {
+        if let cache = replacementCache, cache.token == token { return cache.replacement }
+        let replacement = computeReplacement(for: token)
+        replacementCache = (token, replacement)
+        return replacement
+    }
+
+    private func computeReplacement(for token: String) -> String? {
         let lower = token.lowercased()
         // 1. Explicit iOS Text Replacement (`omw` -> `On my way!`).
         if let shortcut = lexiconShortcuts[lower] {
             return shortcut
         }
+        // Contacts and other lexicon terms (`Michaela`) are words, even without a dictionary entry.
+        if lexiconTermSet.contains(lower) { return nil }
         // Leave ALL-CAPS acronyms (`API`, `PR`, `NYC`) alone unless matched in `UILexicon` above,
         // except unambiguous all-caps contractions/typos of 3+ letters (`DONT` -> `DON'T`, `TEH` -> `THE`).
         let isAllCaps = token.count >= 2 && token == token.uppercased() && token != token.lowercased()
@@ -448,23 +462,98 @@ final class AutocorrectEngine {
         }
 
         var bestGuess: String?
-        var bestMargin = -Double.greatestFiniteMagnitude
+        var bestCost = Double.greatestFiniteMagnitude
         for (rank, rawGuess) in checker.guesses(for: token).prefix(12).enumerated() {
-            // Keep v1 single-token: skip multi-word splits (`alot` -> `a lot`).
+            // Missing spaces are handled by `splitReplacement`, which also fixes each half.
             guard !rawGuess.contains(" ") else { continue }
             let normalizedGuess = rawGuess.replacingOccurrences(of: "'", with: "").lowercased()
             guard normalizedGuess != lower || rawGuess != token else { continue }
             guard let editCost = Self.keyboardEditCost(from: lower, to: normalizedGuess) else { continue }
             let budget = Self.correctionBudget(forLength: token.count)
                 + (checker.isValidOutsideEnglish(rawGuess) ? Self.germanBonus : 0)
-            let margin = budget - (editCost + Double(rank) * 0.05)
-            if margin >= 0, margin > bestMargin {
-                bestMargin = margin
+            let cost = editCost + Double(rank) * 0.05
+            if cost <= budget, cost < bestCost {
+                bestCost = cost
                 bestGuess = rawGuess
             }
         }
+
+        // 5. A missing space (`wiegehts` -> `wie geht's`), each half allowed its own typo.
+        if let split = splitReplacement(for: token), split.cost < bestCost {
+            return split.text
+        }
         guard let bestGuess else { return nil }
         return Self.matchCase(of: token, onto: bestGuess)
+    }
+
+    /// Fixed cost of inserting the missing space.
+    static let splitPenalty = 0.4
+    /// Most a guessed half of a split may cost: about one typo.
+    static let splitPartBudget = 1.2
+
+    /// Best way to read `token` as two words run together, or `nil`. Each half is a valid word,
+    /// a known slip, or one cheap typo away from a guess; only one half may need a guess.
+    private func splitReplacement(for token: String) -> (text: String, cost: Double)? {
+        let chars = Array(token)
+        guard chars.count >= 5, chars.count <= 30 else { return nil }
+        var best: (text: String, cost: Double)?
+        for cut in 2...(chars.count - 2) {
+            let left = String(chars[..<cut])
+            let right = String(chars[cut...])
+            // Leave German compounds alone: `Haus` + `Tür` is one word, but `das` + `Haus` is two.
+            if left.count >= 4, isNounOnly(right) { continue }
+            guard let resolvedLeft = resolvePart(left, allowGuess: false)
+                ?? (checker.isWordValid(right) ? resolvePart(left, allowGuess: true) : nil) else { continue }
+            let rightAllowsGuess = resolvedLeft.cost == 0
+            guard let resolvedRight = resolvePart(right, allowGuess: rightAllowsGuess) else { continue }
+            let cost = Self.splitPenalty + resolvedLeft.cost + resolvedRight.cost
+            guard cost <= Self.correctionBudget(forLength: chars.count) + Self.germanBonus else { continue }
+            if best == nil || cost < best!.cost {
+                let first = Self.matchCase(of: left, onto: resolvedLeft.word)
+                best = (first + " " + resolvedRight.word, cost)
+            }
+        }
+        return best
+    }
+
+    /// One half of a split: its own spelling, a known slip, or (with `allowGuess`) its best guess.
+    private func resolvePart(_ part: String, allowGuess: Bool) -> (word: String, cost: Double)? {
+        let lower = part.lowercased()
+        if checker.isWordValid(part) { return (part, 0) }
+        if let noun = Self.capitalized(lower), checker.isWordValid(noun), !checker.isWordValid(lower) {
+            return (noun, 0.05)
+        }
+        if let fixed = Self.germanFixes[lower] { return (Self.matchCase(of: part, onto: fixed), 0.1) }
+        if let fixed = Self.unambiguousFixes[lower], lower.count >= 3, !checker.isValidOutsideEnglish(part) {
+            return (Self.matchCase(of: part, onto: fixed), 0.1)
+        }
+        guard part.count >= 3 else { return nil }
+        if let spelled = germanSpelling(of: part) { return (spelled, 0.3) }
+        guard allowGuess else { return nil }
+        var best: (word: String, cost: Double)?
+        for (rank, guess) in checker.guesses(for: part).prefix(6).enumerated() where !guess.contains(" ") {
+            let normalized = guess.replacingOccurrences(of: "'", with: "").lowercased()
+            guard let editCost = Self.keyboardEditCost(from: lower, to: normalized) else { continue }
+            // One cheap typo per half: a split already guesses where the space goes.
+            let budget = min(Self.splitPartBudget, Self.correctionBudget(forLength: part.count))
+            let cost = editCost + Double(rank) * 0.05
+            if cost <= budget, cost < (best?.cost ?? .greatestFiniteMagnitude) {
+                best = (Self.matchCase(of: part, onto: guess), cost)
+            }
+        }
+        return best
+    }
+
+    /// True when `word` is valid only capitalised: a German noun (`Haus`, `Tür`).
+    private func isNounOnly(_ word: String) -> Bool {
+        let lower = word.lowercased()
+        guard let noun = Self.capitalized(lower) else { return false }
+        return !checker.isWordValid(lower) && checker.isWordValid(noun)
+    }
+
+    private static func capitalized(_ lower: String) -> String? {
+        guard let first = lower.first, first.isLetter else { return nil }
+        return first.uppercased() + lower.dropFirst()
     }
 
     /// Extra edit budget for a guess from a non-English dictionary the person types (German).
