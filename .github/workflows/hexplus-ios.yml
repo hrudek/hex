@@ -1,0 +1,229 @@
+# Hex+ (fork-only): test, build and sign the iPhone app from hex-plus.
+# Upstream never touches this file or .github/hexplus/; hexplus-sync refuses
+# upstream commits that would.
+name: Hex+ iOS
+# Expressions can't shorten a SHA; the run list already shows the short commit.
+run-name: "Hex+ iOS · ${{ inputs.distribution || 'unsigned' }} · ${{ github.event_name }}"
+
+on:
+  push:
+    branches: [hex-plus]
+    paths:
+      - ios/**
+      - app/AppIcon.icon/**
+      - tests/fixtures/vocabulary/audio/**
+      - .github/hexplus/**
+      - .github/workflows/hexplus-ios.yml
+  workflow_dispatch:
+    inputs:
+      distribution:
+        description: unsigned only builds; ad-hoc and testflight sign after your approval
+        type: choice
+        options: [unsigned, ad-hoc, testflight]
+        default: unsigned
+        required: true
+      only_testing:
+        description: "Comma-separated -only-testing targets (empty: every test, none: skip tests)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hexplus-ios-${{ github.ref }}-${{ inputs.distribution || 'unsigned' }}
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    name: Decide
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      config: ${{ steps.config.outputs.config }}
+    steps:
+      - name: Require configuration
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          ARTIFACT_AGE_RECIPIENT: ${{ vars.ARTIFACT_AGE_RECIPIENT }}
+        run: |
+          [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo 'Set repository variable APPLE_TEAM_ID'; exit 1; }
+          [[ "$ARTIFACT_AGE_RECIPIENT" =~ ^age1[0-9a-z]{58}$ ]] || { echo 'Set repository variable ARTIFACT_AGE_RECIPIENT'; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: .github/hexplus
+          persist-credentials: false
+      - name: Load Hex+ identity
+        id: config
+        run: python3 .github/hexplus/config.py
+      - name: Did anything the iOS build reads change?
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          REPO: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          run=true
+          if [[ "$EVENT" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git init -q "$RUNNER_TEMP/fp"
+            if git -C "$RUNNER_TEMP/fp" fetch -q --depth=1 --filter=blob:none "$REPO" "$BEFORE" "$AFTER"; then
+              a=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$BEFORE")
+              b=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$AFTER")
+              diff <(echo "$a") <(echo "$b") || true
+              [[ "$a" != "$b" ]] || run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Hex+ iOS'
+            echo "| | |"; echo "|---|---|"
+            echo "| Commit | \`$AFTER\` |"
+            echo "| iOS inputs changed | $run |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: Simulator tests
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && inputs.only_testing != 'none'
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 60
+    env:
+      APP_CONFIG: ${{ needs.changes.outputs.config }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Select and verify Xcode
+        env:
+          XCODE_PATH: ${{ vars.XCODE_PATH }}
+        run: bash .github/hexplus/select-xcode.sh
+      - name: Run unit tests on the simulator
+        env:
+          ONLY_TESTING: ${{ inputs.only_testing }}
+        run: bash .github/hexplus/test.sh
+      - name: Upload test log and result bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-tests-${{ github.run_id }}
+          path: ${{ runner.temp }}/test-output
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build:
+    name: Unsigned archive
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 90
+    env:
+      CI: "true"
+      APP_CONFIG: ${{ needs.changes.outputs.config }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      ARTIFACT_AGE_RECIPIENT: ${{ vars.ARTIFACT_AGE_RECIPIENT }}
+      SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned artifact encryption tool
+        run: bash .github/hexplus/install-age.sh
+      - name: Select and verify Xcode
+        env:
+          XCODE_PATH: ${{ vars.XCODE_PATH }}
+        run: bash .github/hexplus/select-xcode.sh
+      - name: Build unsigned device archive (app, keyboard and widgets)
+        run: bash .github/hexplus/build.sh
+      - name: Upload encrypted archive and public provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-unsigned-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/output/archive.zip.age
+            ${{ runner.temp }}/output/build.json
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    name: Sign (${{ inputs.distribution }})
+    needs: [changes, test, build]
+    # Signed builds only on request, from hex-plus, after green tests (or tests skipped on purpose).
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && inputs.distribution != 'unsigned'
+      && github.ref == 'refs/heads/hex-plus' && needs.build.result == 'success'
+      && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 30
+    environment: hexplus-${{ inputs.distribution }}
+    env:
+      APP_CONFIG: ${{ needs.changes.outputs.config }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      DISTRIBUTION: ${{ inputs.distribution }}
+      ARTIFACT_AGE_RECIPIENT: ${{ vars.ARTIFACT_AGE_RECIPIENT }}
+    steps:
+      # Only Hex+'s own scripts; no source build runs on this runner.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: .github/hexplus
+          persist-credentials: false
+      - name: Install pinned artifact encryption tool
+        run: bash .github/hexplus/install-age.sh
+      - name: Select and verify Xcode
+        env:
+          XCODE_PATH: ${{ vars.XCODE_PATH }}
+        run: bash .github/hexplus/select-xcode.sh
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hexplus-unsigned-${{ github.run_id }}
+          path: ${{ runner.temp }}/input
+      - name: Decrypt archive with environment-protected identity
+        env:
+          ARTIFACT_AGE_IDENTITY: ${{ secrets.ARTIFACT_AGE_IDENTITY }}
+        run: bash .github/hexplus/decrypt-artifact.sh "$RUNNER_TEMP/input/archive.zip.age" "$RUNNER_TEMP/input/archive.zip"
+      - name: Sign and export IPA
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROFILES_ZIP_BASE64: ${{ secrets.IOS_PROFILES_ZIP_BASE64 }}
+        run: |
+          if ! bash .github/hexplus/sign.sh > "$RUNNER_TEMP/signing.log" 2>&1; then
+            echo 'Signing failed. Download and decrypt the signing diagnostics.'
+            exit 1
+          fi
+      - name: Encrypt installable IPA
+        run: bash .github/hexplus/encrypt-ipa.sh
+      - name: Upload encrypted IPA and public provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-${{ inputs.distribution }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/encrypted-deliverables/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload to App Store Connect for TestFlight processing
+        if: inputs.distribution == 'testflight'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+        run: |
+          if ! bash .github/hexplus/upload-testflight.sh > "$RUNNER_TEMP/testflight.log" 2>&1; then
+            echo 'Upload failed. Download and decrypt the signing diagnostics.'
+            exit 1
+          fi
+      - name: Encrypt signing diagnostics
+        if: always()
+        run: bash .github/hexplus/encrypt-signing-logs.sh
+      - name: Upload encrypted signing diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-signing-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/signing-diagnostics.zip.age
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove signing material
+        if: always()
+        run: bash .github/hexplus/cleanup-signing.sh

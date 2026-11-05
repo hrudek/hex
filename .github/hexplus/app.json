@@ -1,0 +1,10 @@
+{
+  "app": "hex",
+  "directory": "ios",
+  "scheme": "HEXMobile",
+  "project": "HEXMobile.xcodeproj",
+  "bundle_id": "com.bearylabs.hex",
+  "display_name": "Hex+",
+  "url_scheme": "bearylabs-hex",
+  "extension_suffixes": ["keyboard", "widgets"]
+}
