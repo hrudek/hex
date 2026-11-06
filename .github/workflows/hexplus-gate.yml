@@ -1,12 +1,19 @@
 # Hex+ (fork-only): promote a green sync/upstream to hex-plus by fast-forward.
-# Runs from hex-plus's own copy of this file (workflow_run), only runs git and gh,
-# and never executes code from the sync branch, because it holds SYNC_TOKEN.
+# Runs from hex-plus's own copy of this file, never executes sync-branch code.
+# A read-only job verifies CI through GitHub; the privileged job only runs git/gh.
+# CI dispatches this explicitly; workflow_run remains an idempotent fallback.
 # Pushing with SYNC_TOKEN (not GITHUB_TOKEN) makes the push start Hex+ CI on
 # hex-plus, which uploads to TestFlight when the iPhone app changed.
 name: Hex+ gate
-run-name: "Hex+ gate · sync/upstream · ${{ github.event.workflow_run.conclusion }}"
+run-name: "Hex+ gate · sync/upstream · CI ${{ inputs.run_id || github.event.workflow_run.id }}"
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Completed Hex+ CI push run for sync/upstream (verified before promotion)"
+        type: string
+        required: true
   workflow_run:
     workflows: [Hex+ CI]
     types: [completed]
@@ -20,8 +27,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/hex-plus')
+      || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      head_sha: ${{ steps.ci.outputs.head_sha }}
+      ci_url: ${{ steps.ci.outputs.ci_url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: hex-plus
+          sparse-checkout: .github/hexplus
+          persist-credentials: false
+      - name: Independently verify the sync CI run
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+        run: python3 .github/hexplus/verify-sync-run.py "$RUN_ID"
+
   promote:
-    if: github.event.workflow_run.event == 'push'
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: hexplus-sync
@@ -32,9 +64,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-      CI_URL: ${{ github.event.workflow_run.html_url }}
+      HEAD_SHA: ${{ needs.verify.outputs.head_sha }}
+      CI_URL: ${{ needs.verify.outputs.ci_url }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,19 +84,32 @@ jobs:
             echo "sync/upstream moved on (${current:0:8}); nothing to promote for ${HEAD_SHA:0:8}."
             echo "status=stale" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          if [[ "$CONCLUSION" != success ]]; then
-            echo "status=red" >> "$GITHUB_OUTPUT"; exit 1
+          if [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]]; then
+            echo 'This sync is already promoted; nothing to do.'
+            echo "status=current" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          [[ -n "$pr" ]] || { echo 'No open sync PR; refusing promotion.'; exit 1; }
           git fetch -q origin "$HEAD_SHA"
           if ! git merge-base --is-ancestor HEAD "$HEAD_SHA"; then
             echo 'hex-plus moved since the sync; the next sync merges again.' | tee -a "$GITHUB_STEP_SUMMARY"
             echo "status=diverged" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          # A sync must preserve all trusted Hex+ control files exactly. Even a
+          # manually dispatched green run cannot promote modified automation.
+          protected=$(git diff --name-only HEAD "$HEAD_SHA" -- HEXPLUS.md .github/hexplus \
+            '.github/workflows/hexplus-*' '.github/ISSUE_TEMPLATE/hexplus-*')
+          if [[ -n "$protected" ]]; then
+            echo 'Sync changes protected Hex+ files; refusing promotion.'
+            printf '%s\n' "$protected"
+            echo 'status=protected' >> "$GITHUB_OUTPUT"; exit 1
+          fi
           git push -q origin "$HEAD_SHA:refs/heads/hex-plus"
           echo "hex-plus fast-forwarded to ${HEAD_SHA:0:8}." | tee -a "$GITHUB_STEP_SUMMARY"
           echo "status=promoted" >> "$GITHUB_OUTPUT"
       - name: Note the result on the sync PR
-        if: always() && steps.promote.outputs.pr != '' && steps.promote.outputs.status != 'stale'
+        if: >-
+          always() && steps.promote.outputs.pr != ''
+          && steps.promote.outputs.status != 'stale' && steps.promote.outputs.status != 'current'
         env:
           PR: ${{ steps.promote.outputs.pr }}
           STATUS: ${{ steps.promote.outputs.status }}
@@ -73,6 +117,7 @@ jobs:
           case "$STATUS" in
             promoted) msg="Hex+ CI is green ([run]($CI_URL)); \`hex-plus\` fast-forwarded to \`${HEAD_SHA:0:8}\`." ;;
             diverged) msg="Hex+ CI is green, but \`hex-plus\` moved since the sync; the next sync merges again." ;;
+            protected) msg="Sync changes protected Hex+ files; promotion refused despite green CI. Review these changes manually." ;;
             *) msg="Hex+ CI is not green ([run]($CI_URL)); \`hex-plus\` stays where it is. Fix it here or wait for the next sync." ;;
           esac
           gh pr comment "$PR" --body "$msg"
