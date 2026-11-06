@@ -270,7 +270,7 @@ jobs:
           # One orphan commit per run on pr-assets/pr-N (as upstream's pr-assets/* branches).
           git init -q assets && cp "${files[@]}" assets/
           git -C assets add -A
-          git -C assets -c user.name=hexplus-ci -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+          git -C assets -c user.name=hexplus-ci -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' \
             commit -q -m "Screenshots for PR #$PR at ${HEAD_SHA:0:8}"
           git -C assets push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/pr-assets/pr-$PR"
           commit=$(git -C assets rev-parse HEAD)
