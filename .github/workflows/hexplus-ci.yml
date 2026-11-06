@@ -441,3 +441,23 @@ jobs:
       # here; the canonical gate independently verifies this run before pushing.
       - name: Invoke the canonical gate on hex-plus
         run: gh workflow run hexplus-gate.yml --ref hex-plus -f run_id="$GITHUB_RUN_ID"
+
+  notify-fix:
+    name: Tell Hex+ fix
+    needs: [linux, decide, test, build, sign]
+    # Red → hexplus-fix repairs; green → it closes the branch's incident. Not for fork PRs.
+    if: >-
+      always() && !cancelled() && github.event_name != 'workflow_dispatch'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RESULT: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+      BRANCH: ${{ github.head_ref || github.ref_name }}
+    steps:
+      - name: Dispatch hexplus-fix with this run
+        run: gh workflow run hexplus-fix.yml --ref hex-plus -f run_id="$GITHUB_RUN_ID" -f result="$RESULT" -f branch="$BRANCH"
