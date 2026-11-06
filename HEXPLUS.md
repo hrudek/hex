@@ -108,9 +108,14 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   Draft PRs get only the Linux checks until marked ready.
 - **An unmerged upstream PR:** `gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=1234`,
   or ask in an issue comment. It opens a PR from `upstream-pr/1234`; merge it
-  with **Create a merge commit**. The daily sync PR reports when upstream
+  automatically with a **merge commit** once its required checks pass. Conflicts
+  are resolved by the automatic Linux route first. The daily sync PR reports when upstream
   merged (the carry dissolves) or closed it (decide whether to keep it).
-- **A conflict** (`conflict` label, draft PR): nothing to do; Hex+ fix resolves it.
+- **A merge conflict:** nothing to comment. The automatic Linux resolver handles
+  iOS text conflicts in same-repository feature, fix, upstream-PR and sync PRs.
+  It preserves both sides' intent, pushes a resolution, removes `conflict` and
+  marks the conflict draft ready. CI must still compile it; the sync gate still
+  requires successful simulator tests. See Automatic merge-conflict repair below.
 
 Only `hrudek` can start the agent; it reads only comments by `hrudek` and itself. It uses
 the owner's Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`, environment
@@ -136,7 +141,7 @@ hexplus-sync (daily 04:23 UTC, or by hand)
 Hex+ CI (fast lane: only Linux checks and compiling block; tests never hold anything up)
 ├─ Linux checks: script tests, actionlint, no conflict markers, scope (every PR and push)
 ├─ Decide: did the app change (pushes to hex-plus) / the app or Hex+ CI scripts (PRs)? no → stop
-├─ PRs: Unsigned archive (required), no simulator tests or screenshots
+├─ PRs (including upstream-pr/* push checks): required archive, no simulator/screenshots
 ├─ Push to hex-plus with app changes: archive and simulator tests in parallel
 │  └─ Test failures → Hex+ fix → fix PR → archive → merge → tests again
 ├─ Manual simulator mode: tests + screenshot artifacts, no device archive/signing
@@ -149,9 +154,9 @@ Hex+ fix (no owner step; at most 6 attempts per incident)
 ├─ Hex+ CI red in a code job on hex-plus, sync/upstream, an open feature PR or a fix PR
 │  ├─ issue "CI broken: <branch>" (label fix) is opened/reused; green CI closes it
 │  └─ signing/TestFlight failed → re-run once, then needs-human (Apple's side)
-├─ agent on macOS (Sonnet, Opus from attempt 2 and for syncs): reproduce with the
-│  simulator tests, fix until they pass locally, hand over a patch (never .github/,
-│  never weakened tests); it cannot push
+├─ actual test/build failures: macOS agent reproduces with simulator tests
+├─ merge conflicts: separate automatic Linux route (Opus, no Xcode tests)
+│  └─ both hand over a patch (never .github/, never weakened tests); neither can push
 ├─ push job (git/gh only): commit → hex-plus incidents: PR fix/ci-<n> with auto-merge;
 │  sync/upstream: commit there, conflict PR marked ready; feature PRs: their branch
 ├─ CI runs again → still red → next attempt right away
@@ -171,6 +176,47 @@ Branch rules: changes reach `hex-plus` through PRs with green `Linux checks`,
 `Decide` and `Unsigned archive` (skipped counts as passed);
 no force pushes or deletion. Repository admins (the owner, and the sync gate
 through `SYNC_TOKEN`) can bypass, so the gate can fast-forward.
+
+### Automatic merge-conflict repair
+
+`Hex+ automatic conflicts` runs on PR changes, pushes to `hex-plus`, completion
+of sync/carry/CI/fix workflows, and every ten minutes as a fallback. GitHub event
+and runner delays still apply: this is automatic, not a guaranteed instant start.
+No owner comment is needed. Same-repository `feature/*`, `upstream-pr/*`,
+`fix/ci-*` and `sync/upstream` PRs into `hex-plus` are eligible. Foreign PRs,
+`infra`/`needs-human` PRs, and ordinary drafts without `conflict` are excluded.
+Unknown GitHub mergeability is retried by the next scan.
+
+```ts
+Conflict detected (GitHub says unmergeable, or a committed conflict is labelled)
+├─ trusted git/gh coordinator merges the current hex-plus into the PR branch
+│  ├─ only iOS text conflicts → commit markers, mark conflict draft
+│  └─ protected/non-iOS or non-text conflicts → needs-human, no agent
+├─ Linux Opus resolver preserves upstream + Hex+ intent, edits only ios/
+│  └─ no Xcode build or simulator tests; the agent must say CI verification is pending
+├─ separate publisher pushes the patch (no signing credentials reach the agent)
+└─ PR marked ready → CI archive → normal merge policy
+   └─ sync/upstream still needs tests + archive before automatic promotion
+```
+
+Already-running conflict resolvers are not queued twice. At most three Linux
+conflict starts per incident are permitted (including failed agent starts),
+then `needs-human` stops the automation. Ordinary CI repairs keep their existing
+six-attempt policy. A conflict incident closes when its branch CI is green.
+The coordinator/publisher recheck the PR commit before pushing; pushes are never
+forced. If someone updates/closes the PR, stale work is not published. A stale
+`conflict` label with no remaining markers is cleaned up without starting an
+agent. Readying a PR does not approve or bypass CI or merge it automatically
+unless its existing policy already does so. Carried upstream PRs explicitly get
+merge-commit auto-merge after conflict cleanup (also when created conflict-free);
+ordinary feature PRs keep their existing auto-merge/manual choice.
+
+The Linux suite covers real local Git merges with conflict markers and preserved
+parents, protected-file refusal, concurrent changes, duplicate dispatch, stale
+labels, routing and retry limits. These tests do not prove the hosted agent's
+semantic resolution or end-to-end GitHub event delivery; CI/device verification
+is still required. The workflow subscriptions exclude themselves to avoid
+recursive workflow_run chains (the capacity retry watcher does too).
 
 ### Automatic runner-capacity retries
 

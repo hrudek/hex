@@ -1,11 +1,11 @@
 # Recover only GitHub-hosted macOS allocation failures, not code/test failures.
-# Hex* avoids the '+' pattern issue; the trusted script allowlists workflow paths.
+# Wildcards avoid the '+' pattern issue; never subscribe to this workflow itself.
 name: Hex+ runner retry
 run-name: "Hex+ runner retry · ${{ github.event.workflow_run.head_branch }} · attempt ${{ github.event.workflow_run.run_attempt }}"
 
 on:
   workflow_run:
-    workflows: ["Hex*"]
+    workflows: ["Hex* CI", "Hex* PR to iPhone", "Hex* fix"]
     types: [completed]
 
 permissions:

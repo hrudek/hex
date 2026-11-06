@@ -3,8 +3,8 @@
 #   2. push it (SYNC_TOKEN, so Hex+ CI runs on it) and open/update the PR "Sync upstream"
 #   3. hexplus-gate fast-forwards hex-plus to it once Hex+ CI is green
 # On a conflict the merge is committed WITH conflict markers to sync/upstream and
-# the PR is a draft labelled "conflict"; CI fails on the markers and hexplus-fix
-# resolves them. While that PR or a fix incident for it is open, syncs leave it alone.
+# the PR is a draft labelled "conflict"; the automatic Linux resolver takes over.
+# While that PR or a fix incident for it is open, syncs leave it alone.
 # This job only runs git and gh; it never builds or runs repository code,
 # because it holds SYNC_TOKEN.
 name: Hex+ sync upstream
@@ -132,7 +132,7 @@ jobs:
             echo
             if [[ -n "$conflicts" ]]; then
               echo; echo '> [!WARNING]'
-              echo '> Merge conflicts are committed with markers. CI fails on them and hexplus-fix resolves them automatically; once CI is green, the gate promotes the sync.'
+              echo '> Merge conflicts are committed with markers. The automatic Linux resolver takes over; once tests and archive pass, the gate promotes the sync.'
               echo; echo '```'; echo "$conflicts"; echo '```'
             fi
             if [[ -n "$carried" ]]; then
@@ -172,7 +172,7 @@ jobs:
           fi
           if [[ "$CONFLICT" == true ]]; then
             gh pr edit "$number" --add-label conflict
-            gh pr comment "$number" --body 'This sync has merge conflicts (markers are committed). hexplus-fix resolves them automatically after CI fails on them; once CI is green, the gate promotes the sync.'
+            gh pr comment "$number" --body 'This sync has merge conflicts (markers are committed). The automatic Linux resolver takes over without a manual comment; once tests and archive pass, the gate promotes the sync.'
           fi
       - name: Keep only Hex+ workflows enabled
         if: always()
