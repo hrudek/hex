@@ -57,7 +57,7 @@ nonisolated struct ShiftStateMachine: Equatable, Sendable {
         if isHeld {
             typedWhileHeld = true
         } else if state == .on {
-            state = .on
+            state = .off
         }
         lastTapDown = nil
     }
