@@ -4,9 +4,10 @@
 #                           issue; it cannot edit files or commit.
 #   build (macOS, Sonnet):  any other "@claude" comment on an issue or PR. Implements the
 #                           agreed plan, runs the simulator tests, pushes to
-#                           feature/<n>-<title> and leaves a "Create PR" link (Claude never
-#                           opens PRs itself; opening it starts Hex+ CI). On a PR it pushes
-#                           fixes to that PR's branch, also for merge-conflict markers.
+#                           feature/<n>-<title>. On a PR it pushes to that PR's branch.
+#   open-pr (Linux, SYNC_TOKEN, git/gh only): opens the PR for a new feature/<n>-* branch
+#                           with auto-merge, so it lands on hex-plus once it compiles.
+#   Red CI afterwards is repaired by hexplus-fix.
 #   Label "model:opus" on the issue/PR makes build use Opus too.
 # Uses the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN from
 # `claude setup-token`) in the environment hexplus-agent; no signing secrets.
@@ -115,7 +116,15 @@ jobs:
             --model ${{ contains(github.event.issue.labels.*.name, 'model:opus') && 'opus' || 'sonnet' }}
             --max-turns 80
             --allowedTools "Bash(bash .github/hexplus/agent-test.sh:*),Bash(xcodegen:*),Bash(xcodebuild:*),Bash(xcrun simctl list:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status:*),Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh run view:*),Bash(gh run list:*)"
-            --append-system-prompt "You are the BUILD step for Hex+, a personal fork of anomalyco/hex that only ships the iPhone app. If the issue has a plan from an earlier Claude comment (the collapsed 'Technical plan for the build agent' section) and the owner approved it, implement exactly that plan plus the owner's answers and corrections, without re-planning. Keep your final reply short for the owner (what was built, how to try it, what to check on the iPhone) and put technical detail in a collapsed <details> block. Without a plan, read HEXPLUS.md first; if something unclear would change what the user sees or how the app behaves, ask short numbered questions with suggested defaults and stop without pushing. Decide smaller details yourself and list those assumptions in the PR body. Rules: change only ios/ and HEXPLUS.md (never .github/ unless the issue explicitly asks for it), never edit upstream's identity (com.kitlangton.hex.mobile, team QC99C9JE59) because CI rewrites it, follow HEXPLUS.md's switch rules (new behaviour gets a Hex+ switch that is ON by default in Hex+'s own files; bug fixes get none; off keeps today's behaviour), add simulator tests in ios/HEXMobileTests, and update the feature table in HEXPLUS.md. Before pushing, run `bash .github/hexplus/agent-test.sh` (optionally with a comma-separated -only-testing list) and fix failures; say in your reply which tests ran and what only a real iPhone can prove. When resolving merge-conflict markers, keep both sides' intent: upstream's change plus Hex+'s feature, and remove every marker. Prefill the pull request title as a short user-facing summary and its body with: what changes for the user, files, tests run, untested on device, a line 'Screenshots: <comma-separated --snap-state scenes your change affects>', and 'Closes #<issue>'."
+            --append-system-prompt "You are the BUILD step for Hex+, a personal fork of anomalyco/hex that only ships the iPhone app. If the issue has a plan from an earlier Claude comment (the collapsed 'Technical plan for the build agent' section) and the owner approved it, implement exactly that plan plus the owner's answers and corrections, without re-planning. Keep your final reply short for the owner (what was built, how to try it, what to check on the iPhone) and put technical detail in a collapsed <details> block. Without a plan, read HEXPLUS.md first; if something unclear would change what the user sees or how the app behaves, ask short numbered questions with suggested defaults and stop without pushing. Decide smaller details yourself and list those assumptions in the PR body. Rules: change only ios/ and HEXPLUS.md (never .github/ unless the issue explicitly asks for it), never edit upstream's identity (com.kitlangton.hex.mobile, team QC99C9JE59) because CI rewrites it, follow HEXPLUS.md's switch rules (new behaviour gets a Hex+ switch that is ON by default in Hex+'s own files; bug fixes get none; off keeps today's behaviour), add simulator tests in ios/HEXMobileTests, and update the feature table in HEXPLUS.md. Before pushing, run `bash .github/hexplus/agent-test.sh` (optionally with a comma-separated -only-testing list) and fix failures; say in your reply which tests ran and what only a real iPhone can prove. When resolving merge-conflict markers, keep both sides' intent: upstream's change plus Hex+'s feature, and remove every marker. The pull request opens itself and merges once it compiles; do not post a 'Create PR' link. Write its text to /tmp/hexplus-pr.md: line 1 a short user-facing title, then the body with: what changes for the user, files, tests run, untested on device, a line 'Screenshots: <comma-separated --snap-state scenes your change affects>', and 'Closes #<issue>'."
+      - name: Keep the PR text for open-pr
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-pr-text-${{ github.run_id }}
+          path: /tmp/hexplus-pr.md
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Show Claude's error (only the final result, not the conversation)
         if: failure() && steps.claude.outputs.execution_file != ''
         env:
@@ -123,3 +132,46 @@ jobs:
         run: |
           jq -r '.[] | select(.type == "result") | "subtype=\(.subtype) is_error=\(.is_error) turns=\(.num_turns)\n\(.result // "(no result text)")"' "$EXECUTION_FILE" | head -40 \
             | tee -a "$GITHUB_STEP_SUMMARY"
+
+  open-pr:
+    needs: build
+    # Issues only; on a PR the build pushed to the PR's own branch.
+    if: success() && !github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: hexplus-sync
+    permissions:
+      contents: read
+    env:
+      GH_REPO: ${{ github.repository }}
+      ISSUE: ${{ github.event.issue.number }}
+      ISSUE_TITLE: ${{ github.event.issue.title }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: hexplus-pr-text-${{ github.run_id }}
+          path: pr-text
+      - name: Open the PR with auto-merge (as the owner, so CI runs without approval)
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          branch=$(gh api "repos/$GH_REPO/branches" --paginate --jq '.[].name' | grep -E "^feature/$ISSUE-" | head -1 || true)
+          if [[ -z "$branch" ]]; then echo 'No feature branch pushed (the agent asked questions or stopped).'; exit 0; fi
+          if [[ -n "$(gh pr list --head "$branch" --state all --json number --jq '.[0].number // empty')" ]]; then
+            echo "$branch already has a PR."; exit 0
+          fi
+          if [[ "$(gh api "repos/$GH_REPO/compare/hex-plus...$branch" --jq .ahead_by)" == 0 ]]; then
+            echo "$branch has no new commits."; exit 0
+          fi
+          if [[ -s pr-text/hexplus-pr.md ]]; then
+            title=$(head -1 pr-text/hexplus-pr.md | sed 's/^#* *//' | cut -c1-100)
+            tail -n +2 pr-text/hexplus-pr.md > body.md
+          else
+            title=$ISSUE_TITLE
+            : > body.md
+          fi
+          grep -q "#$ISSUE" body.md || printf '\nCloses #%s\n' "$ISSUE" >> body.md
+          gh pr create --head "$branch" --base hex-plus --title "${title:-$ISSUE_TITLE}" --body-file body.md --label feature
+          gh pr merge "$branch" --auto --squash

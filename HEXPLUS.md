@@ -72,11 +72,11 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   a short summary and at most 3 questions (with suggested defaults); the full
   technical plan for the build agent sits collapsed below it. Revise with `@claude plan …`; approve with
   `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
-  implements that plan on `feature/<n>-…`, runs the simulator tests, and
-  replies with a **Create PR** link: open the PR (that starts CI and labels
-  it), wait for green CI, then run **Hex+ PR to iPhone** with the PR number:
-  it signs the existing archive after your approval, without building again.
-  Try it on the iPhone, then merge with **Squash and merge**. Each run
+  implements that plan on `feature/<n>-…` and runs the simulator tests. The PR
+  then opens itself with auto-merge: it lands on `hex-plus` as soon as it
+  compiles, and TestFlight follows (fast lane, as upstream). Red tests are
+  repaired afterwards by **Hex+ fix**. To try a PR before it merges, run
+  **Hex+ PR to iPhone** with its number (or disable auto-merge on it). Each run
   starts fresh and reads the issue and all comments by `hrudek` and Claude.
   A small change needs no plan: comment `@claude …` on an issue without the
   `agent` label. Label `model:opus` makes building use Opus too.
@@ -98,14 +98,17 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   or ask in an issue comment. It opens a PR from `upstream-pr/1234`; merge it
   with **Create a merge commit**. The daily sync PR reports when upstream
   merged (the carry dissolves) or closed it (decide whether to keep it).
-- **A conflict** (`conflict` label, draft PR): comment
-  `@claude resolve the merge conflicts in this PR`, or fix it by hand.
+- **A conflict** (`conflict` label, draft PR): nothing to do; Hex+ fix resolves it.
 
 Only `hrudek` can start the agent; it reads only comments by `hrudek` and itself. It uses
 the owner's Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`, environment
 `hexplus-agent`) and has no signing secrets.
 
 ## How the fork works
+
+The owner only watches: the pinned issue **Hex+ status** (updated hourly and after
+every fix, sync and gate run) says whether anything needs a human, what is being
+repaired, the last TestFlight upload, and what must be renewed soon.
 
 ```ts
 hexplus-sync (daily 04:23 UTC, or by hand)
@@ -115,16 +118,31 @@ hexplus-sync (daily 04:23 UTC, or by hand)
 │  ├─ conflict → merge committed with markers, draft PR labelled conflict (later syncs wait for it)
 │  └─ PR "Sync upstream … (N commits, iOS changed: yes|no)", label sync,
 │     with the upstream state of every carried upstream PR
-├─ Hex+ CI runs on sync/upstream
+├─ Hex+ CI runs on sync/upstream (tests AND archive must pass)
 └─ hexplus-gate: green → fast-forward hex-plus to the merge (the PR shows as merged)
 
-Hex+ CI
+Hex+ CI (fast lane: only Linux checks and compiling block; tests never hold anything up)
 ├─ Linux checks: script tests, actionlint, no conflict markers, scope (every PR and push)
 ├─ Decide: did the app change (pushes to hex-plus) / the app or Hex+ CI scripts (PRs)? no → stop
-├─ Simulator tests, unsigned archive                        (no secrets)
+├─ Unsigned archive (required in PRs) ┐ in parallel, no secrets
+├─ Simulator tests, PR screenshots    ┘ (not required; red → Hex+ fix)
+├─ Nightly 05:41 UTC: every test on hex-plus, no signing
 └─ Sign
-   ├─ push to hex-plus → TestFlight, automatically after green tests
+   ├─ push to hex-plus → TestFlight as soon as the archive compiled
    └─ by hand → ad-hoc (hex-plus or feature/*, needs approval) or testflight
+
+Hex+ fix (no owner step; at most 6 attempts per incident)
+├─ Hex+ CI red in a code job on hex-plus, sync/upstream, an open feature PR or a fix PR
+│  ├─ issue "CI broken: <branch>" (label fix) is opened/reused; green CI closes it
+│  └─ signing/TestFlight failed → re-run once, then needs-human (Apple's side)
+├─ agent on macOS (Sonnet, Opus from attempt 2 and for syncs): reproduce with the
+│  simulator tests, fix until they pass locally, hand over a patch (never .github/,
+│  never weakened tests); it cannot push
+├─ push job (git/gh only): commit → hex-plus incidents: PR fix/ci-<n> with auto-merge;
+│  sync/upstream: commit there, conflict PR marked ready; feature PRs: their branch
+├─ CI runs again → still red → next attempt right away
+├─ usage limit / no change → retried every 30 minutes (limits do not count as attempts)
+└─ 6 attempts or > 4 incidents a day → label needs-human, work stops, status says so
 
 Hex+ PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
 ├─ Verify current PR commit, successful Linux checks, tests and unsigned archive
@@ -134,7 +152,8 @@ Hex+ PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
 ```
 
 `hex-plus` only moves forward: `git pull --ff-only` always works locally.
-Branch rules: changes reach `hex-plus` through PRs with green `Linux checks`;
+Branch rules: changes reach `hex-plus` through PRs with green `Linux checks`,
+`Decide` and `Unsigned archive` (skipped counts as passed);
 no force pushes or deletion. Repository admins (the owner, and the sync gate
 through `SYNC_TOKEN`) can bypass, so the gate can fast-forward.
 

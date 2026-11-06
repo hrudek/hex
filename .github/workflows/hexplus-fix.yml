@@ -1,0 +1,277 @@
+# Hex+ (fork-only): repair red CI without the owner, attempt after attempt.
+#   triage (Linux, GITHUB_TOKEN):  a Hex+ CI run failed in a code job (Linux checks,
+#       Simulator tests, Unsigned archive) on hex-plus, sync/upstream, an open feature/*
+#       PR or a fix/ci-* PR → open/reuse the incident issue (label "fix"), save the log.
+#       Green runs close their incidents. Signing failures re-run once, then need a human.
+#   fix (macOS, Claude, no push rights): the agent reproduces with the simulator tests,
+#       fixes until they pass locally, and hands over a patch (never .github/).
+#   push (Linux, SYNC_TOKEN, no repository code): applies the patch, pushes, opens the
+#       fix PR with auto-merge (hex-plus incidents), marks a resolved sync PR ready.
+#   The push starts Hex+ CI again; a red result comes straight back here (next
+#   attempt, Opus from attempt 2). Every 30 minutes the schedule resumes incidents
+#   whose agent could not run (usage limit) or made no change. After 6 attempts, or
+#   more than 4 incidents in a day, the incident gets "needs-human" and work stops.
+name: Hex+ fix
+run-name: "Hex+ fix · ${{ github.event_name == 'workflow_run' && format('{0} · {1}', github.event.workflow_run.head_branch, github.event.workflow_run.conclusion) || github.event_name }}"
+
+on:
+  workflow_run:
+    workflows: [Hex+ CI]
+    types: [completed]
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  triage:
+    if: github.event_name != 'workflow_run' || contains(fromJSON('["failure","success"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      issues: write
+      pull-requests: read
+      contents: read
+    outputs:
+      proceed: ${{ steps.triage.outputs.proceed }}
+      issue: ${{ steps.triage.outputs.issue }}
+      target: ${{ steps.triage.outputs.target }}
+      work: ${{ steps.triage.outputs.work }}
+      base: ${{ steps.triage.outputs.base }}
+      attempt: ${{ steps.triage.outputs.attempt }}
+      model: ${{ steps.triage.outputs.model }}
+      run_url: ${{ steps.triage.outputs.run_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: .github/hexplus
+          persist-credentials: false
+      - name: Decide whether and where to fix
+        id: triage
+        run: python3 -I .github/hexplus/fix-triage.py
+      - name: Keep the failure log for the agent
+        if: steps.triage.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-fix-failure-${{ github.run_id }}
+          path: ${{ runner.temp }}/failure
+          retention-days: 3
+
+  fix:
+    needs: triage
+    if: needs.triage.outputs.proceed == 'true'
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 120
+    environment: hexplus-agent
+    concurrency:
+      group: hexplus-fix-${{ needs.triage.outputs.work }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: read
+    outputs:
+      base_sha: ${{ steps.patch.outputs.base_sha }}
+      changed: ${{ steps.patch.outputs.changed }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.triage.outputs.base }}
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hexplus-fix-failure-${{ github.run_id }}
+          path: /tmp/hexplus-failure
+      - name: Prepare Xcode and XcodeGen for the agent
+        run: |
+          bash .github/hexplus/select-xcode.sh
+          command -v xcodegen >/dev/null || brew install xcodegen
+      - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
+        id: claude
+        env:
+          ISSUE: ${{ needs.triage.outputs.issue }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: |
+            You are the FIX step for Hex+, a personal fork of anomalyco/hex that only ships the iPhone app (ios/). Nobody reviews your work before it merges; CI is the only judge, so be careful and minimal.
+
+            Hex+ CI failed. Failure log (last lines of every failed job): /tmp/hexplus-failure/failure.log
+            Failed run: ${{ needs.triage.outputs.run_url }}
+            Branch you are on: ${{ needs.triage.outputs.base }} (your change goes to ${{ needs.triage.outputs.work }})
+            Incident: issue #${{ needs.triage.outputs.issue }}, attempt ${{ needs.triage.outputs.attempt }} of 6. Earlier attempts and their outcome: `gh issue view ${{ needs.triage.outputs.issue }} --comments`. Do not repeat a fix that already failed.
+
+            Steps:
+            1. Read the log and HEXPLUS.md. Find the root cause.
+            2. If the branch is sync/upstream: it is a merge of upstream into Hex+. Resolve every conflict marker (search with grep for lines starting with <<<<<<<, =======, >>>>>>>) keeping both intents: upstream's change plus Hex+'s feature. Then make it build and pass the tests.
+            3. Reproduce and verify with `bash .github/hexplus/agent-test.sh` (all tests; you may first narrow with a comma-separated -only-testing list, but finish with a full run). Repeat fixing until it passes. If the failure was the Linux checks, check them by reading the log; you cannot change .github/.
+            4. Do NOT commit or push; the workflow does that. Finally write /tmp/hexplus-fix-summary.md: line 1 a short commit subject (max 70 chars, starting with "Fix"), then 2-6 lines: cause, what you changed, which tests passed.
+
+            Rules: never change .github/ (changes there are discarded); never edit upstream's identity (com.kitlangton.hex.mobile, team QC99C9JE59); never delete, skip, disable or weaken tests or assertions to get green, unless a test checks behaviour that upstream deliberately changed (then update it and say so); keep Hex+ features and their switches working (HEXPLUS.md); smallest change that fixes the root cause. If you cannot fix it, change nothing and explain why in the summary file.
+          claude_args: |
+            --model ${{ needs.triage.outputs.model }}
+            --max-turns 120
+            --allowedTools "Read,Edit,MultiEdit,Write,Glob,Grep,LS,Bash(bash .github/hexplus/agent-test.sh:*),Bash(xcodegen:*),Bash(xcodebuild:*),Bash(xcrun simctl list:*),Bash(grep:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status:*),Bash(git blame:*),Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh run view:*)"
+      - name: Hand over the change as a patch (never .github/)
+        id: patch
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/out"
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git add -A -- . ':(exclude).github'
+          git diff --cached --binary > "$RUNNER_TEMP/out/fix.patch"
+          if [[ -f /tmp/hexplus-fix-summary.md ]]; then cp /tmp/hexplus-fix-summary.md "$RUNNER_TEMP/out/summary.md"
+          else echo 'Fix CI (agent wrote no summary)' > "$RUNNER_TEMP/out/summary.md"; fi
+          if [[ -s "$RUNNER_TEMP/out/fix.patch" ]]; then echo changed=true >> "$GITHUB_OUTPUT"; else echo changed=false >> "$GITHUB_OUTPUT"; fi
+          git diff --cached --stat | tail -20
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-fix-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}/out
+          retention-days: 7
+      - name: Show Claude's error (only the final result, not the conversation)
+        if: failure() && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          jq -r '.[] | select(.type == "result") | "subtype=\(.subtype) is_error=\(.is_error) turns=\(.num_turns)\n\(.result // "(no result text)")"' "$EXECUTION_FILE" | head -20 \
+            | tee -a "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/claude-error.txt"
+
+  push:
+    needs: [triage, fix]
+    if: needs.fix.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: hexplus-sync
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE: ${{ needs.triage.outputs.issue }}
+      TARGET: ${{ needs.triage.outputs.target }}
+      WORK: ${{ needs.triage.outputs.work }}
+      ATTEMPT: ${{ needs.triage.outputs.attempt }}
+      MODEL: ${{ needs.triage.outputs.model }}
+      BASE_SHA: ${{ needs.fix.outputs.base_sha }}
+      CHANGED: ${{ needs.fix.outputs.changed }}
+      FIX_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # git and gh only: the patch is data, applied with git, never executed.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.fix.outputs.base_sha }}
+          fetch-depth: 0
+          filter: blob:none
+          token: ${{ secrets.SYNC_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hexplus-fix-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}/in
+      - name: Apply, commit and push
+        id: push
+        run: |
+          set -euo pipefail
+          summary="$RUNNER_TEMP/in/summary.md"
+          subject=$(head -1 "$summary" | cut -c1-72)
+          [[ -n "$subject" ]] || subject='Fix CI'
+          if [[ "$CHANGED" != true ]]; then
+            echo "pushed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git apply --numstat "$RUNNER_TEMP/in/fix.patch" | cut -f3 | grep -E '^\.github/'; then
+            echo 'Patch touches .github/; refusing.'; exit 1
+          fi
+          git apply --index "$RUNNER_TEMP/in/fix.patch"
+          git -c user.name=hexplus-fix -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -F - <<MSG
+          $subject
+
+          $(tail -n +2 "$summary")
+
+          Hex+ fix pipeline, attempt $ATTEMPT ($MODEL) for #$ISSUE: $FIX_RUN
+          MSG
+          git push -q origin "HEAD:refs/heads/$WORK"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "subject=$subject" >> "$GITHUB_OUTPUT"
+      - name: Open the fix PR with auto-merge, or mark a resolved sync PR ready
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          SUBJECT: ${{ steps.push.outputs.subject }}
+        run: |
+          set -euo pipefail
+          number=$(gh pr list --head "$WORK" --state open --json number --jq '.[0].number // empty')
+          if [[ "$TARGET" == hex-plus && -z "$number" ]]; then
+            { tail -n +2 "$RUNNER_TEMP/in/summary.md"; echo; echo "Closes #$ISSUE"; echo; echo "_Hex+ fix pipeline: merges itself once the compile check is green._"; } > body.md
+            gh pr create --head "$WORK" --base hex-plus --title "$SUBJECT" --body-file body.md --label fix
+            number=$(gh pr list --head "$WORK" --state open --json number --jq '.[0].number')
+          fi
+          [[ -n "$number" ]] || exit 0
+          if [[ "$WORK" == sync/upstream ]]; then
+            gh pr ready "$number" || true
+            gh pr edit "$number" --remove-label conflict || true
+          fi
+          if [[ "$WORK" == fix/ci-* ]]; then
+            gh pr merge "$number" --auto --squash
+          fi
+      - name: Record the attempt on the incident
+        if: always()
+        env:
+          PUSHED: ${{ steps.push.outputs.pushed }}
+          SHA: ${{ steps.push.outputs.sha }}
+        run: |
+          {
+            echo '<!-- hexplus-fix-attempt -->'
+            if [[ "$PUSHED" == true ]]; then
+              echo "**Attempt $ATTEMPT/6** ($MODEL): pushed \`${SHA:0:8}\` to \`$WORK\`; CI checks it now."
+            else
+              echo "**Attempt $ATTEMPT/6** ($MODEL): no change pushed. The next attempt starts within 30 minutes."
+            fi
+            echo
+            echo '<details><summary>Agent summary</summary>'
+            echo
+            cat "$RUNNER_TEMP/in/summary.md" 2>/dev/null || echo '(none)'
+            echo
+            echo "</details>"
+            echo
+            echo "Run: $FIX_RUN"
+          } > comment.md
+          gh issue comment "$ISSUE" --body-file comment.md
+
+  waiting:
+    needs: [triage, fix]
+    if: always() && needs.triage.outputs.proceed == 'true' && needs.fix.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE: ${{ needs.triage.outputs.issue }}
+      FIX_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # Not an attempt: usage limits and runner trouble are retried every 30 minutes.
+      - name: Say the agent could not run (one comment, updated)
+        run: |
+          marker='<!-- hexplus-fix-waiting -->'
+          body="$marker
+          The agent could not run (usage limit or runner problem): $FIX_RUN
+          Retrying automatically every 30 minutes; this does not count as an attempt. Last update: $(date -u '+%Y-%m-%d %H:%M UTC')."
+          id=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -1)
+          if [[ -n "$id" ]]; then gh api -X PATCH "repos/$GH_REPO/issues/comments/$id" -f body="$body" >/dev/null
+          else gh issue comment "$ISSUE" --body "$body"; fi

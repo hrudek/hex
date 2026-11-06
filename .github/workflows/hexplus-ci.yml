@@ -1,8 +1,12 @@
 # Hex+ (fork-only) CI for the iPhone app.
-#   push hex-plus       → iOS changed? tests, archive, TestFlight upload (automatic)
-#   push sync/upstream  → the daily upstream merge: checks; hexplus-gate promotes it when green
+# Fast lane (as upstream): a PR must only pass the Linux checks and compile; tests and
+# screenshots run beside it without blocking, and hex-plus ships to TestFlight as soon
+# as it compiles. Red tests anywhere are repaired by hexplus-fix, not by waiting here.
+#   push hex-plus       → app changed? archive → TestFlight at once; tests in parallel
+#   schedule (nightly)  → every test on hex-plus (catches runner/Xcode drift); no signing
+#   push sync/upstream  → the daily upstream merge: tests AND archive; hexplus-gate promotes it when green
 #   push upstream-pr/*  → an unmerged upstream PR taken over by hexplus-upstream-pr: checks, scope
-#   pull_request        → feature PRs: checks, scope, labels, iOS tests and archive
+#   pull_request        → feature/fix PRs: checks, scope, labels, archive (required), tests and screenshots
 # Bot branches (sync/upstream, upstream-pr/*) get their PR checks from their push runs.
 #   workflow_dispatch   → any of the above by hand; ad-hoc from hex-plus or feature/*
 name: Hex+ CI
@@ -11,6 +15,8 @@ run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}
 on:
   push:
     branches: [hex-plus, sync/upstream, "upstream-pr/**"]
+  schedule:
+    - cron: "41 5 * * *"
   pull_request:
     branches: [hex-plus]
     # As OpenCode's checks: no label events (after adding "infra", re-run the failed check);
@@ -153,6 +159,7 @@ jobs:
                 base=$(git ls-remote "$REPO" refs/heads/hex-plus | cut -f1)
               fi ;;
             pull_request) base=$PR_BASE head=$PR_HEAD ;;
+            schedule) ;;   # nightly: always test, never sign
             workflow_dispatch)
               case "$DISTRIBUTION" in
                 unsigned) ;;
@@ -335,12 +342,9 @@ jobs:
 
   sign:
     name: Sign (${{ needs.decide.outputs.sign }})
-    needs: [decide, test, build]
-    # Automatic TestFlight needs green tests; a by-hand run may skip them on purpose.
-    if: >-
-      always() && needs.decide.outputs.sign != '' && needs.build.result == 'success'
-      && (needs.test.result == 'success'
-          || (needs.test.result == 'skipped' && github.event_name == 'workflow_dispatch'))
+    # Ships as soon as the archive compiled; the tests run in parallel and hexplus-fix repairs them.
+    needs: [decide, build]
+    if: needs.decide.outputs.sign != '' && needs.build.result == 'success'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 30
     environment: hexplus-${{ needs.decide.outputs.sign }}
