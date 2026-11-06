@@ -97,6 +97,8 @@ class WorkflowContracts(unittest.TestCase):
         source = (ROOT / '.github/workflows/hexplus-sync.yml').read_text()
         step = source.split('      - name: Open or update the sync PR\n', 1)[1].split('      - name:', 1)[0]
         self.assertIn('GH_TOKEN: ${{ secrets.SYNC_TOKEN }}', step)
+        self.assertIn('Pull requests: Read and write', step)
+        self.assertEqual(step.count('|| pr_access_error'), 2)
 
     def test_gate_only_checks_out_canonical_control_code(self):
         source = (ROOT / '.github/workflows/hexplus-gate.yml').read_text()

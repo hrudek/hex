@@ -168,6 +168,18 @@ the actual promotion shell for success, duplicate requests, stale branches,
 missing PRs, divergence and protected files. These checks alone are not proof
 that GitHub dispatch, promotion and downstream TestFlight ran end-to-end.
 
+Observed on 2026-11-06: push CI run `42227843662` explicitly dispatched gate
+`42227898076`, which verified the run and automatically fast-forwarded `hex-plus`,
+merging sync PR #15. This sync changed no app inputs, so no TestFlight build was
+needed. Owner-token PR updates are still blocked until `SYNC_TOKEN` gets
+**Pull requests: Read and write** for this repository: run `42227812901` failed
+with `Resource not accessible by personal access token (updatePullRequest)`.
+Edit the existing fine-grained token under GitHub account Settings → Developer
+settings → Personal access tokens → Fine-grained tokens. If replacing it rather
+than changing its permissions, update the `hexplus-sync` environment secret too.
+Never paste the token in an issue or PR. After granting access, run the sync
+again; the next upstream update will exercise owner-token PR creation as well.
+
 ### Files Hex+ owns
 
 Upstream never touches these, and the sync refuses upstream commits that would:
