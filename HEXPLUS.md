@@ -52,6 +52,16 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
   with a **Create PR** link: open the PR (that starts CI and labels it), try it
   with an ad-hoc build, merge with **Squash and merge**.
 - **Changes to a PR:** comment `@claude …` on it; Claude pushes to that branch.
+- **Removing a feature:**
+  1. Not merged yet: close the PR.
+  2. Merged, just not wanted right now: turn its experiment switch off in the app.
+  3. For good: on the merged feature PR click **Revert**, then squash-merge the
+     revert PR. It removes the one squash commit, including the feature's row
+     in the table below; issue and PRs stay as history. Reverting the revert
+     brings it back.
+  4. The revert conflicts (a later feature builds on it): comment on the
+     feature's issue `@claude remove this feature again, keep <other feature>`.
+  Agents: a revert is mechanical; prefer GitHub's Revert over rewriting code.
 - **Automation changes** need the `infra` label; label events start no CI run
   (as in OpenCode), so after adding it, re-run the failed `Linux checks`.
   Draft PRs get only the Linux checks until marked ready.
