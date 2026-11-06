@@ -1,14 +1,8 @@
 import UIKit
 
-<<<<<<< HEAD
 /// The Hex key right of space. Warm session: an orange core, and a hold records here.
 /// Otherwise the mark is faded with ↗, and a hold leaves for Hex to start one.
 /// A tap does nothing; holding and sliding opens the style menu (`HexKeyGesture`).
-=======
-/// The Hex key right of space. Warm session: an orange core, and a tap records here.
-/// Otherwise the mark is faded with ↗, and a tap leaves for Hex to start one.
-/// Holding it opens the style menu, and sliding up selects a row on release.
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
 @MainActor
 final class HexKeyControl: UIControl {
     var palette = FullKeyboardPalette(isDark: false) { didSet { if palette != oldValue { setNeedsDisplay() } } }
@@ -17,7 +11,6 @@ final class HexKeyControl: UIControl {
     /// The drawn keycap inside the control's (larger) touch target.
     var keycapFrame: CGRect = .zero { didSet { if keycapFrame != oldValue { setNeedsDisplay() } } }
 
-<<<<<<< HEAD
     /// A still hold: dictate, or open Hex.
     var onHold: (() -> Void)?
     /// Points are in this control's coordinates.
@@ -27,14 +20,6 @@ final class HexKeyControl: UIControl {
 
     private var gesture = HexKeyGesture()
     private var holdWork: DispatchWorkItem?
-=======
-    var onTap: (() -> Void)?
-    var onLongPress: (() -> Void)?
-    /// Finger location in `superview` coordinates during a hold-and-slide gesture.
-    var onLongPressDrag: ((CGPoint) -> Void)?
-    var onLongPressEnd: ((CGPoint) -> Void)?
-    private var longPressFired = false
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -70,7 +55,6 @@ final class HexKeyControl: UIControl {
         return true
     }
 
-<<<<<<< HEAD
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         gesture.touchDown(at: touch.location(in: self))
         isHighlighted = true
@@ -90,22 +74,6 @@ final class HexKeyControl: UIControl {
             onMenuOpen?(point)
         case .dragMenu:
             onMenuDrag?(point)
-=======
-    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-        let pointInParent = superview.map { gesture.location(in: $0) } ?? gesture.location(in: self)
-        switch gesture.state {
-        case .began:
-            longPressFired = true
-            isHighlighted = false
-            onLongPress?()
-        case .changed:
-            onLongPressDrag?(pointInParent)
-        case .ended:
-            onLongPressEnd?(pointInParent)
-            DispatchQueue.main.async { self.longPressFired = false }
-        case .cancelled, .failed:
-            DispatchQueue.main.async { self.longPressFired = false }
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
         default:
             break
         }
@@ -369,13 +337,8 @@ final class HexStyleMenuView: UIView {
 
     private var page: Page = .styles
     private let panel = UIView()
-<<<<<<< HEAD
-    private var rows: [UIControl] = []
-    private var rowActions: [() -> Void] = []
-=======
     private var rows: [MenuRow] = []
     private var hoveredIndex: Int?
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -400,29 +363,7 @@ final class HexStyleMenuView: UIView {
         rebuild()
     }
 
-<<<<<<< HEAD
-    /// Slide to pick: lights the row under `point` (this view's coordinates).
-    func highlight(at point: CGPoint) {
-        let index = rowIndex(at: point)
-        for (i, row) in rows.enumerated() {
-            row.isHighlighted = i == index
-        }
-    }
-
-    /// Slide to pick: runs the row under `point`. Over no row, the menu stays open for taps.
-    func pick(at point: CGPoint) {
-        let index = rowIndex(at: point)
-        rows.forEach { $0.isHighlighted = false }
-        guard let index else { return }
-        rowActions[index]()
-    }
-
-    private func rowIndex(at point: CGPoint) -> Int? {
-        layoutIfNeeded()
-        let local = convert(point, to: panel)
-        return rows.firstIndex { $0.frame.contains(local) }
-=======
-    /// Updates row highlight while the user holds the Hex key and slides into the menu.
+    /// Updates row highlight while the user holds the Hex key and slides into the menu (`point` in this view's coordinates).
     func updateDrag(at point: CGPoint) {
         let local = convert(point, to: panel)
         let nextIndex = rows.firstIndex { $0.frame.contains(local) }
@@ -446,7 +387,6 @@ final class HexStyleMenuView: UIView {
             hoveredIndex = nil
             rows.forEach { $0.isSlideHovered = false }
         }
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -463,7 +403,6 @@ final class HexStyleMenuView: UIView {
         panel.layer.shadowColor = palette.popupShadow.cgColor
         rows.forEach { $0.removeFromSuperview() }
         rows = []
-        rowActions = []
         switch page {
         case .styles:
             for option in DictationStyle.allCases {
@@ -500,12 +439,6 @@ final class HexStyleMenuView: UIView {
         selected: Bool,
         showsTopDivider: Bool = false,
         action: @escaping () -> Void
-<<<<<<< HEAD
-    ) -> UIControl {
-        let row = MenuRow(palette: palette, title: title, detail: detail, chevron: chevron, selected: selected)
-        row.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        rowActions.append(action)
-=======
     ) -> MenuRow {
         let row = MenuRow(
             palette: palette,
@@ -516,7 +449,6 @@ final class HexStyleMenuView: UIView {
             showsTopDivider: showsTopDivider,
             onTrigger: action
         )
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
         return row
     }
 

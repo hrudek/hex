@@ -65,7 +65,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
 
-<<<<<<< HEAD
         hexKey.onHold = { [weak self] in self?.hexKeyHeld() }
         hexKey.onMenuOpen = { [weak self] point in
             guard let self else { return }
@@ -74,12 +73,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
         hexKey.onMenuDrag = { [weak self] point in self?.forwardMenuPoint(point, release: false) }
         hexKey.onMenuRelease = { [weak self] point in self?.forwardMenuPoint(point, release: true) }
-=======
-        hexKey.onTap = { [weak self] in self?.hexKeyTapped() }
-        hexKey.onLongPress = { [weak self] in self?.showStyleMenu() }
-        hexKey.onLongPressDrag = { [weak self] point in self?.styleMenu?.updateDrag(at: point) }
-        hexKey.onLongPressEnd = { [weak self] point in self?.styleMenu?.finishDrag(at: point) }
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
 
         plane.onKeyDown = { [weak self] _ in self?.keyFeedback() }
         plane.onAccentMenuOpened = { [weak self] in self?.selectionFeedback() }
@@ -484,21 +477,18 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         guard let menu = styleMenu else { return }
         let local = hexKey.convert(point, to: menu)
         if release {
-            menu.pick(at: local)
+            menu.finishDrag(at: local)
         } else {
-            menu.highlight(at: local)
+            menu.updateDrag(at: local)
         }
     }
 
     private func showStyleMenu() {
         guard styleMenu == nil, !showsRecording else { return }
-<<<<<<< HEAD
-=======
         if allowsHaptics() {
             haptics.impactOccurred()
             haptics.prepare()
         }
->>>>>>> 9029d2bcafb5504019d9ad979fa3883dd1659161
         plane.cancelAllTouches()
         let menu = HexStyleMenuView()
         menu.palette = palette
