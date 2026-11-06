@@ -1,16 +1,21 @@
 # Hex+ (fork-only) CI for the iPhone app.
 #   push hex-plus       → iOS changed? tests, archive, TestFlight upload (automatic)
 #   push sync/upstream  → the daily upstream merge: checks; hexplus-gate promotes it when green
-#   pull_request        → feature PRs: checks, scope, iOS tests and archive
+#   push upstream-pr/*  → an unmerged upstream PR taken over by hexplus-upstream-pr: checks, scope
+#   pull_request        → feature PRs: checks, scope, labels, iOS tests and archive
+# Bot branches (sync/upstream, upstream-pr/*) get their PR checks from their push runs.
 #   workflow_dispatch   → any of the above by hand; ad-hoc from hex-plus or feature/*
 name: Hex+ CI
-run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event_name }}"
+run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event.action || github.event_name }}"
 
 on:
   push:
-    branches: [hex-plus, sync/upstream]
+    branches: [hex-plus, sync/upstream, "upstream-pr/**"]
   pull_request:
     branches: [hex-plus]
+    # As OpenCode's checks: no label events (after adding "infra", re-run the failed check);
+    # drafts get only the Linux checks until marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       distribution:
@@ -34,8 +39,7 @@ concurrency:
 jobs:
   linux:
     name: Linux checks
-    # The sync PR's checks come from its push run; its pull_request run would only repeat them.
-    if: github.head_ref != 'sync/upstream'
+    if: ${{ !(github.head_ref == 'sync/upstream' || startsWith(github.head_ref, 'upstream-pr/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -49,18 +53,60 @@ jobs:
       - name: Shell syntax
         run: for script in .github/hexplus/*.sh; do bash -n "$script"; done
       - name: Lint Hex+ workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color .github/workflows/hexplus-*.yml
-      - name: Feature PR scope
-        if: github.event_name == 'pull_request'
+        # SC2016/SC2129: Markdown backticks in single quotes and one-line-per-fact outputs are intended.
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color -ignore SC2016 -ignore SC2129 .github/workflows/hexplus-*.yml
+      - name: No conflict markers
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          base=$BASE
+          if [[ ! "$base" =~ ^[0-9a-f]{40}$ || "$base" == 0000000000000000000000000000000000000000 ]] \
+             || ! git cat-file -e "$base^{commit}" 2>/dev/null || [[ "$GITHUB_REF" != refs/heads/hex-plus && -z "${{ github.event.pull_request.number }}" ]]; then
+            base=$(git rev-parse origin/hex-plus)
+          fi
+          if git diff "$base" "$HEAD" | grep -nE '^\+(<<<<<<<|>>>>>>>)( |$)|^\+=======$'; then
+            echo 'Unresolved merge conflict markers (lines above).'; exit 1
+          fi
+          echo "No conflict markers between ${base:0:8} and ${HEAD:0:8}."
+      - name: Scope (what this change may touch)
+        if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/upstream-pr/')
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: bash .github/hexplus/scope.sh "$BASE" "$HEAD"
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          base=${BASE:-$(git rev-parse origin/hex-plus)}
+          bash .github/hexplus/scope.sh "$base" "$HEAD"
+
+  labels:
+    name: Label PR
+    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'reopened')
+      && !startsWith(github.head_ref, 'upstream-pr/') && github.head_ref != 'sync/upstream'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.number }}
+      HEAD_REF: ${{ github.head_ref }}
+    steps:
+      - name: Label by branch and author
+        run: |
+          case "$HEAD_REF" in
+            feature/*) gh pr edit "$PR" --add-label feature ;;
+          esac
+          if gh api "repos/$GH_REPO/pulls/$PR/commits" --jq '.[].author.login // empty' | grep -qx 'claude\[bot\]'; then
+            gh pr edit "$PR" --add-label agent
+          fi
 
   decide:
     name: Decide
-    if: github.head_ref != 'sync/upstream'
+    if: ${{ !(github.head_ref == 'sync/upstream' || startsWith(github.head_ref, 'upstream-pr/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -141,7 +187,7 @@ jobs:
   test:
     name: Simulator tests
     needs: decide
-    if: needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
+    if: needs.decide.outputs.run == 'true' && inputs.only_testing != 'none' && !github.event.pull_request.draft
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
@@ -171,7 +217,7 @@ jobs:
   build:
     name: Unsigned archive
     needs: decide
-    if: needs.decide.outputs.run == 'true'
+    if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 90
     env:

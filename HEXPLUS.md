@@ -19,7 +19,12 @@ is the entry point for them and for the owner.
 - Follow upstream's iPhone rules in `ios/README.md` and `AGENTS.md`; new
   behaviour goes behind an experiment switch, off by default, as upstream does.
 - Every feature brings simulator tests (`ios/HEXMobileTests`), so the daily
-  merge cannot silently break it.
+  merge cannot silently break it. On a macOS runner, run them as CI does with
+  `bash .github/hexplus/agent-test.sh [Target/Class,…]` (it leaves the app's
+  identity untouched; never commit `com.bearylabs` identifiers).
+- Merge-conflict markers in a `sync` or `upstream-pr` PR: keep upstream's
+  change and Hex+'s behaviour, remove every marker; CI's "No conflict markers"
+  check must pass.
 - The PR description says: what changes for the user, which files, how it was
   tested, what could not be tested (anything only a real iPhone proves).
 - Update the feature table below in the same PR.
@@ -31,6 +36,7 @@ git log --no-merges --oneline upstream/dev..hex-plus   # every Hex+ commit
 git diff upstream/dev...hex-plus --stat                # everything Hex+ changes
 gh pr list --state merged --label feature              # features, with their reasons
 gh pr list --label sync                                # upstream merges
+gh pr list --state all --label upstream-pr             # upstream PRs carried early
 ```
 
 ## Features on top of upstream
@@ -39,19 +45,42 @@ gh pr list --label sync                                # upstream merges
 | --- | --- | --- | --- | --- |
 | _none yet_ | | | | |
 
+## Asking for work (owner)
+
+- **A feature:** open an issue describing the behaviour you want, label it
+  `agent`. Claude works on `feature/<n>-…`, runs the simulator tests, and replies
+  with a **Create PR** link: open the PR (that starts CI and labels it), try it
+  with an ad-hoc build, merge with **Squash and merge**.
+- **Changes to a PR:** comment `@claude …` on it; Claude pushes to that branch.
+- **Automation changes** need the `infra` label; label events start no CI run
+  (as in OpenCode), so after adding it, re-run the failed `Linux checks`.
+  Draft PRs get only the Linux checks until marked ready.
+- **An unmerged upstream PR:** `gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=1234`,
+  or ask in an issue comment. It opens a PR from `upstream-pr/1234`; merge it
+  with **Create a merge commit**. The daily sync PR reports when upstream
+  merged (the carry dissolves) or closed it (decide whether to keep it).
+- **A conflict** (`conflict` label, draft PR): comment
+  `@claude resolve the merge conflicts in this PR`, or fix it by hand.
+
+Only `hrudek` can start the agent; it reads only `hrudek`'s comments. It uses
+the owner's Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`, environment
+`hexplus-agent`) and has no signing secrets.
+
 ## How the fork works
 
 ```ts
 hexplus-sync (daily 04:23 UTC, or by hand)
 ├─ upstream dev has new commits? no → done
 ├─ sync/upstream = hex-plus + merge of upstream dev (never rebases, never force-pushes hex-plus)
-│  ├─ conflict, or upstream touching Hex+ files → issue "Hex+ sync needs you"
-│  └─ PR "Sync upstream … (N commits, iOS changed: yes|no)", label sync
+│  ├─ upstream touching Hex+ files → issue "Hex+ sync needs you"
+│  ├─ conflict → merge committed with markers, draft PR labelled conflict (later syncs wait for it)
+│  └─ PR "Sync upstream … (N commits, iOS changed: yes|no)", label sync,
+│     with the upstream state of every carried upstream PR
 ├─ Hex+ CI runs on sync/upstream
 └─ hexplus-gate: green → fast-forward hex-plus to the merge (the PR shows as merged)
 
 Hex+ CI
-├─ Linux checks: script tests, actionlint, PR scope        (every PR and push)
+├─ Linux checks: script tests, actionlint, no conflict markers, scope (every PR and push)
 ├─ Decide: did ios/, its icon/fixtures or Hex+ scripts change? no → stop
 ├─ Simulator tests, unsigned archive                        (no secrets)
 └─ Sign

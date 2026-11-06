@@ -87,7 +87,7 @@ class IdentityTests(unittest.TestCase):
 class ScopeTests(unittest.TestCase):
     """scope.sh: feature PRs touch only ios/ and HEXPLUS.md; Hex+ automation needs the infra label."""
 
-    def run_scope(self, files, labels=''):
+    def run_scope(self, files, labels='', head_ref='feature/x'):
         with tempfile.TemporaryDirectory() as tmp:
             git = ['git', '-C', tmp, '-c', 'user.name=t', '-c', 'user.email=t@t']
             subprocess.run(git[:3] + ['init', '-q'], check=True)
@@ -99,7 +99,7 @@ class ScopeTests(unittest.TestCase):
             subprocess.run(git + ['add', '-A'], check=True)
             subprocess.run(git + ['commit', '-q', '-m', 'change'], check=True)
             return subprocess.run(['bash', str(HERE / 'scope.sh'), 'HEAD~1', 'HEAD'], cwd=tmp,
-                                  env={'PATH': '/usr/bin:/bin', 'LABELS': labels},
+                                  env={'PATH': '/usr/bin:/bin', 'LABELS': labels, 'HEAD_REF': head_ref},
                                   capture_output=True, text=True).returncode
 
     def test_ios_and_notes_pass(self):
@@ -112,6 +112,10 @@ class ScopeTests(unittest.TestCase):
     def test_everything_else_fails(self):
         self.assertEqual(self.run_scope(['src/main.rs']), 1)
         self.assertEqual(self.run_scope(['.github/workflows/release.yml'], 'infra'), 1)
+
+    def test_upstream_pr_may_change_upstream_files_but_not_hexplus_automation(self):
+        self.assertEqual(self.run_scope(['src/main.rs', 'ios/A.swift'], head_ref='upstream-pr/12'), 0)
+        self.assertEqual(self.run_scope(['src/main.rs', '.github/hexplus/x.sh'], head_ref='upstream-pr/12'), 1)
 
 
 if __name__ == '__main__':

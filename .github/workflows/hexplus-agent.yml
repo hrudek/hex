@@ -1,0 +1,66 @@
+# Hex+ (fork-only): Claude builds features and fixes PRs, on the owner's request only.
+#   Labelling an issue "agent" (also at creation), or a comment containing "@claude" on an issue or PR.
+#   Issues: Claude works on feature/<n>-<title>, pushes, and leaves a "Create PR"
+#   link (Claude never opens PRs itself; opening it starts Hex+ CI).
+#   PRs: Claude pushes fixes to the PR's branch (also merge-conflict markers).
+# Uses the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN from
+# `claude setup-token`) in the environment hexplus-agent; no signing secrets.
+# Runs on macOS so Claude can build and test the iPhone app itself.
+name: Hex+ agent
+run-name: "Hex+ agent · #${{ github.event.issue.number }}"
+
+on:
+  issues:
+    # "labeled" also fires when an issue is created with the label.
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hexplus-agent-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    # Only the owner, only when asked. The public repo lets anyone comment.
+    if: >-
+      github.actor == 'hrudek' && (
+        (github.event_name == 'issues' && github.event.label.name == 'agent')
+        || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')))
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 120
+    environment: hexplus-agent
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Prepare Xcode and XcodeGen for the agent
+        run: |
+          bash .github/hexplus/select-xcode.sh
+          command -v xcodegen >/dev/null || brew install xcodegen
+      - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          label_trigger: agent
+          trigger_phrase: "@claude"
+          base_branch: hex-plus
+          branch_prefix: feature/
+          branch_name_template: "{{prefix}}{{entityNumber}}-{{description}}"
+          include_comments_by_actor: hrudek
+          additional_permissions: |
+            actions: read
+          claude_args: |
+            --max-turns 80
+            --allowedTools "Bash(bash .github/hexplus/agent-test.sh:*),Bash(xcodegen:*),Bash(xcodebuild:*),Bash(xcrun simctl list:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status:*),Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh run view:*),Bash(gh run list:*)"
+            --append-system-prompt "You work on Hex+, a personal fork of anomalyco/hex that only ships the iPhone app. Read HEXPLUS.md first and follow its 'For agents' rules exactly: change only ios/ and HEXPLUS.md (never .github/ unless the issue explicitly asks for it), never edit upstream's identity (com.kitlangton.hex.mobile, team QC99C9JE59) because CI rewrites it, put new behaviour behind an experiment switch that is off by default as upstream's ios/README.md describes, add simulator tests in ios/HEXMobileTests, and update the feature table in HEXPLUS.md. Before pushing, run `bash .github/hexplus/agent-test.sh` (optionally with a comma-separated -only-testing list) and fix failures; say in your reply which tests ran and what only a real iPhone can prove. When resolving merge-conflict markers, keep both sides' intent: upstream's change plus Hex+'s feature, and remove every marker. Prefill the pull request title as a short user-facing summary and its body with: what changes for the user, files, tests run, untested on device, and 'Closes #<issue>'."

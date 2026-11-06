@@ -1,25 +1,32 @@
 #!/usr/bin/env bash
-# Feature PRs may change only the iPhone app and Hex+'s notes. Changes to the
-# fork's automation (.github/) need the "infra" label, so an agent cannot widen
-# its own permissions unnoticed. Usage: scope.sh <base-sha> <head-sha>
+# What a PR into hex-plus may change. Usage: scope.sh <base-sha> <head-sha>
+#   feature/* and others: only ios/ and HEXPLUS.md
+#   upstream-pr/*:        whatever the upstream PR changes
+# Hex+'s own automation (.github/hexplus/, hexplus-* workflows) always needs the
+# "infra" label, so an agent cannot widen its own permissions unnoticed.
+# Env: LABELS (comma-separated), HEAD_REF (the PR's branch).
 set -euo pipefail
-: "${LABELS:=}"
-outside=$(git diff --name-only "$1" "$2" | grep -Ev '^(ios/|HEXPLUS\.md$)' || true)
-if [[ -z "$outside" ]]; then
-  echo 'Scope: only ios/ and HEXPLUS.md changed.'
-  exit 0
+: "${LABELS:=}" "${HEAD_REF:=}"
+changed=$(git diff --name-only "$1" "$2")
+owned=$(grep -E '^\.github/(hexplus/|workflows/hexplus-[^/]+\.yml$)' <<<"$changed" || true)
+others=$(grep -Ev '^\.github/(hexplus/|workflows/hexplus-[^/]+\.yml$)' <<<"$changed" || true)
+status=0
+if [[ "$HEAD_REF" != upstream-pr/* ]]; then
+  outside=$(grep -Ev '^(ios/|HEXPLUS\.md$)' <<<"$others" || true)
+  if [[ -n "$outside" ]]; then
+    echo 'Feature PRs must not change files outside ios/, HEXPLUS.md and Hex+ automation:'
+    echo "$outside"
+    status=1
+  fi
 fi
-infra=$(grep -Ev '^\.github/(hexplus/|workflows/hexplus-[^/]+\.yml$)' <<<"$outside" || true)
-if [[ -n "$infra" ]]; then
-  echo 'Feature PRs must not change files outside ios/, HEXPLUS.md and Hex+ automation:'
-  echo "$infra"
-  exit 1
+if [[ -n "$owned" ]]; then
+  if [[ ",$LABELS," == *",infra,"* ]]; then
+    echo 'Hex+ automation changed (label infra present):'
+  else
+    echo 'Hex+ automation changed; add the "infra" label if that is intended:'
+    status=1
+  fi
+  echo "$owned"
 fi
-if [[ ",$LABELS," == *",infra,"* ]]; then
-  echo 'Scope: Hex+ automation changed (label infra present):'
-  echo "$outside"
-  exit 0
-fi
-echo 'Hex+ automation changed; add the "infra" label if that is intended:'
-echo "$outside"
-exit 1
+[[ "$status" != 0 ]] || echo "Scope OK ($(wc -l <<<"$changed" | tr -d ' ') files)."
+exit "$status"
