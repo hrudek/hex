@@ -16,8 +16,18 @@ is the entry point for them and for the owner.
 - One feature = one issue (the spec) → branch `feature/<name>` from `hex-plus`
   → one PR to `hex-plus` with label `feature` → squash merge, so the feature is
   one commit whose message ends with `Closes #<issue>`.
-- Follow upstream's iPhone rules in `ios/README.md` and `AGENTS.md`; new
-  behaviour goes behind an experiment switch, off by default, as upstream does.
+- Follow upstream's iPhone rules in `ios/README.md` and `AGENTS.md`, except for
+  switches: Hex+ is the owner's personal app, so its features are wanted.
+  - Bug fixes and small corrections: no switch.
+  - New behaviour or a new look: a Hex+ switch, **on by default**, so it can be
+    turned off without a new build. Switches live in the app's own **Hex+**
+    settings section, in Hex+'s own files (`HEXShared/HexPlusSettings.swift`
+    for the stored values in the App Group, `HEXMobile/HexPlusCard.swift` for
+    the toggles; create them with the first switch), never in upstream's
+    `ExperimentsCard.swift` or `FullKeyboardSettings.swift`. The off position
+    keeps today's behaviour exactly.
+  - A proven feature becomes permanent through its own issue ("Make … permanent"):
+    remove the switch and the old code path, set its table status to `permanent`.
 - Every feature brings simulator tests (`ios/HEXMobileTests`), so the daily
   merge cannot silently break it. On a macOS runner, run them as CI does with
   `bash .github/hexplus/agent-test.sh [Target/Class,…]` (it leaves the app's
@@ -41,6 +51,9 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 
 ## Features on top of upstream
 
+Status: `switch` (on by default, can be turned off in the app's Hex+ section),
+`permanent` (no switch), `fix` (bug fix, never had a switch).
+
 | Feature | Issue | PR | Status | Main files |
 | --- | --- | --- | --- | --- |
 | _none yet_ | | | | |
@@ -62,7 +75,7 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 - **Changes to a PR:** comment `@claude …` on it; Claude pushes to that branch.
 - **Removing a feature:**
   1. Not merged yet: close the PR.
-  2. Merged, just not wanted right now: turn its experiment switch off in the app.
+  2. Merged, just not wanted right now: turn its switch off in the app's Hex+ section.
   3. For good: on the merged feature PR click **Revert**, then squash-merge the
      revert PR. It removes the one squash commit, including the feature's row
      in the table below; issue and PRs stay as history. Reverting the revert
