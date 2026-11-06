@@ -75,7 +75,7 @@ jobs:
           incoming=$(git rev-list --count "$base..$target")
           # Upstream must never reach Hex+'s own files.
           protected=$(git diff --name-only "$base" "$target" -- HEXPLUS.md .github/hexplus \
-            '.github/workflows/hexplus-*')
+            '.github/workflows/hexplus-*' '.github/ISSUE_TEMPLATE/hexplus-*')
           if [[ -n "$protected" ]]; then
             { echo 'Upstream changes files Hex+ owns:'; echo "$protected"; } > "$RUNNER_TEMP/problem.txt"
             echo "status=protected" >> "$GITHUB_OUTPUT"; exit 1
@@ -88,9 +88,27 @@ jobs:
           if ! git merge --no-ff --no-edit -m "$title" "$target" > "$RUNNER_TEMP/merge.log" 2>&1; then
             conflicts=$(git diff --name-only --diff-filter=U)
             [[ -n "$conflicts" ]] || { cat "$RUNNER_TEMP/merge.log"; exit 1; }
-            # Keep the conflict markers in a commit, so an agent (or you) can fix them in the PR.
-            git add -A
-            git commit -q --no-edit -m "$title (CONFLICTS)" -m "Conflict markers left in:" -m "$conflicts"
+            # Files listed in ours.txt: Hex+'s side wins, no agent needed.
+            ours=$(grep -vE '^\s*(#|$)' .github/hexplus/ours.txt || true)
+            remaining=''
+            while read -r path; do
+              [[ -n "$path" ]] || continue
+              if grep -qxF "$path" <<<"$ours"; then
+                if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout --ours -- "$path" && git add -- "$path"
+                else git rm -q -- "$path"; fi
+                echo "Kept Hex+'s version of $path" | tee -a "$GITHUB_STEP_SUMMARY"
+              else
+                remaining="${remaining:+$remaining$'\n'}$path"
+              fi
+            done <<<"$conflicts"
+            conflicts=$remaining
+            if [[ -z "$conflicts" ]]; then
+              git commit -q --no-edit -m "$title"
+            else
+              # Keep the conflict markers in a commit, so an agent (or you) can fix them in the PR.
+              git add -A
+              git commit -q --no-edit -m "$title (CONFLICTS)" -m "Conflict markers left in:" -m "$conflicts"
+            fi
           fi
           git push -q --force origin "HEAD:refs/heads/$SYNC_BRANCH"
           # Upstream PRs Hex+ carries early (branches upstream-pr/N): has upstream decided yet?

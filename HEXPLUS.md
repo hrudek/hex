@@ -47,8 +47,9 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 
 ## Asking for work (owner)
 
-- **A feature:** open an issue describing the behaviour you want, label it
-  `agent`. **Planning** (Opus, Linux runner, cannot change code) replies with
+- **A feature:** open an issue with the **Feature für Hex+** form (it sets the
+  `agent` label itself), or label any issue `agent`. A blank issue stays a
+  note the agent ignores. **Planning** (Opus, Linux runner, cannot change code) replies with
   a short summary and at most 3 questions (with suggested defaults); the full
   technical plan for the build agent sits collapsed below it. Revise with `@claude plan …`; approve with
   `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
@@ -113,7 +114,12 @@ through `SYNC_TOKEN`) can bypass, so the gate can fast-forward.
 ### Files Hex+ owns
 
 Upstream never touches these, and the sync refuses upstream commits that would:
-`HEXPLUS.md`, `.github/hexplus/`, `.github/workflows/hexplus-*.yml`. Every
+`HEXPLUS.md`, `.github/hexplus/`, `.github/workflows/hexplus-*.yml`,
+`.github/ISSUE_TEMPLATE/hexplus-*.yml`.
+
+Upstream files Hex+ replaces or deletes are listed in `.github/hexplus/ours.txt`
+(today: upstream's issue templates). Their merge conflicts resolve to Hex+'s
+side automatically; conflicts anywhere else go to a draft PR. Every
 other upstream workflow is disabled in this fork, and the sync disables any new
 one it brings in.
 
