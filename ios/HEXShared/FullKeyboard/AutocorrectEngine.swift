@@ -165,7 +165,7 @@ final class AutocorrectEngine {
     let checker: TextChecking
     let learnedWords: LearnedWordsStore
     var isEnabled = true
-    private var lexiconShortcuts: [String: String] = [:]
+    private(set) var lexiconShortcuts: [String: String] = [:]
     private var lexiconTerms: [String] = []
     private var suppressedInSession: Set<String> = []
     private(set) var lastCorrection: AppliedCorrection?
@@ -180,6 +180,10 @@ final class AutocorrectEngine {
 
     func loadLexicon(_ lexicon: UILexicon) {
         loadLexiconEntries(lexicon.entries.map { ($0.userInput, $0.documentText) })
+    }
+
+    func loadLexiconEntries(_ entries: [LexiconEntry]) {
+        loadLexiconEntries(entries.map { ($0.userInput, $0.documentText) })
     }
 
     func loadLexiconEntries(_ entries: [(userInput: String, documentText: String)]) {
