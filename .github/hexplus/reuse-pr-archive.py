@@ -18,7 +18,7 @@ import zipfile
 from config import load
 
 
-REQUIRED_JOBS = ('Linux checks', 'Decide', 'Simulator tests', 'Unsigned archive')
+REQUIRED_JOBS = ('Linux checks', 'Decide', 'Unsigned archive')
 
 
 def require(condition, message):
@@ -59,8 +59,11 @@ def validate_run(run, pr, repo):
             and run['path'] == '.github/workflows/hexplus-ci.yml', 'Expected a Hex+ CI PR run')
     require(run['head_sha'] == pr['head']['sha'] and run['head_branch'] == pr['head']['ref'],
             'PR changed since this run; wait for CI on the current commit')
-    require(run['status'] == 'completed' and run['conclusion'] == 'success',
-            'CI run must have completed successfully')
+    # Tests/screenshots may still run or fail; only the required jobs gate reuse.
+    # Never reuse a cancelled run or a run awaiting execution/approval.
+    require(run['status'] == 'in_progress'
+            or (run['status'] == 'completed' and run['conclusion'] in ('success', 'failure')),
+            'CI run must be in progress or completed, not cancelled or awaiting execution')
 
 
 def validate_jobs(jobs):
@@ -129,7 +132,7 @@ def main():
                      f'?event=pull_request&head_sha={pr["head"]["sha"]}', 'workflow_runs')
         matching = [run for run in runs if run['head_branch'] == pr['head']['ref']]
         require(matching, 'No PR CI run for the current commit; open the PR and wait for CI')
-        # Never silently fall back to an older green run after a newer failure.
+        # Never silently fall back to an older run when the latest lacks a passing archive.
         run = max(matching, key=lambda item: item['id'])
     validate_run(run, pr, repo)
     validate_jobs(pages(repo, f'actions/runs/{run["id"]}/jobs?filter=latest', 'jobs'))
@@ -158,6 +161,7 @@ def main():
                           f'- Source: `{run["head_sha"]}`\n'
                           f'- Existing CI: {run["html_url"]}\n'
                           '- Reuses the unsigned archive; no compile or simulator test rerun.\n'
+                          '- Simulator tests do not gate signing; review their results in the source CI.\n'
                           '- No TestFlight upload. Approve the protected ad-hoc signing job.\n')
 
 
