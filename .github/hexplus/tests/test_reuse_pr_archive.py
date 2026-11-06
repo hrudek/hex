@@ -60,17 +60,30 @@ class ReuseTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 reuse.validate_pr({**self.pr, **change}, REPO)
 
-    def test_rejects_wrong_run_stale_commit_and_failed_or_pending_ci(self):
+    def test_rejects_wrong_run_stale_commit_and_cancelled_or_queued_ci(self):
         for change in (
             {'event': 'push'}, {'event': 'workflow_dispatch'},
             {'path': '.github/workflows/other.yml'}, {'head_sha': 'd' * 40},
-            {'head_branch': 'feature/other'}, {'status': 'in_progress'},
-            {'conclusion': 'failure'}, {'conclusion': 'cancelled'},
+            {'head_branch': 'feature/other'}, {'status': 'queued'},
+            {'status': 'waiting'}, {'conclusion': 'cancelled'},
+            {'conclusion': 'timed_out'}, {'conclusion': 'action_required'},
             {'head_repository': {'full_name': 'other/hex'}},
             {'repository': {'full_name': 'other/hex'}},
         ):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 reuse.validate_run({**self.run, **change}, self.pr, REPO)
+
+    def test_tests_do_not_gate_archive_reuse(self):
+        self.assertEqual(reuse.REQUIRED_JOBS, ('Linux checks', 'Decide', 'Unsigned archive'))
+        for status, conclusion in (('in_progress', None), ('completed', 'failure'),
+                                   ('completed', 'success')):
+            for test_result in (None, 'failure', 'cancelled', 'skipped', 'success'):
+                with self.subTest(status=status, conclusion=conclusion, tests=test_result):
+                    run = {**self.run, 'status': status, 'conclusion': conclusion}
+                    reuse.validate_run(run, self.pr, REPO)
+                    reuse.validate_jobs(self.jobs + [
+                        {'name': 'Simulator tests', 'conclusion': test_result}])
+                    reuse.validate_jobs(self.jobs)  # Tests need not have started yet.
 
     def test_every_required_job_must_run_and_pass(self):
         for index in range(len(self.jobs)):
@@ -149,9 +162,18 @@ class ReuseTests(unittest.TestCase):
 
     def test_select_does_not_fall_back_to_older_successful_run(self):
         failed = {**self.run, 'id': 124, 'conclusion': 'failure'}
-        with self.assertRaisesRegex(ValueError, 'completed successfully'):
-            self.run_main(['--pr', '7'], [self.pr], [[self.run, failed]])
+        jobs = copy.deepcopy(self.jobs)
+        jobs[-1]['conclusion'] = 'failure'
+        with self.assertRaisesRegex(ValueError, 'Unsigned archive must be successful'):
+            self.run_main(['--pr', '7'], [self.pr], [[self.run, failed], jobs])
         self.run_main(['--pr', '7'], [self.pr], [[self.run], self.jobs, [self.artifact]])
+
+    def test_select_accepts_running_or_test_failed_ci_with_passing_archive(self):
+        for status, conclusion in (('in_progress', None), ('completed', 'failure')):
+            with self.subTest(status=status):
+                run = {**self.run, 'status': status, 'conclusion': conclusion}
+                jobs = self.jobs + [{'name': 'Simulator tests', 'conclusion': conclusion}]
+                self.run_main(['--pr', '7'], [self.pr], [[run], jobs, [self.artifact]])
 
     def test_revalidation_rejects_push_while_waiting_for_approval(self):
         moved = {**self.pr, 'head': {**self.pr['head'], 'sha': 'd' * 40}}

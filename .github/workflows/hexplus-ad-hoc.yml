@@ -1,4 +1,4 @@
-# Hex+ (fork-only): sign an already tested feature PR archive, without rebuilding.
+# Hex+ (fork-only): sign a compiled feature PR archive, without waiting for tests or rebuilding.
 # Dispatch from hex-plus only. All control scripts come from hex-plus, never the PR.
 name: Hex+ PR to iPhone
 run-name: "Hex+ PR #${{ inputs.pr }} → iPhone (no rebuild)"
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       pr:
-        description: "Open feature PR number (wait for its Hex+ CI to finish first)"
+        description: "Open feature PR number (Linux checks, Decide and Unsigned archive must pass)"
         type: string
         required: true
 
@@ -35,7 +35,7 @@ jobs:
           ref: hex-plus
           sparse-checkout: .github/hexplus
           persist-credentials: false
-      - name: Require successful tests and archive for the current PR commit
+      - name: Require successful checks and archive for the current PR commit
         id: archive
         env:
           GH_TOKEN: ${{ github.token }}

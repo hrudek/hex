@@ -29,7 +29,10 @@ is the entry point for them and for the owner.
   - A proven feature becomes permanent through its own issue ("Make … permanent"):
     remove the switch and the old code path, set its table status to `permanent`.
 - Every feature brings simulator tests (`ios/HEXMobileTests`), so the daily
-  merge cannot silently break it. On a macOS runner, run them as CI does with
+  merge cannot silently break it. Hand over promptly: a successful local simulator
+  run is not required before the push; PR CI runs tests alongside the archive.
+  Use targeted tests for debugging or when the owner asks to fix failures first,
+  and report honestly which tests ran or are left to CI. On a macOS runner, use
   `bash .github/hexplus/agent-test.sh [Target/Class,…]` (it leaves the app's
   identity untouched; never commit `com.bearylabs` identifiers).
 - Merge-conflict markers in a `sync` or `upstream-pr` PR: keep upstream's
@@ -72,11 +75,14 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   a short summary and at most 3 questions (with suggested defaults); the full
   technical plan for the build agent sits collapsed below it. Revise with `@claude plan …`; approve with
   `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
-  implements that plan on `feature/<n>-…` and runs the simulator tests. The PR
+  implements that plan and its tests on `feature/<n>-…`, without waiting for
+  a local simulator test run. PR CI runs the tests in parallel with the archive. The PR
   then opens itself with auto-merge: it lands on `hex-plus` as soon as it
   compiles, and TestFlight follows (fast lane, as upstream). Red tests are
   repaired afterwards by **Hex+ fix**. To try a PR before it merges, run
-  **Hex+ PR to iPhone** with its number (or disable auto-merge on it). Each run
+  **Hex+ PR to iPhone** with its number. Disable auto-merge before the required
+  checks finish if you want to wait for tests or try the PR before merging.
+  You can then request fixes in the open PR and merge whenever you choose. Each run
   starts fresh and reads the issue and all comments by `hrudek` and Claude.
   A small change needs no plan: comment `@claude …` on an issue without the
   `agent` label. Label `model:opus` makes building use Opus too.
@@ -145,7 +151,8 @@ Hex+ fix (no owner step; at most 6 attempts per incident)
 └─ 6 attempts or > 4 incidents a day → label needs-human, work stops, status says so
 
 Hex+ PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
-├─ Verify current PR commit, successful Linux checks, tests and unsigned archive
+├─ Verify current PR commit, successful Linux checks, Decide and unsigned archive
+├─ Simulator tests keep running independently; pending or red tests do not block signing
 ├─ Your approval in hexplus-ad-hoc
 ├─ Revalidate PR, download existing archive, check GitHub SHA-256 and build provenance
 └─ Sign → encrypted ad-hoc IPA (no rebuild, no TestFlight upload)
@@ -224,7 +231,7 @@ closed when upstream's identity changes.
 ## Owner commands
 
 ```sh
-# Fast path: sign the existing green feature PR archive (no rebuild).
+# Fast path: sign the existing compiled feature PR archive (no rebuild, no test wait).
 # Run from hex-plus, enter the PR number, approve on the run page:
 gh workflow run hexplus-ad-hoc.yml -R hrudek/hex --ref hex-plus -f pr=123
 
@@ -253,8 +260,11 @@ python3 -m unittest discover -s .github/hexplus/tests
 
 The fast path accepts only open, non-draft `feature/*` PRs from this repository
 into `hex-plus`. It requires the latest PR CI run for the current head commit,
-with all four required jobs successful (skipped tests do not count). It checks
-again after approval; if the PR changed, rerun after its new CI finishes.
+with `Linux checks`, `Decide` and `Unsigned archive` successful (none may be
+skipped). Simulator tests and screenshots may still be running or have failed;
+they remain active in CI and their results can be reviewed before a manual merge.
+A cancelled or not-yet-started CI run is refused. It checks again after approval;
+if the PR changed, rerun once the new commit's required jobs pass.
 Artifacts expire after seven days: rerun PR CI if the archive is missing or
 expired, or use the fresh-build fallback. A changed Hex+ identity also requires
 a new PR build. Signing uses only control scripts from `hex-plus`, never scripts
