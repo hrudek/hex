@@ -74,7 +74,9 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
   implements that plan on `feature/<n>-…`, runs the simulator tests, and
   replies with a **Create PR** link: open the PR (that starts CI and labels
-  it), try it with an ad-hoc build, merge with **Squash and merge**. Each run
+  it), wait for green CI, then run **Hex+ PR to iPhone** with the PR number:
+  it signs the existing archive after your approval, without building again.
+  Try it on the iPhone, then merge with **Squash and merge**. Each run
   starts fresh and reads the issue and all comments by `hrudek` and Claude.
   A small change needs no plan: comment `@claude …` on an issue without the
   `agent` label. Label `model:opus` makes building use Opus too.
@@ -123,6 +125,12 @@ Hex+ CI
 └─ Sign
    ├─ push to hex-plus → TestFlight, automatically after green tests
    └─ by hand → ad-hoc (hex-plus or feature/*, needs approval) or testflight
+
+Hex+ PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
+├─ Verify current PR commit, successful Linux checks, tests and unsigned archive
+├─ Your approval in hexplus-ad-hoc
+├─ Revalidate PR, download existing archive, check GitHub SHA-256 and build provenance
+└─ Sign → encrypted ad-hoc IPA (no rebuild, no TestFlight upload)
 ```
 
 `hex-plus` only moves forward: `git pull --ff-only` always works locally.
@@ -155,8 +163,15 @@ closed when upstream's identity changes.
 ## Owner commands
 
 ```sh
-# Ad-hoc build of hex-plus or a feature branch (approve on the run page):
+# Fast path: sign the existing green feature PR archive (no rebuild).
+# Run from hex-plus, enter the PR number, approve on the run page:
+gh workflow run hexplus-ad-hoc.yml -R hrudek/hex --ref hex-plus -f pr=123
+
+# Fallback: build a fresh ad-hoc archive of hex-plus or a feature branch:
 gh workflow run hexplus-ci.yml -R hrudek/hex --ref feature/NAME -f distribution=ad-hoc
+
+# For either path, RUN_ID below is the signing workflow's run ID:
+
 gh run download -R hrudek/hex RUN_ID --pattern 'hexplus-ad-hoc-*' --dir ~/code/hex-downloads/RUN_ID
 age --decrypt --identity ~/.local/share/ios-build-signing/artifacts.agekey \
   --output HEX.ipa ~/code/hex-downloads/RUN_ID/hexplus-ad-hoc-RUN_ID/HEX.ipa.age
@@ -174,6 +189,19 @@ python3 -I .github/hexplus/provision.py ad-hoc|testflight
 # CI scripts on Linux:
 python3 -m unittest discover -s .github/hexplus/tests
 ```
+
+The fast path accepts only open, non-draft `feature/*` PRs from this repository
+into `hex-plus`. It requires the latest PR CI run for the current head commit,
+with all four required jobs successful (skipped tests do not count). It checks
+again after approval; if the PR changed, rerun after its new CI finishes.
+Artifacts expire after seven days: rerun PR CI if the archive is missing or
+expired, or use the fresh-build fallback. A changed Hex+ identity also requires
+a new PR build. Signing uses only control scripts from `hex-plus`, never scripts
+from the PR; no signing secrets reach the build agent. The reused IPA keeps the
+original archive's build number and `build.json`. Merging still creates a fresh
+TestFlight build as before. Archive selection, provenance, digest and ZIP checks
+have Linux unit tests; these do not prove Xcode export or installation on a real
+iPhone.
 
 All builds share one bundle ID: an ad-hoc install replaces the TestFlight
 version on the iPhone (data stays). If GitHub's macOS runners are short on
