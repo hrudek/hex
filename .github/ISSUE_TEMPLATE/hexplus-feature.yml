@@ -1,19 +1,19 @@
 # Hex+ (fork-only). Creating an issue with this form labels it "agent", which
 # starts the planning agent (owner only; anyone else's issue starts nothing).
-name: Feature für Hex+
-description: Beschreib, was sich in der iPhone-App ändern soll. Claude stellt Rückfragen und schreibt einen Plan.
+name: Hex+ feature
+description: Describe what should change in the iPhone app. Claude asks questions and writes a plan.
 labels: [agent]
 body:
   - type: textarea
     id: what
     attributes:
-      label: Was soll sich ändern?
-      description: Aus Sicht der Nutzung, gern in ein, zwei Sätzen.
-      placeholder: "Die Tastatur soll beim Diktieren …"
+      label: What should change?
+      description: From the user's point of view, one or two sentences are enough.
+      placeholder: "While dictating, the keyboard should …"
     validations:
       required: true
   - type: textarea
     id: example
     attributes:
-      label: Beispiel / Vorbild (optional)
-      description: Eine andere App, ein Screenshot, eine Situation, in der es dich stört.
+      label: Example or reference (optional)
+      description: Another app, a screenshot, or a situation where it bothers you.
