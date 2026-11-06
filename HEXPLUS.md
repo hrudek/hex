@@ -51,6 +51,10 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
   `agent`. Claude works on `feature/<n>-…`, runs the simulator tests, and replies
   with a **Create PR** link: open the PR (that starts CI and labels it), try it
   with an ad-hoc build, merge with **Squash and merge**.
+  If the request is unclear in a way that changes behaviour, Claude asks
+  numbered questions (with suggested defaults) in its issue comment instead of
+  pushing; answer in a new comment containing `@claude`. Each run starts fresh
+  and reads the issue and all comments by `hrudek` and Claude.
 - **Changes to a PR:** comment `@claude …` on it; Claude pushes to that branch.
 - **Removing a feature:**
   1. Not merged yet: close the PR.
@@ -72,7 +76,7 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 - **A conflict** (`conflict` label, draft PR): comment
   `@claude resolve the merge conflicts in this PR`, or fix it by hand.
 
-Only `hrudek` can start the agent; it reads only `hrudek`'s comments. It uses
+Only `hrudek` can start the agent; it reads only comments by `hrudek` and itself. It uses
 the owner's Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`, environment
 `hexplus-agent`) and has no signing secrets.
 
