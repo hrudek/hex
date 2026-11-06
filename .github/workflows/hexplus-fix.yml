@@ -110,6 +110,7 @@ jobs:
           path: /tmp/hexplus-failure
       - name: Prepare Xcode and XcodeGen for the agent
         run: |
+          echo '.hexplus-*.md' >> .git/info/exclude   # the agent's notes, never committed
           bash .github/hexplus/select-xcode.sh
           command -v xcodegen >/dev/null || brew install xcodegen
       - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
@@ -131,7 +132,7 @@ jobs:
             1. Read the log and HEXPLUS.md. Find the root cause.
             2. If the branch is sync/upstream: it is a merge of upstream into Hex+. Resolve every conflict marker (search with grep for lines starting with <<<<<<<, =======, >>>>>>>) keeping both intents: upstream's change plus Hex+'s feature. Then make it build and pass the tests.
             3. Reproduce and verify with `bash .github/hexplus/agent-test.sh` (all tests; you may first narrow with a comma-separated -only-testing list, but finish with a full run). Repeat fixing until it passes. If the failure was the Linux checks, check them by reading the log; you cannot change .github/.
-            4. Do NOT commit or push; the workflow does that. Finally write /tmp/hexplus-fix-summary.md: line 1 a short commit subject (max 70 chars, starting with "Fix"), then 2-6 lines: cause, what you changed, which tests passed.
+            4. Do NOT commit or push; the workflow does that. Finally write the file .hexplus-fix-summary.md in the repository root (it is never committed): line 1 a short commit subject (max 70 chars, starting with "Fix"), then 2-6 lines: cause, what you changed, which tests passed.
 
             Rules: never change .github/ (changes there are discarded); never edit upstream's identity (com.kitlangton.hex.mobile, team QC99C9JE59); never delete, skip, disable or weaken tests or assertions to get green, unless a test checks behaviour that upstream deliberately changed (then update it and say so); keep Hex+ features and their switches working (HEXPLUS.md); smallest change that fixes the root cause. If you cannot fix it, change nothing and explain why in the summary file.
           claude_args: |
@@ -146,7 +147,7 @@ jobs:
           echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           git add -A -- . ':(exclude).github'
           git diff --cached --binary > "$RUNNER_TEMP/out/fix.patch"
-          if [[ -f /tmp/hexplus-fix-summary.md ]]; then cp /tmp/hexplus-fix-summary.md "$RUNNER_TEMP/out/summary.md"
+          if [[ -s .hexplus-fix-summary.md ]]; then cp .hexplus-fix-summary.md "$RUNNER_TEMP/out/summary.md"
           else echo 'Fix CI (agent wrote no summary)' > "$RUNNER_TEMP/out/summary.md"; fi
           if [[ -s "$RUNNER_TEMP/out/fix.patch" ]]; then echo changed=true >> "$GITHUB_OUTPUT"; else echo changed=false >> "$GITHUB_OUTPUT"; fi
           git diff --cached --stat | tail -20
