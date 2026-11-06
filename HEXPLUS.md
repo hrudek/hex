@@ -172,6 +172,29 @@ Branch rules: changes reach `hex-plus` through PRs with green `Linux checks`,
 no force pushes or deletion. Repository admins (the owner, and the sync gate
 through `SYNC_TOKEN`) can bypass, so the gate can fast-forward.
 
+### Automatic runner-capacity retries
+
+`Hex+ runner retry` watches completed Hex+ CI, PR-to-iPhone and fix workflows.
+When GitHub explicitly reports that a hosted macOS job could not acquire a
+runner, it retries that job after 5, 10, then 20 minutes. The job must have no
+assigned runner and no executed steps. Real test/build failures, user-cancelled
+runs, foreign repositories and unrelated workflows are never retried this way.
+The wait uses a Linux runner, not a macOS runner; no agent or signing secret is
+used. Control code always comes from trusted `hex-plus`, never the failed branch.
+
+At most three retries are permitted per original run, using GitHub's
+`run_attempt` counter (manual reruns also consume this budget). Only one affected
+job is retried per attempt; GitHub may also rerun its dependent jobs. Successful
+independent jobs and genuine test failures are not rerun. The source branch must
+still point at the same commit, and a PR must remain open and non-draft. These
+checks repeat after the wait; a newer attempt cancels the pending retry.
+After the budget is exhausted the original run stays red and the retry workflow's
+summary says no retry is possible. This is not treated as a code-repair incident.
+
+The Linux unit tests cover recognition, exclusions, delay/budget bounds, current
+source checks and selective rerun requests. They do not prove GitHub's real
+capacity recovery or guarantee that a later attempt receives a runner.
+
 ### Automatic upstream sync
 
 The sync creates/updates its PR with `SYNC_TOKEN` (the owner's trusted account),
