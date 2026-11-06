@@ -64,7 +64,7 @@ jobs:
         run: for script in .github/hexplus/*.sh; do bash -n "$script"; done
       - name: Lint Hex+ workflows
         # SC2016/SC2129: Markdown backticks in single quotes and one-line-per-fact outputs are intended.
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color -ignore SC2016 -ignore SC2129 .github/workflows/hexplus-*.yml
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color -ignore SC2016 -ignore SC2129 -ignore 'label "xcode-27" is unknown' .github/workflows/hexplus-*.yml
       - name: No conflict markers
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -201,7 +201,8 @@ jobs:
     needs: decide
     # No simulator allocation for PRs; manual branch runs remain available.
     if: github.event_name != 'pull_request' && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    # Isolated runner experiment; never merge this override into hex-plus.
+    runs-on: xcode-27
     timeout-minutes: 60
     env:
       APP_CONFIG: ${{ needs.decide.outputs.config }}
