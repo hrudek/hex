@@ -80,7 +80,7 @@ jobs:
     if: >-
       github.actor == 'hrudek' && github.event_name == 'issue_comment'
       && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '@claude plan')
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 120
     environment: hexplus-agent
     permissions:

@@ -164,6 +164,12 @@ def ensure_incident(target: str, run_url: str) -> dict | None:
 def pick_scheduled() -> tuple[dict, str, str] | None:
     """Resume an open incident whose latest CI run is red and whose last attempt is old."""
     now = dt.datetime.now(dt.timezone.utc)
+    me = os.environ.get("GITHUB_RUN_ID", "")
+    for state in ("queued", "in_progress", "waiting"):
+        busy = gh_json("run", "list", "--workflow", "hexplus-fix.yml", "--status", state, "--limit", "20",
+                       "--json", "databaseId") or []
+        if any(str(r["databaseId"]) != me for r in busy):
+            return None  # another fix run is working; never queue behind it (it would be replaced)
     for issue in incidents():
         if "needs-human" in issue["labels"]:
             continue
@@ -175,6 +181,10 @@ def pick_scheduled() -> tuple[dict, str, str] | None:
         if not runs or runs[0]["status"] != "completed" or runs[0]["conclusion"] != "failure":
             continue
         attempts = attempt_comments(issue["number"])
+        if not attempts:
+            created = dt.datetime.fromisoformat(issue["createdAt"].replace("Z", "+00:00"))
+            if now - created < dt.timedelta(minutes=RETRY_AFTER_MINUTES):
+                continue
         if attempts:
             last = dt.datetime.fromisoformat(attempts[-1]["created_at"].replace("Z", "+00:00"))
             if now - last < dt.timedelta(minutes=RETRY_AFTER_MINUTES):

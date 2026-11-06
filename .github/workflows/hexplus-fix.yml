@@ -80,7 +80,7 @@ jobs:
   fix:
     needs: triage
     if: needs.triage.outputs.proceed == 'true'
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 120
     environment: hexplus-agent
     concurrency:
@@ -268,7 +268,7 @@ jobs:
 
   waiting:
     needs: [triage, fix]
-    if: always() && needs.triage.outputs.proceed == 'true' && needs.fix.result == 'failure'
+    if: always() && needs.triage.outputs.proceed == 'true' && contains(fromJSON('["failure","cancelled"]'), needs.fix.result)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
