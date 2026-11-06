@@ -1,0 +1,129 @@
+# Hex+ (fork-only): sign an already tested feature PR archive, without rebuilding.
+# Dispatch from hex-plus only. All control scripts come from hex-plus, never the PR.
+name: Hex+ PR to iPhone
+run-name: "Hex+ PR #${{ inputs.pr }} → iPhone (no rebuild)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Open feature PR number (wait for its Hex+ CI to finish first)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: hexplus-pr-ad-hoc-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    name: Verify existing PR build
+    if: github.ref == 'refs/heads/hex-plus' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run_id: ${{ steps.archive.outputs.run_id }}
+      source_sha: ${{ steps.archive.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: hex-plus
+          sparse-checkout: .github/hexplus
+          persist-credentials: false
+      - name: Require successful tests and archive for the current PR commit
+        id: archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: python3 .github/hexplus/reuse-pr-archive.py --pr "$PR"
+
+  sign:
+    name: Sign existing PR archive (ad-hoc)
+    needs: select
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 30
+    environment:
+      name: hexplus-ad-hoc
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ needs.select.outputs.run_id }}
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      DISTRIBUTION: ad-hoc
+      ARTIFACT_AGE_RECIPIENT: ${{ vars.ARTIFACT_AGE_RECIPIENT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: hex-plus
+          sparse-checkout: .github/hexplus
+          persist-credentials: false
+      - name: Load current trusted Hex+ identity
+        id: config
+        run: python3 .github/hexplus/config.py
+      - name: Revalidate PR after approval and download verified archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          SOURCE_RUN: ${{ needs.select.outputs.run_id }}
+        run: |
+          python3 .github/hexplus/reuse-pr-archive.py --pr "$PR" --run "$SOURCE_RUN" \
+            --download "$RUNNER_TEMP/input"
+      - name: Install pinned artifact encryption tool
+        run: bash .github/hexplus/install-age.sh
+      - name: Select and verify Xcode
+        env:
+          XCODE_PATH: ${{ vars.XCODE_PATH }}
+        run: bash .github/hexplus/select-xcode.sh
+      - name: Decrypt archive with environment-protected identity
+        env:
+          ARTIFACT_AGE_IDENTITY: ${{ secrets.ARTIFACT_AGE_IDENTITY }}
+        run: bash .github/hexplus/decrypt-artifact.sh "$RUNNER_TEMP/input/archive.zip.age" "$RUNNER_TEMP/input/archive.zip"
+      - name: Sign and export IPA (no source build)
+        env:
+          APP_CONFIG: ${{ steps.config.outputs.config }}
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROFILES_ZIP_BASE64: ${{ secrets.IOS_PROFILES_ZIP_BASE64 }}
+        run: |
+          if ! bash .github/hexplus/sign.sh > "$RUNNER_TEMP/signing.log" 2>&1; then
+            echo 'Signing failed. Download and decrypt the signing diagnostics.'
+            exit 1
+          fi
+      - name: Encrypt installable IPA
+        run: bash .github/hexplus/encrypt-ipa.sh
+      - name: Upload encrypted IPA and original build provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-ad-hoc-${{ github.run_id }}
+          path: ${{ runner.temp }}/encrypted-deliverables/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Installation instructions
+        env:
+          PR: ${{ inputs.pr }}
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          SOURCE_RUN: ${{ needs.select.outputs.run_id }}
+        run: |
+          {
+            echo "### Ready to install · PR #$PR"
+            echo "Reused CI run $SOURCE_RUN, source commit \`$SOURCE_SHA\`."
+            echo 'No new build, no TestFlight upload; the original build number is preserved.'
+            echo 'Download the encrypted IPA artifact, decrypt it and install with iphone-wifi (HEXPLUS.md).'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Encrypt signing diagnostics
+        if: always()
+        run: bash .github/hexplus/encrypt-signing-logs.sh
+      - name: Upload encrypted signing diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hexplus-signing-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/signing-diagnostics.zip.age
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove signing material
+        if: always()
+        run: bash .github/hexplus/cleanup-signing.sh
