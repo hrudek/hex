@@ -118,7 +118,7 @@ hexplus-sync (daily 04:23 UTC, or by hand)
 
 Hex+ CI
 ├─ Linux checks: script tests, actionlint, no conflict markers, scope (every PR and push)
-├─ Decide: did ios/, its icon/fixtures or Hex+ scripts change? no → stop
+├─ Decide: did the app change (pushes to hex-plus) / the app or Hex+ CI scripts (PRs)? no → stop
 ├─ Simulator tests, unsigned archive                        (no secrets)
 └─ Sign
    ├─ push to hex-plus → TestFlight, automatically after green tests

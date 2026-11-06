@@ -142,12 +142,13 @@ jobs:
         run: |
           set -euo pipefail
           zero=0000000000000000000000000000000000000000
-          base='' head=$AFTER sign=''
+          base='' head=$AFTER sign='' mode=pipeline
           case "$EVENT" in
             push)
               if [[ "$REF" == refs/heads/hex-plus ]]; then
                 [[ "$BEFORE" != "$zero" ]] && base=$BEFORE
                 sign=testflight
+                mode=app   # the PR already tested pipeline changes; only app changes ship
               else
                 base=$(git ls-remote "$REPO" refs/heads/hex-plus | cut -f1)
               fi ;;
@@ -166,8 +167,8 @@ jobs:
           if [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
             git init -q "$RUNNER_TEMP/fp"
             if git -C "$RUNNER_TEMP/fp" fetch -q --depth=1 --filter=blob:none "$REPO" "$base" "$head"; then
-              a=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$base")
-              b=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$head")
+              a=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$base" "$mode")
+              b=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$head" "$mode")
               diff <(echo "$a") <(echo "$b") || true
               [[ "$a" != "$b" ]] || run=false
             fi
@@ -180,7 +181,7 @@ jobs:
             echo "| | |"; echo "|---|---|"
             echo "| Commit | \`${head:0:8}\` |"
             echo "| Compared with | \`${base:0:8}\` |"
-            echo "| iOS inputs changed | $run |"
+            echo "| iOS inputs changed ($mode) | $run |"
             echo "| Signs | ${sign:-nothing} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
