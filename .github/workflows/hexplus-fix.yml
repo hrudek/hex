@@ -1,4 +1,6 @@
 # Hex+ (fork-only): repair red CI without the owner, attempt after attempt.
+#   Hex+ CI dispatches this at its end with its run id and result (workflow_run cannot
+#   match the name "Hex+ CI": "+" is a pattern character there).
 #   triage (Linux, GITHUB_TOKEN):  a Hex+ CI run failed in a code job (Linux checks,
 #       Simulator tests, Unsigned archive) on hex-plus, sync/upstream, an open feature/*
 #       PR or a fix/ci-* PR → open/reuse the incident issue (label "fix"), save the log.
@@ -12,22 +14,32 @@
 #   whose agent could not run (usage limit) or made no change. After 6 attempts, or
 #   more than 4 incidents in a day, the incident gets "needs-human" and work stops.
 name: Hex+ fix
-run-name: "Hex+ fix · ${{ github.event_name == 'workflow_run' && format('{0} · {1}', github.event.workflow_run.head_branch, github.event.workflow_run.conclusion) || github.event_name }}"
+run-name: "Hex+ fix · ${{ inputs.branch && format('{0} · {1}', inputs.branch, inputs.result) || github.event_name }}"
 
 on:
-  workflow_run:
-    workflows: [Hex+ CI]
-    types: [completed]
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Hex+ CI run to look at (empty: resume waiting incidents)"
+        type: string
+        default: ""
+      result:
+        description: "failure or success (set by Hex+ CI)"
+        type: string
+        default: ""
+      branch:
+        description: "Branch of that run (for the run name only)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   triage:
-    if: github.event_name != 'workflow_run' || contains(fromJSON('["failure","success"]'), github.event.workflow_run.conclusion)
+    if: github.ref == 'refs/heads/hex-plus'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -47,6 +59,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ inputs.run_id }}
+      RESULT: ${{ inputs.result }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -275,3 +289,17 @@ jobs:
           id=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -1)
           if [[ -n "$id" ]]; then gh api -X PATCH "repos/$GH_REPO/issues/comments/$id" -f body="$body" >/dev/null
           else gh issue comment "$ISSUE" --body "$body"; fi
+
+  status:
+    needs: [triage, fix, push, waiting]
+    if: always() && needs.triage.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Refresh the status issue
+        run: gh workflow run hexplus-status.yml --ref hex-plus

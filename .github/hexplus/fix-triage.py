@@ -4,7 +4,7 @@
 Runs on Linux with GITHUB_TOKEN (actions: write, issues: write) and only calls gh.
 It never runs repository code from the failing branch.
 
-Inputs (env): GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, GH_REPO, GITHUB_OUTPUT,
+Inputs (env): GITHUB_EVENT_NAME, RUN_ID, RESULT, GH_REPO, GITHUB_OUTPUT,
 GITHUB_STEP_SUMMARY, RUNNER_TEMP.
 
 One incident = one open issue labelled "fix" whose body carries
@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 MAX_ATTEMPTS = 6
 MAX_NEW_INCIDENTS_PER_DAY = 4
@@ -185,14 +186,20 @@ def pick_scheduled() -> tuple[dict, str, str] | None:
 def main() -> None:
     repo = os.environ["GH_REPO"]
     event_name = os.environ["GITHUB_EVENT_NAME"]
-    with open(os.environ["GITHUB_EVENT_PATH"]) as fh:
-        event = json.load(fh)
-
-    if event_name == "workflow_run":
-        run = event["workflow_run"]
+    run_id = os.environ.get("RUN_ID", "").strip()
+    if run_id:
+        if not run_id.isdigit():
+            stop("run_id must be a number")
+        run = gh_json("api", f"repos/{repo}/actions/runs/{run_id}") or {}
+        if run.get("path", "").split("@")[0] != ".github/workflows/hexplus-ci.yml":
+            stop("not a Hex+ CI run")
         if (run.get("head_repository") or {}).get("full_name") != repo:
             stop("run from another repository")
-        branch, conclusion, run_id = run["head_branch"], run["conclusion"], str(run["id"])
+        # CI dispatches this from its own last job, so the run itself is still in progress.
+        branch = run["head_branch"]
+        conclusion = os.environ.get("RESULT") or run.get("conclusion") or ""
+        if conclusion not in ("failure", "success"):
+            stop(f"result {conclusion or 'unknown'}")
         if conclusion == "success":
             if branch in ("hex-plus", "sync/upstream") or branch.startswith("feature/"):
                 close_incidents(branch, f"Hex+ CI is green again ({run['html_url']}).")
@@ -204,6 +211,11 @@ def main() -> None:
         signing = [j for j in failed if j.startswith(SIGN_PREFIX)]
         if not code:
             if signing and branch == "hex-plus" and run.get("run_attempt", 1) == 1:
+                # The dispatching CI job must finish before its run can be re-run.
+                for _ in range(40):
+                    if gh_json("api", f"repos/{repo}/actions/runs/{run_id}", "--jq", "{status}")["status"] == "completed":
+                        break
+                    time.sleep(15)
                 gh("run", "rerun", run_id, "--failed")
                 stop("signing/upload failed once; re-running it")
             if signing and branch == "hex-plus":
@@ -222,7 +234,7 @@ def main() -> None:
         issue = ensure_incident(target, run["html_url"])
         if not issue:
             stop("incident needs a human")
-    elif event_name in ("schedule", "workflow_dispatch"):
+    elif event_name in ("schedule", "workflow_dispatch"):  # resume waiting incidents
         picked = pick_scheduled()
         if not picked:
             stop("no incident waiting for another attempt")
