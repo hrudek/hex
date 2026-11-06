@@ -21,7 +21,7 @@ scenes=$(printf '%s,%s' "$DEFAULT_SCENES" "${SCENES:-}" | tr ',' '\n' | sed 's/[
 for scene in $scenes; do
   xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
   if xcrun simctl launch "$udid" "$bundle" --snap-state "$scene" >/dev/null; then
-    sleep 4   # let the scene and its animations settle
+    sleep "${SETTLE_SECONDS:-8}"   # let the scene, Metal views and animations settle
     xcrun simctl io "$udid" screenshot --type=png "$out/$scene.png" >/dev/null && echo "Captured $scene"
   else
     echo "::warning::Could not launch scene $scene"
