@@ -107,7 +107,7 @@ class CapacityTests(unittest.TestCase):
 
     def test_workflow_uses_trusted_code_and_bounded_linux_wait(self):
         source = (ROOT / '.github/workflows/hexplus-retry.yml').read_text()
-        self.assertIn('workflows: ["Hex*"]', source)
+        self.assertIn('workflows: ["Hex* CI", "Hex* PR to iPhone", "Hex* fix"]', source)
         self.assertIn('ref: hex-plus', source)
         self.assertIn('runs-on: ubuntu-latest', source)
         self.assertIn('timeout-minutes: 25', source)

@@ -11,11 +11,13 @@ def job(name):
     return re.split(r'\n  \S', SOURCE.split(f'\n  {name}:\n', 1)[1], maxsplit=1)[0]
 
 
-def condition(name, event, distribution='', changed='true', only_testing='', draft=False):
+def condition(name, event, distribution='', changed='true', only_testing='', draft=False,
+              ref='refs/heads/hex-plus'):
     # Evaluate the actual single-line scheduling expression, not a copied policy.
     expression = re.search(r'^    if: (.+)$', job(name), re.M).group(1)
     values = {
         'github.event_name': event,
+        'github.ref': ref,
         'inputs.distribution': distribution,
         'needs.decide.outputs.run': changed,
         'inputs.only_testing': only_testing,
@@ -39,6 +41,9 @@ class FastLaneContracts(unittest.TestCase):
         # Both hex-plus and sync/upstream use push events; the gate stays strict.
         self.assertTrue(condition('test', 'push'))
         self.assertTrue(condition('build', 'push'))
+        self.assertTrue(condition('test', 'push', ref='refs/heads/sync/upstream'))
+        self.assertFalse(condition('test', 'push', ref='refs/heads/upstream-pr/938'))
+        self.assertTrue(condition('build', 'push', ref='refs/heads/upstream-pr/938'))
         self.assertFalse(condition('test', 'push', changed='false'))
         self.assertFalse(condition('build', 'push', changed='false'))
         self.assertIn("needs.test.result == 'success' && needs.build.result == 'success'",

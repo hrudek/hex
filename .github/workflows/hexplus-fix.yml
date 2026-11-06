@@ -5,8 +5,9 @@
 #       Simulator tests, Unsigned archive) on hex-plus, sync/upstream, an open feature/*
 #       PR or a fix/ci-* PR → open/reuse the incident issue (label "fix"), save the log.
 #       Green runs close their incidents. Signing failures re-run once, then need a human.
-#   fix (macOS, Claude, no push rights): the agent reproduces with the simulator tests,
-#       fixes until they pass locally, and hands over a patch (never .github/).
+#   fix (Claude, no push rights): committed merge conflicts use Linux (Opus, no
+#       Xcode); actual CI failures use macOS and reproduce with simulator tests.
+#       Both hand over a patch, never .github/.
 #   push (Linux, SYNC_TOKEN, no repository code): applies the patch, pushes, opens the
 #       fix PR with auto-merge (hex-plus incidents), marks a resolved sync PR ready.
 #   The push starts Hex+ CI again; a red result comes straight back here (next
@@ -23,6 +24,10 @@ on:
     inputs:
       run_id:
         description: "Hex+ CI run to look at (empty: resume waiting incidents)"
+        type: string
+        default: ""
+      conflict_pr:
+        description: "Same-repository conflict PR (automatic Linux resolver; no Xcode)"
         type: string
         default: ""
       result:
@@ -56,11 +61,14 @@ jobs:
       attempt: ${{ steps.triage.outputs.attempt }}
       model: ${{ steps.triage.outputs.model }}
       run_url: ${{ steps.triage.outputs.run_url }}
+      conflict: ${{ steps.triage.outputs.conflict }}
+      pr: ${{ steps.triage.outputs.pr }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       RUN_ID: ${{ inputs.run_id }}
       RESULT: ${{ inputs.result }}
+      CONFLICT_PR: ${{ inputs.conflict_pr }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -80,7 +88,7 @@ jobs:
   fix:
     needs: triage
     if: needs.triage.outputs.proceed == 'true'
-    runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
+    runs-on: ${{ needs.triage.outputs.conflict == 'true' && 'ubuntu-latest' || vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 120
     environment: hexplus-agent
     concurrency:
@@ -108,13 +116,26 @@ jobs:
         with:
           name: hexplus-fix-failure-${{ github.run_id }}
           path: /tmp/hexplus-failure
-      - name: Prepare Xcode and XcodeGen for the agent
+      - name: Prepare the resolver (Linux for conflicts, Xcode for test failures)
+        id: prepare
+        env:
+          CONFLICT: ${{ needs.triage.outputs.conflict }}
         run: |
-          echo '.hexplus-*.md' >> .git/info/exclude   # the agent's notes, never committed
-          bash .github/hexplus/select-xcode.sh
-          command -v xcodegen >/dev/null || brew install xcodegen
+          echo '.hexplus-*.md' >> .git/info/exclude
+          if [[ "$CONFLICT" == true ]]; then
+            if git grep -I -n -E '^(<<<<<<< |=======$|>>>>>>> )' -- ios/; then
+              echo 'has_conflicts=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'has_conflicts=false' >> "$GITHUB_OUTPUT"
+              echo 'Conflicts were already resolved; no agent needed.'
+            fi
+          else
+            bash .github/hexplus/select-xcode.sh
+            command -v xcodegen >/dev/null || brew install xcodegen
+          fi
       - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
         id: claude
+        if: needs.triage.outputs.conflict != 'true' || steps.prepare.outputs.has_conflicts == 'true'
         env:
           ISSUE: ${{ needs.triage.outputs.issue }}
         with:
@@ -123,7 +144,9 @@ jobs:
           prompt: |
             You are the FIX step for Hex+, a personal fork of anomalyco/hex that only ships the iPhone app (ios/). Nobody reviews your work before it merges; CI is the only judge, so be careful and minimal.
 
-            Hex+ CI failed. Failure log (last lines of every failed job): /tmp/hexplus-failure/failure.log
+            Conflict-only Linux mode: ${{ needs.triage.outputs.conflict }}.
+            If true, resolve committed merge markers in ios/ only, preserving both upstream and Hex+ intent. Do not run Xcode, a build or simulator tests: they are unavailable on Linux. Explicitly report that CI must compile/test the result. Never weaken tests or silently choose an entire side. If false, reproduce and test the CI failure on this Mac as described below.
+            Failure/context log: /tmp/hexplus-failure/failure.log
             Failed run: ${{ needs.triage.outputs.run_url }}
             Branch you are on: ${{ needs.triage.outputs.base }} (your change goes to ${{ needs.triage.outputs.work }})
             Incident: issue #${{ needs.triage.outputs.issue }}, attempt ${{ needs.triage.outputs.attempt }} of 6. Earlier attempts and their outcome: `gh issue view ${{ needs.triage.outputs.issue }} --comments`. Do not repeat a fix that already failed.
@@ -131,8 +154,8 @@ jobs:
             Steps:
             1. Read the log and HEXPLUS.md. Find the root cause.
             2. If the branch is sync/upstream: it is a merge of upstream into Hex+. Resolve every conflict marker (search with grep for lines starting with <<<<<<<, =======, >>>>>>>) keeping both intents: upstream's change plus Hex+'s feature. Then make it build and pass the tests.
-            3. Reproduce and verify with `bash .github/hexplus/agent-test.sh` (all tests; you may first narrow with a comma-separated -only-testing list, but finish with a full run). Repeat fixing until it passes. If the failure was the Linux checks, check them by reading the log; you cannot change .github/.
-            4. Do NOT commit or push; the workflow does that. Finally write the file .hexplus-fix-summary.md in the repository root (it is never committed): line 1 a short commit subject (max 70 chars, starting with "Fix"), then 2-6 lines: cause, what you changed, which tests passed.
+            3. In conflict-only Linux mode, remove every conflict marker and check the diff for a coherent resolution; edit only ios/. Otherwise reproduce and verify with `bash .github/hexplus/agent-test.sh` (finish with all tests) and fix until it passes. If the failure was Linux checks, read the log; you cannot change .github/.
+            4. Do NOT commit or push; the workflow does that. Finally write the file .hexplus-fix-summary.md in the repository root (it is never committed): line 1 a short commit subject (max 70 chars, starting with "Fix"), then 2-6 lines: cause, what you changed, which tests actually ran (Linux conflicts: no Xcode tests; CI verification pending).
 
             Rules: never change .github/ (changes there are discarded); never edit upstream's identity (com.kitlangton.hex.mobile, team QC99C9JE59); never delete, skip, disable or weaken tests or assertions to get green, unless a test checks behaviour that upstream deliberately changed (then update it and say so); keep Hex+ features and their switches working (HEXPLUS.md); smallest change that fixes the root cause. If you cannot fix it, change nothing and explain why in the summary file.
           claude_args: |
@@ -141,11 +164,22 @@ jobs:
             --allowedTools "Read,Edit,MultiEdit,Write,Glob,Grep,LS,Bash(bash .github/hexplus/agent-test.sh:*),Bash(xcodegen:*),Bash(xcodebuild:*),Bash(xcrun simctl list:*),Bash(grep:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status:*),Bash(git blame:*),Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh run view:*)"
       - name: Hand over the change as a patch (never .github/)
         id: patch
+        env:
+          CONFLICT: ${{ needs.triage.outputs.conflict }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/out"
           echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          git add -A -- . ':(exclude).github'
+          if [[ "$CONFLICT" == true ]]; then
+            outside=$(git diff --name-only HEAD -- . ':(exclude)ios')
+            [[ -z "$outside" ]] || { echo 'Linux conflict resolver changed files outside ios/'; exit 1; }
+            if git grep -I -n -E '^(<<<<<<< |=======$|>>>>>>> )' -- ios/; then
+              echo 'Conflict markers remain; refusing patch.'; exit 1
+            fi
+            git add -A -- ios/
+          else
+            git add -A -- . ':(exclude).github'
+          fi
           git diff --cached --binary > "$RUNNER_TEMP/out/fix.patch"
           if [[ -s .hexplus-fix-summary.md ]]; then cp .hexplus-fix-summary.md "$RUNNER_TEMP/out/summary.md"
           else echo 'Fix CI (agent wrote no summary)' > "$RUNNER_TEMP/out/summary.md"; fi
@@ -182,6 +216,8 @@ jobs:
       ATTEMPT: ${{ needs.triage.outputs.attempt }}
       MODEL: ${{ needs.triage.outputs.model }}
       BASE_SHA: ${{ needs.fix.outputs.base_sha }}
+      CONFLICT: ${{ needs.triage.outputs.conflict }}
+      CONFLICT_PR: ${{ needs.triage.outputs.pr }}
       CHANGED: ${{ needs.fix.outputs.changed }}
       FIX_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
@@ -208,6 +244,18 @@ jobs:
           fi
           if git apply --numstat "$RUNNER_TEMP/in/fix.patch" | cut -f3 | grep -E '^\.github/'; then
             echo 'Patch touches .github/; refusing.'; exit 1
+          fi
+          if [[ "$CONFLICT" == true ]]; then
+            if git apply --numstat "$RUNNER_TEMP/in/fix.patch" | cut -f3 | grep -v '^ios/'; then
+              echo 'Linux conflict patch touches files outside ios/; refusing.'; exit 1
+            fi
+            gh api "repos/$GH_REPO/pulls/$CONFLICT_PR" > "$RUNNER_TEMP/current-pr.json"
+            if ! jq -e --arg sha "$BASE_SHA" --arg repo "$GH_REPO" --arg work "$WORK" \
+              '.state == "open" and .head.sha == $sha and .head.ref == $work and .head.repo.full_name == $repo and .base.ref == "hex-plus"' \
+              "$RUNNER_TEMP/current-pr.json" >/dev/null; then
+              echo "PR changed or closed during repair; not pushing a stale patch."
+              echo "pushed=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
           fi
           git apply --index "$RUNNER_TEMP/in/fix.patch"
           git -c user.name=hexplus-fix -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' \
@@ -236,11 +284,13 @@ jobs:
             number=$(gh pr list --head "$WORK" --state open --json number --jq '.[0].number')
           fi
           [[ -n "$number" ]] || exit 0
-          if [[ "$WORK" == sync/upstream ]]; then
+          if [[ "$WORK" == sync/upstream || "$CONFLICT" == true ]]; then
             gh pr ready "$number" || true
             gh pr edit "$number" --remove-label conflict || true
           fi
-          if [[ "$WORK" == fix/ci-* ]]; then
+          if [[ "$WORK" == upstream-pr/* ]]; then
+            gh pr merge "$number" --auto --merge
+          elif [[ "$WORK" == fix/ci-* ]]; then
             gh pr merge "$number" --auto --squash
           fi
       - name: Record the attempt on the incident

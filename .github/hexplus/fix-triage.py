@@ -27,6 +27,8 @@ import sys
 import time
 
 MAX_ATTEMPTS = 6
+MAX_CONFLICT_ATTEMPTS = 3
+CONFLICT_ATTEMPT = "<!-- hexplus-conflict-attempt -->"
 MAX_NEW_INCIDENTS_PER_DAY = 4
 RETRY_AFTER_MINUTES = 25
 CODE_JOBS = {"Linux checks", "Decide", "Simulator tests", "Unsigned archive"}
@@ -82,13 +84,13 @@ def incident_for_target(target: str) -> dict | None:
     return next((i for i in incidents() if i["target"] == target), None)
 
 
-def attempt_comments(issue: int) -> list[dict]:
+def attempt_comments(issue: int, marker: str = ATTEMPT) -> list[dict]:
     comments = gh_json("api", f"repos/{os.environ['GH_REPO']}/issues/{issue}/comments",
                        "--paginate", "--jq", "[.[] | {body, created_at}]") or []
     # --paginate with --jq prints one array per page.
     if comments and isinstance(comments[0], list):
         comments = [c for page in comments for c in page]
-    return [c for c in comments if c["body"].startswith(ATTEMPT)]
+    return [c for c in comments if c["body"].startswith(marker)]
 
 
 def failed_jobs(run_id: str) -> list[str]:
@@ -126,7 +128,7 @@ def classify(branch: str) -> tuple[str, str] | None:
         if issue.get("state") != "OPEN" or not target:
             return None
         return target.group(1), branch
-    if branch.startswith("feature/"):
+    if branch.startswith(("feature/", "upstream-pr/")):
         return (branch, branch) if open_pr(branch) else None
     return None
 
@@ -197,7 +199,31 @@ def main() -> None:
     repo = os.environ["GH_REPO"]
     event_name = os.environ["GITHUB_EVENT_NAME"]
     run_id = os.environ.get("RUN_ID", "").strip()
-    if run_id:
+    conflict_number = os.environ.get("CONFLICT_PR", "").strip()
+    conflict = False
+    pr_number = ""
+    if conflict_number:
+        if not re.fullmatch(r"[1-9][0-9]*", conflict_number):
+            stop("invalid conflict PR number")
+        pr = gh_json("api", f"repos/{repo}/pulls/{conflict_number}")
+        labels = [label["name"] for label in pr["labels"]]
+        branch = pr["head"]["ref"]
+        if (pr["state"] != "open" or pr["base"]["ref"] != "hex-plus"
+                or pr["base"]["repo"]["full_name"] != repo
+                or (pr["head"].get("repo") or {}).get("full_name") != repo
+                or "conflict" not in labels or "needs-human" in labels
+                or not (branch == "sync/upstream"
+                        or branch.startswith(("feature/", "upstream-pr/", "fix/ci-")))):
+            stop("not an eligible same-repository conflict PR")
+        target = work = branch
+        conflict = True
+        pr_number = conflict_number
+        issue = ensure_incident(target, pr["html_url"])
+        if not issue:
+            stop("conflict incident needs a human")
+        failed = ["Merge conflicts"]
+        run_id = ""
+    elif run_id:
         if not run_id.isdigit():
             stop("run_id must be a number")
         run = gh_json("api", f"repos/{repo}/actions/runs/{run_id}") or {}
@@ -211,7 +237,7 @@ def main() -> None:
         if conclusion not in ("failure", "success"):
             stop(f"result {conclusion or 'unknown'}")
         if conclusion == "success":
-            if branch in ("hex-plus", "sync/upstream") or branch.startswith("feature/"):
+            if branch in ("hex-plus", "sync/upstream") or branch.startswith(("feature/", "upstream-pr/", "fix/ci-")):
                 close_incidents(branch, f"Hex+ CI is green again ({run['html_url']}).")
             stop("CI is green")
         if conclusion != "failure":
@@ -256,6 +282,22 @@ def main() -> None:
 
     if "needs-human" in issue["labels"]:
         stop(f"incident #{issue['number']} needs a human")
+    # Conflict repair has its own immediate Linux route; never race a macOS fixer.
+    if not conflict:
+        prs = gh_json("pr", "list", "--head", work, "--base", "hex-plus", "--state", "open",
+                      "--json", "number,labels") or []
+        if any(any(label["name"] == "conflict" for label in pr["labels"]) for pr in prs):
+            stop("merge conflicts are handled by the automatic Linux conflict workflow")
+    if conflict:
+        conflict_attempts = len(attempt_comments(issue["number"], CONFLICT_ATTEMPT))
+        if conflict_attempts >= MAX_CONFLICT_ATTEMPTS:
+            gh("issue", "edit", str(issue["number"]), "--add-label", "needs-human")
+            gh("pr", "edit", pr_number, "--add-label", "needs-human")
+            stop("Linux conflict attempt limit reached; needs-human")
+        # Reserve before dispatch: even agent/job failures consume this bounded budget.
+        gh("issue", "comment", str(issue["number"]), "--body",
+           f"{CONFLICT_ATTEMPT}\nLinux conflict attempt {conflict_attempts + 1}/3 requested "
+           f"for PR #{pr_number}; CI must verify the result.")
     attempts = len(attempt_comments(issue["number"]))
     if attempts >= MAX_ATTEMPTS:
         gh("issue", "edit", str(issue["number"]), "--add-label", "needs-human")
@@ -268,18 +310,22 @@ def main() -> None:
 
     log_path = os.path.join(os.environ["RUNNER_TEMP"], "failure", "failure.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    log = subprocess.run(["gh", "run", "view", run_id, "--log-failed"], capture_output=True, text=True).stdout
+    log = ("Resolve the committed merge conflicts in this branch; preserve both intents.\n"
+           if conflict else subprocess.run(["gh", "run", "view", run_id, "--log-failed"],
+                                           capture_output=True, text=True).stdout)
     lines = [re.sub(r"^[^\t]*\t[^\t]*\t\S+Z ", "", line) for line in log.splitlines()]
     with open(log_path, "w") as fh:
         fh.write("\n".join(lines[-4000:]) + "\n")
 
     attempt = attempts + 1
-    model = "sonnet" if attempt == 1 and target != "sync/upstream" else "opus"
+    model = "sonnet" if attempt == 1 and target != "sync/upstream" and not conflict else "opus"
     summary(f"Fix attempt {attempt}/{MAX_ATTEMPTS} for #{issue['number']} on `{work}` "
             f"(from `{base}`, model {model}); failed jobs: {', '.join(failed)}")
     output(proceed="true", issue=str(issue["number"]), target=target, work=work, base=base,
            run_id=run_id, attempt=str(attempt), model=model,
-           run_url=f"https://github.com/{repo}/actions/runs/{run_id}")
+           conflict="true" if conflict else "false", pr=pr_number,
+           run_url=(f"https://github.com/{repo}/pull/{pr_number}" if conflict
+                    else f"https://github.com/{repo}/actions/runs/{run_id}"))
 
 
 if __name__ == "__main__":

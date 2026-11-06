@@ -200,7 +200,7 @@ jobs:
     name: Simulator tests
     needs: decide
     # No simulator allocation for PRs; manual branch runs remain available.
-    if: github.event_name != 'pull_request' && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
+    if: github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref == 'refs/heads/hex-plus' || github.ref == 'refs/heads/sync/upstream') && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
@@ -385,7 +385,8 @@ jobs:
     # Red → hexplus-fix repairs; green → it closes the branch's incident. Not for fork PRs.
     if: >-
       always() && !cancelled() && github.event_name != 'workflow_dispatch'
-      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      && (github.event_name != 'pull_request'
+          || (github.event.pull_request.head.repo.full_name == github.repository && needs.linux.result != 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

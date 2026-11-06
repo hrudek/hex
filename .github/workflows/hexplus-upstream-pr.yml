@@ -3,8 +3,8 @@
 # Merges the PR's head into upstream-pr/<n> (from hex-plus) and opens a PR to
 # hex-plus, labelled upstream-pr. Merge that PR with a merge commit, not squash.
 # Rerun to pick up a newer version of the upstream PR. On a conflict the merge is
-# committed with markers and the PR is a draft labelled "conflict": comment
-# "@claude resolve the merge conflicts in this PR". Runs only git and gh.
+# committed with markers and the PR is a draft labelled "conflict"; the automatic
+# Linux conflict resolver takes over. This workflow runs only git and gh.
 name: Hex+ upstream PR
 run-name: "Hex+ upstream PR · anomalyco/hex#${{ inputs.pr }}"
 
@@ -91,7 +91,7 @@ jobs:
             echo "- Newer upstream version: \`gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=$PR\`"
             if [[ -n "$conflicts" ]]; then
               echo; echo '> [!WARNING]'
-              echo '> Merge conflicts are committed with markers. Comment `@claude resolve the merge conflicts in this PR` (or fix them by hand); CI fails while markers remain.'
+              echo '> Merge conflicts are committed with markers. The automatic Linux resolver takes over; CI must compile the resolution before merging.'
               echo; echo '```'; echo "$conflicts"; echo '```'
             fi
           } > "$RUNNER_TEMP/body.md"
@@ -102,6 +102,7 @@ jobs:
           cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Open or update the PR
         env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
           TITLE: ${{ steps.merge.outputs.message }}
           CONFLICT: ${{ steps.merge.outputs.conflict }}
         run: |
@@ -117,5 +118,7 @@ jobs:
           fi
           if [[ "$CONFLICT" == true ]]; then
             gh pr edit "$number" --add-label conflict
+          else
+            gh pr merge "$number" --auto --merge
           fi
           echo "PR: $GITHUB_SERVER_URL/$GH_REPO/pull/$number" | tee -a "$GITHUB_STEP_SUMMARY"

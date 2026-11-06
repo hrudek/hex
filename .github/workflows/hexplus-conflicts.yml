@@ -1,0 +1,54 @@
+# Trusted coordinator only: never execute PR code, never give the resolver SYNC_TOKEN.
+name: Hex+ automatic conflicts
+
+on:
+  pull_request_target:
+    branches: [hex-plus]
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [hex-plus]
+  workflow_run:
+    workflows: ["Hex* CI", "Hex* sync upstream", "Hex* upstream PR", "Hex* fix"]
+    types: [completed]
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hexplus-automatic-conflicts
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    if: >-
+      (github.event_name != 'pull_request_target'
+       || github.event.pull_request.head.repo.full_name == github.repository)
+      && (github.event_name != 'workflow_run'
+          || github.event.workflow_run.path == '.github/workflows/hexplus-sync.yml'
+          || github.event.workflow_run.path == '.github/workflows/hexplus-upstream-pr.yml'
+          || github.event.workflow_run.path == '.github/workflows/hexplus-ci.yml'
+          || github.event.workflow_run.path == '.github/workflows/hexplus-fix.yml')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: hexplus-sync
+    permissions:
+      contents: write
+      actions: write
+      issues: write
+      pull-requests: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: hex-plus
+          fetch-depth: 0
+          filter: blob:none
+          token: ${{ secrets.SYNC_TOKEN }}
+      - name: Prepare conflicted PR branches and request the Linux resolver
+        # Load the trusted script before checking out any PR. It only calls git/gh.
+        run: python3 -I .github/hexplus/conflicts.py
