@@ -49,8 +49,8 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 
 - **A feature:** open an issue describing the behaviour you want, label it
   `agent`. **Planning** (Opus, Linux runner, cannot change code) replies with
-  numbered questions (with suggested defaults) and a concrete plan: behaviour,
-  experiment switch, files, tests. Revise with `@claude plan …`; approve with
+  a short summary and at most 3 questions (with suggested defaults); the full
+  technical plan for the build agent sits collapsed below it. Revise with `@claude plan …`; approve with
   `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
   implements that plan on `feature/<n>-…`, runs the simulator tests, and
   replies with a **Create PR** link: open the PR (that starts CI and labels
