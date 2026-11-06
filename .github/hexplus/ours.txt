@@ -1,0 +1,5 @@
+# Upstream files where Hex+'s version always wins in the daily merge
+# (hexplus-sync resolves their conflicts by keeping Hex+'s side, deleted files stay deleted).
+.github/ISSUE_TEMPLATE/bug_report.yml
+.github/ISSUE_TEMPLATE/feature_request.yml
+.github/ISSUE_TEMPLATE/config.yml

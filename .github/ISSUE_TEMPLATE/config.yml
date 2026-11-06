@@ -1,11 +1,4 @@
+# Hex+ (fork-only): replaces upstream's config (listed in .github/hexplus/ours.txt).
+# Blank issues stay possible for notes the agent should not pick up.
 blank_issues_enabled: true
-contact_links:
-  - name: Installation and troubleshooting
-    url: https://anoma.ly/hex/
-    about: Download the macOS app, check permissions, and find troubleshooting steps.
-  - name: Linux beta requirements
-    url: https://github.com/anomalyco/hex/blob/dev/docs/linux.md
-    about: Check supported X11/Wayland environments and installation requirements.
-  - name: Security vulnerabilities
-    url: https://github.com/anomalyco/hex/blob/dev/SECURITY.md
-    about: Follow the security reporting instructions rather than opening a public issue.
+contact_links: []
