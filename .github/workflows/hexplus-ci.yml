@@ -8,7 +8,7 @@
 #   push upstream-pr/*  → an unmerged upstream PR taken over by hexplus-upstream-pr: checks, scope
 #   pull_request        → feature/fix PRs: checks, scope, labels, archive (required); no simulator
 # Bot branches (sync/upstream, upstream-pr/*) get their PR checks from their push runs.
-#   workflow_dispatch   → any of the above by hand; ad-hoc from hex-plus or feature/*
+#   workflow_dispatch   → simulator preview (tests + screenshots, no archive), or a device build
 name: Hex+ CI
 run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event.action || github.event_name }}"
 
@@ -158,7 +158,7 @@ jobs:
               if [[ "$REF" == refs/heads/hex-plus ]]; then
                 [[ "$BEFORE" != "$zero" ]] && base=$BEFORE
                 sign=testflight
-                mode=app   # the PR already tested pipeline changes; only app changes ship
+                mode=app   # PR Linux checks validate pipeline changes; only app changes ship
               else
                 base=$(git ls-remote "$REPO" refs/heads/hex-plus | cut -f1)
               fi ;;
