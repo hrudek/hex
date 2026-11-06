@@ -150,13 +150,17 @@ jobs:
           TITLE: ${{ steps.merge.outputs.title }}
           CONFLICT: ${{ steps.merge.outputs.conflict }}
         run: |
+          pr_access_error() {
+            echo '::error title=Sync PR access failed::Check SYNC_TOKEN in environment hexplus-sync: its fine-grained token needs Pull requests: Read and write for this repository, in addition to branch push access. See the GitHub error above for other possible causes.'
+            exit 1
+          }
           number=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open --json number --jq '.[0].number // empty')
           if [[ -n "$number" ]]; then
-            gh pr edit "$number" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+            gh pr edit "$number" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md" || pr_access_error
           else
             draft=(); [[ "$CONFLICT" == true ]] && draft=(--draft)
             gh pr create --head "$SYNC_BRANCH" --base hex-plus --title "$TITLE" \
-              --body-file "$RUNNER_TEMP/body.md" --label sync "${draft[@]}"
+              --body-file "$RUNNER_TEMP/body.md" --label sync "${draft[@]}" || pr_access_error
             number=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open --json number --jq '.[0].number')
           fi
           if [[ "$CONFLICT" == true ]]; then
