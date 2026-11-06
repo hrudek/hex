@@ -77,6 +77,9 @@ def main() -> None:
     human = gh_json("issue", "list", "--state", "open", "--label", "needs-human", "--json", "number,title,url") or []
     for item in human:
         attention.append(f"- 🙋 [#{item['number']} {item['title']}]({item['url']})")
+    if os.environ.get("SYNC_TOKEN_PR_WRITE") == "missing":
+        attention.append("- 🔴 **SYNC_TOKEN cannot write pull requests**: GitHub → Settings → Developer settings → "
+                         "Fine-grained tokens → the sync token → Pull requests: Read and write")
     today = dt.date.today()
     expiries = json.loads((Path(__file__).parent / "expiry.json").read_text())["items"]
     if token_expiry:
