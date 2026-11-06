@@ -44,6 +44,7 @@ if [[ -n "$ONLY_TESTING" ]]; then
 fi
 
 mkdir -p "$RUNNER_TEMP/test-output"
+rm -rf "$RUNNER_TEMP/test-output/Tests.xcresult"   # agents run this repeatedly
 set +e
 xcodebuild test \
   -project "$project" -scheme "$scheme" \

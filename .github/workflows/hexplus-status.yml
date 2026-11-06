@@ -1,0 +1,62 @@
+# Hex+ (fork-only): keep the pinned issue "Hex+ status" current, so the owner only watches.
+# Hourly and after each fix/sync/gate run; once a day it also reads SYNC_TOKEN's expiry.
+# gh only; runs Hex+'s status.py from hex-plus, never branch code.
+name: Hex+ status
+run-name: "Hex+ status · ${{ github.event_name }}"
+
+on:
+  schedule:
+    - cron: "17 6 * * *"   # daily, with token check
+    - cron: "47 * * * *"
+  workflow_run:
+    workflows: [Hex+ fix, Hex+ sync upstream, Hex+ gate]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hexplus-status
+  cancel-in-progress: true
+
+jobs:
+  token:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 6 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: hexplus-sync
+    outputs:
+      expiry: ${{ steps.expiry.outputs.expiry }}
+    steps:
+      - name: When does SYNC_TOKEN expire?
+        id: expiry
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          expiry=$(curl -fsS -o /dev/null -D - -H "Authorization: Bearer $SYNC_TOKEN" https://api.github.com/user \
+            | tr -d '\r' | sed -n 's/^github-authentication-token-expiration: //Ip' | head -1)
+          echo "SYNC_TOKEN expires: ${expiry:-never/unknown}"
+          echo "expiry=${expiry:0:10}" >> "$GITHUB_OUTPUT"
+
+  status:
+    needs: token
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SYNC_TOKEN_EXPIRY: ${{ needs.token.outputs.expiry }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: .github/hexplus
+          persist-credentials: false
+      - name: Rewrite the status issue
+        run: python3 -I .github/hexplus/status.py >> "$GITHUB_STEP_SUMMARY"
