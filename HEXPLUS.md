@@ -48,13 +48,16 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 ## Asking for work (owner)
 
 - **A feature:** open an issue describing the behaviour you want, label it
-  `agent`. Claude works on `feature/<n>-…`, runs the simulator tests, and replies
-  with a **Create PR** link: open the PR (that starts CI and labels it), try it
-  with an ad-hoc build, merge with **Squash and merge**.
-  If the request is unclear in a way that changes behaviour, Claude asks
-  numbered questions (with suggested defaults) in its issue comment instead of
-  pushing; answer in a new comment containing `@claude`. Each run starts fresh
-  and reads the issue and all comments by `hrudek` and Claude.
+  `agent`. **Planning** (Opus, Linux runner, cannot change code) replies with
+  numbered questions (with suggested defaults) and a concrete plan: behaviour,
+  experiment switch, files, tests. Revise with `@claude plan …`; approve with
+  `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
+  implements that plan on `feature/<n>-…`, runs the simulator tests, and
+  replies with a **Create PR** link: open the PR (that starts CI and labels
+  it), try it with an ad-hoc build, merge with **Squash and merge**. Each run
+  starts fresh and reads the issue and all comments by `hrudek` and Claude.
+  A small change needs no plan: comment `@claude …` on an issue without the
+  `agent` label. Label `model:opus` makes building use Opus too.
 - **Changes to a PR:** comment `@claude …` on it; Claude pushes to that branch.
 - **Removing a feature:**
   1. Not merged yet: close the PR.
