@@ -70,6 +70,7 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
 | Feature | Issue | PR | Status | Main files |
 | --- | --- | --- | --- | --- |
 | Hex keyboard no longer falls back to the iOS keyboard (Swift 6 lexicon crash) | #31 | pending | fix | ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXShared/FullKeyboard/LexiconDelivery.swift |
+| German autocorrect: ae/oe/ue/ss → ä/ö/ü/ß and German typo fixes on the full keyboard | #33 | pending | switch | ios/HEXShared/FullKeyboard/GermanAutocorrect.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
 
 ## Asking for work (owner)
 

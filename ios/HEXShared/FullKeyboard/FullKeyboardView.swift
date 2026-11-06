@@ -99,6 +99,11 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
 
         engine.autocorrect.isEnabled = FullKeyboardSettings().autocorrect
+        if HexPlusSettings().germanAutocorrect { // Hex+
+            let instance = GermanAutocorrect.system()
+            cachedGerman = instance
+            engine.autocorrect.german = instance
+        }
         engine.configureForField()
         applyAppearance()
         refreshFromModel()
@@ -125,9 +130,13 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     var enableInputClicksWhenVisible: Bool { true }
 
+    private var cachedGerman: GermanAutocorrect? // Hex+
+
     func warmUpTextCheckerAsync() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, let checker = self.engine.autocorrect.checker as? SystemTextChecker else { return }
+            guard let self else { return }
+            self.engine.autocorrect.german?.warmUp() // Hex+
+            guard let checker = self.engine.autocorrect.checker as? SystemTextChecker else { return }
             checker.warmUp()
             self.engine.refreshSuggestions()
         }
@@ -147,6 +156,18 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         let wantsAutocorrect = FullKeyboardSettings().autocorrect
         if engine.autocorrect.isEnabled != wantsAutocorrect {
             engine.autocorrect.isEnabled = wantsAutocorrect
+            engine.refreshSuggestions()
+        }
+        // Hex+: German autocorrect switch (cached instance, built once).
+        let wantsGerman = HexPlusSettings().germanAutocorrect
+        if wantsGerman != (engine.autocorrect.german != nil) {
+            if wantsGerman {
+                let instance = cachedGerman ?? GermanAutocorrect.system()
+                cachedGerman = instance
+                engine.autocorrect.german = instance
+            } else {
+                engine.autocorrect.german = nil
+            }
             engine.refreshSuggestions()
         }
     }
