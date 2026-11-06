@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # Unit tests of ios/ (with Hex+'s identity) on an iOS Simulator. No signing, no secrets.
 set -euo pipefail
-: "${APP_CONFIG:?}" "${APPLE_TEAM_ID:?}" "${RUNNER_TEMP:?}"
+: "${APP_CONFIG:?}" "${RUNNER_TEMP:?}"
 ONLY_TESTING=${ONLY_TESTING:-}
 [[ "$ONLY_TESTING" =~ ^[A-Za-z0-9_/,]*$ ]] || { echo 'only_testing: letters, digits, _ / and , only'; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 scheme=$(python3 -c 'import json,os; print(json.loads(os.environ["APP_CONFIG"])["scheme"])')
 project=$(python3 -c 'import json,os; print(json.loads(os.environ["APP_CONFIG"])["project"])')
-python3 "$here/identity.py" "$root/ios"
+# HEXPLUS_IDENTITY=keep tests upstream's identity unchanged (the agent's local
+# runs), so a rewrite never lands in its commits.
+if [[ "${HEXPLUS_IDENTITY:-}" != keep ]]; then
+  : "${APPLE_TEAM_ID:?}"
+  python3 "$here/identity.py" "$root/ios"
+fi
 cd "$root/ios"
 command -v xcodegen >/dev/null || brew install xcodegen
 xcodegen generate

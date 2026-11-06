@@ -2,6 +2,9 @@
 #   1. sync/upstream = hex-plus + merge of upstream dev (bot branch, rebuilt each run)
 #   2. push it (SYNC_TOKEN, so Hex+ CI runs on it) and open/update the PR "Sync upstream"
 #   3. hexplus-gate fast-forwards hex-plus to it once Hex+ CI is green
+# On a conflict the merge is committed WITH conflict markers to sync/upstream and
+# the PR is a draft labelled "conflict": comment "@claude resolve the conflicts"
+# there (or fix it by hand). While that PR is open, later syncs leave it alone.
 # This job only runs git and gh; it never builds or runs repository code,
 # because it holds SYNC_TOKEN.
 name: Hex+ sync upstream
@@ -58,6 +61,12 @@ jobs:
           tip=$(git rev-parse HEAD)
           target=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
           echo "upstream=$target" >> "$GITHUB_OUTPUT"
+          blocked=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open --label conflict \
+            --json number --jq '.[0].number // empty')
+          if [[ -n "$blocked" ]]; then
+            echo "Sync PR #$blocked still has conflicts to resolve; leaving it alone." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "status=blocked" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           if git merge-base --is-ancestor "$target" HEAD; then
             echo "hex-plus already contains upstream ${target:0:8}." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "status=current" >> "$GITHUB_OUTPUT"; exit 0
@@ -75,16 +84,18 @@ jobs:
           ios_changed=$([[ -n "$ios" ]] && echo yes || echo no)
           title="Sync upstream anomalyco/hex dev @ ${target:0:8} ($incoming commits, iOS changed: $ios_changed)"
           git switch -q -C "$SYNC_BRANCH"
+          conflicts=''
           if ! git merge --no-ff --no-edit -m "$title" "$target" > "$RUNNER_TEMP/merge.log" 2>&1; then
-            {
-              echo "Merge conflict merging upstream ${target:0:8} into hex-plus ${tip:0:8}."
-              echo; echo 'Conflicting files:'
-              git diff --name-only --diff-filter=U
-            } > "$RUNNER_TEMP/problem.txt"
-            git merge --abort
-            echo "status=conflict" >> "$GITHUB_OUTPUT"; exit 1
+            conflicts=$(git diff --name-only --diff-filter=U)
+            [[ -n "$conflicts" ]] || { cat "$RUNNER_TEMP/merge.log"; exit 1; }
+            # Keep the conflict markers in a commit, so an agent (or you) can fix them in the PR.
+            git add -A
+            git commit -q --no-edit -m "$title (CONFLICTS)" -m "Conflict markers left in:" -m "$conflicts"
           fi
           git push -q --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          # Upstream PRs Hex+ carries early (branches upstream-pr/N): has upstream decided yet?
+          carried=$(gh pr list --state all --label upstream-pr --limit 100 --json headRefName,state \
+            --jq '.[] | select(.state != "CLOSED") | .headRefName' | sed -n 's#^upstream-pr/##p' | sort -un)
           {
             echo "Merges [anomalyco/hex@${target:0:8}](https://github.com/anomalyco/hex/commit/$target) into \`hex-plus\` (\`${tip:0:8}\`)."
             echo
@@ -94,23 +105,42 @@ jobs:
               echo; echo 'Upstream commits touching the iPhone app:'; echo '```'; echo "$ios" | head -50; echo '```'
             fi
             echo
-            # shellcheck disable=SC2016 # Markdown backticks, not command substitution
+            if [[ -n "$conflicts" ]]; then
+              echo; echo '> [!WARNING]'
+              echo '> Merge conflicts are committed with markers. Comment `@claude resolve the merge conflicts in this PR` (or fix them by hand); CI fails while markers remain; once it is green, the gate promotes the sync.'
+              echo; echo '```'; echo "$conflicts"; echo '```'
+            fi
+            if [[ -n "$carried" ]]; then
+              echo; echo 'Upstream PRs Hex+ carries early:'
+              for n in $carried; do
+                gh api "repos/anomalyco/hex/pulls/$n" --jq '"- anomalyco/hex#\(.number) \(.title): " + (if .merged_at then "**merged upstream** (now arrives through this sync)" elif .state == "closed" then "**closed upstream without merging**: decide whether Hex+ keeps it" else "still open upstream" end)' || echo "- anomalyco/hex#$n: unknown"
+              done
+            fi
+            echo
             echo '_hexplus-gate fast-forwards `hex-plus` to this merge once Hex+ CI is green; then this PR shows as merged._'
           } > "$RUNNER_TEMP/body.md"
           echo "title=$title" >> "$GITHUB_OUTPUT"
+          echo "conflict=$([[ -n "$conflicts" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "status=pushed" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Open or update the sync PR
         if: steps.merge.outputs.status == 'pushed'
         env:
           TITLE: ${{ steps.merge.outputs.title }}
+          CONFLICT: ${{ steps.merge.outputs.conflict }}
         run: |
           number=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open --json number --jq '.[0].number // empty')
           if [[ -n "$number" ]]; then
             gh pr edit "$number" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
           else
+            draft=(); [[ "$CONFLICT" == true ]] && draft=(--draft)
             gh pr create --head "$SYNC_BRANCH" --base hex-plus --title "$TITLE" \
-              --body-file "$RUNNER_TEMP/body.md" --label sync
+              --body-file "$RUNNER_TEMP/body.md" --label sync "${draft[@]}"
+            number=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open --json number --jq '.[0].number')
+          fi
+          if [[ "$CONFLICT" == true ]]; then
+            gh pr edit "$number" --add-label conflict
+            gh pr comment "$number" --body 'This sync has merge conflicts (markers are committed). Comment `@claude resolve the merge conflicts in this PR`, or fix them by hand. CI fails while markers remain; once it is green, the gate promotes the sync.'
           fi
       - name: Keep only Hex+ workflows enabled
         if: always()
@@ -129,7 +159,7 @@ jobs:
             gh issue close "$number" --comment 'Resolved: the sync succeeded again.'
           done
       - name: Report problem as an issue
-        if: failure() && (steps.merge.outputs.status == 'conflict' || steps.merge.outputs.status == 'protected')
+        if: failure() && steps.merge.outputs.status == 'protected'
         env:
           STATUS: ${{ steps.merge.outputs.status }}
           UPSTREAM_SHA: ${{ steps.merge.outputs.upstream }}
@@ -140,14 +170,7 @@ jobs:
             echo "The daily sync could not merge upstream \`$UPSTREAM_SHA\` into \`hex-plus\` ($STATUS)."
             echo; echo '```'; cat "$RUNNER_TEMP/problem.txt"; echo '```'; echo
             echo "Run: $RUN_URL"
-            echo; echo 'Resolve locally, then the next sync continues (this issue closes itself):'
-            echo '```sh'
-            echo 'git fetch origin && git fetch upstream'
-            echo 'git switch -C sync/upstream origin/hex-plus'
-            echo 'git merge upstream/dev        # fix conflicts, git commit'
-            echo 'git push --force origin sync/upstream'
-            echo 'gh pr create --base hex-plus --head sync/upstream --label sync --fill'
-            echo '```'
+            echo; echo 'Upstream now touches files Hex+ owns. Rename or move the Hex+ file, then run the sync again (this issue closes itself).'
           } > "$RUNNER_TEMP/body.md"
           number=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
           if [[ -n "$number" ]]; then
