@@ -47,7 +47,7 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 
 ## Asking for work (owner)
 
-- **A feature:** open an issue with the **Feature für Hex+** form (it sets the
+- **A feature:** open an issue with the **Hex+ feature** form (it sets the
   `agent` label itself), or label any issue `agent`. A blank issue stays a
   note the agent ignores. **Planning** (Opus, Linux runner, cannot change code) replies with
   a short summary and at most 3 questions (with suggested defaults); the full
