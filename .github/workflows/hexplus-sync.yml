@@ -1,6 +1,9 @@
-# Hex+ (fork-only): keep hex-plus = anomalyco/hex dev + Hex+'s own commits.
+# Hex+ (fork-only): bring anomalyco/hex dev into hex-plus by merge, through a PR.
+#   1. sync/upstream = hex-plus + merge of upstream dev (bot branch, rebuilt each run)
+#   2. push it (SYNC_TOKEN, so Hex+ CI runs on it) and open/update the PR "Sync upstream"
+#   3. hexplus-gate fast-forwards hex-plus to it once Hex+ CI is green
 # This job only runs git and gh; it never builds or runs repository code,
-# because it holds SYNC_TOKEN (contents + workflows write on this fork only).
+# because it holds SYNC_TOKEN.
 name: Hex+ sync upstream
 run-name: "Hex+ sync · ${{ github.event_name }}"
 
@@ -24,6 +27,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: write
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -31,7 +35,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       UPSTREAM: https://github.com/anomalyco/hex.git
       UPSTREAM_BRANCH: dev
-      BRANCH: hex-plus
+      SYNC_BRANCH: sync/upstream
     steps:
       - name: Require sync token
         env:
@@ -43,53 +47,71 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           token: ${{ secrets.SYNC_TOKEN }}
-      - name: Rebase hex-plus onto upstream
-        id: rebase
+      - name: Merge upstream into sync/upstream
+        id: merge
         run: |
           set -euo pipefail
           git config user.name 'hexplus-sync'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git remote add upstream "$UPSTREAM"
           git fetch -q --filter=blob:none upstream "$UPSTREAM_BRANCH"
-          old=$(git rev-parse HEAD)
-          base=$(git merge-base HEAD "upstream/$UPSTREAM_BRANCH")
-          new_upstream=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
-          ours=$(git rev-list --count "$base..HEAD")
-          incoming=$(git rev-list --count "$base..$new_upstream")
-          {
-            echo "old=$old"; echo "upstream=$new_upstream"; echo "incoming=$incoming"; echo "ours=$ours"
-          } >> "$GITHUB_OUTPUT"
-          if [[ "$incoming" == 0 ]]; then
-            echo "Up to date with upstream ($new_upstream)." | tee -a "$GITHUB_STEP_SUMMARY"
+          tip=$(git rev-parse HEAD)
+          target=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
+          echo "upstream=$target" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor "$target" HEAD; then
+            echo "hex-plus already contains upstream ${target:0:8}." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "status=current" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # Upstream must never reach Hex+'s build and signing scripts.
-          protected=$(git diff --name-only "$base" "$new_upstream" -- .github/hexplus HEXPLUS.md \
+          base=$(git merge-base HEAD "$target")
+          incoming=$(git rev-list --count "$base..$target")
+          # Upstream must never reach Hex+'s own files.
+          protected=$(git diff --name-only "$base" "$target" -- HEXPLUS.md .github/hexplus \
             '.github/workflows/hexplus-*')
           if [[ -n "$protected" ]]; then
             { echo 'Upstream changes files Hex+ owns:'; echo "$protected"; } > "$RUNNER_TEMP/problem.txt"
             echo "status=protected" >> "$GITHUB_OUTPUT"; exit 1
           fi
-          if ! git rebase "upstream/$UPSTREAM_BRANCH" > "$RUNNER_TEMP/rebase.log" 2>&1; then
+          ios=$(git log --oneline "$base..$target" -- ios app/AppIcon.icon tests/fixtures/vocabulary/audio)
+          ios_changed=$([[ -n "$ios" ]] && echo yes || echo no)
+          title="Sync upstream anomalyco/hex dev @ ${target:0:8} ($incoming commits, iOS changed: $ios_changed)"
+          git switch -q -C "$SYNC_BRANCH"
+          if ! git merge --no-ff --no-edit -m "$title" "$target" > "$RUNNER_TEMP/merge.log" 2>&1; then
             {
-              echo 'Rebase conflict while applying:'
-              git log -1 --format='%h %s' REBASE_HEAD 2>/dev/null || true
+              echo "Merge conflict merging upstream ${target:0:8} into hex-plus ${tip:0:8}."
               echo; echo 'Conflicting files:'
               git diff --name-only --diff-filter=U
             } > "$RUNNER_TEMP/problem.txt"
-            git rebase --abort
+            git merge --abort
             echo "status=conflict" >> "$GITHUB_OUTPUT"; exit 1
           fi
-          git push --force-with-lease="$BRANCH:$old" origin "HEAD:$BRANCH"
-          echo "status=synced" >> "$GITHUB_OUTPUT"
+          git push -q --force origin "HEAD:refs/heads/$SYNC_BRANCH"
           {
-            echo '### Hex+ sync'
-            echo "| | |"; echo "|---|---|"
-            echo "| Upstream | \`$new_upstream\` |"
-            echo "| New upstream commits | $incoming |"
-            echo "| Hex+ commits replayed | $ours |"
-            echo "| hex-plus | \`$old\` → \`$(git rev-parse HEAD)\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "Merges [anomalyco/hex@${target:0:8}](https://github.com/anomalyco/hex/commit/$target) into \`hex-plus\` (\`${tip:0:8}\`)."
+            echo
+            echo "- New upstream commits: **$incoming**"
+            echo "- iOS changed upstream: **$ios_changed**"
+            if [[ -n "$ios" ]]; then
+              echo; echo 'Upstream commits touching the iPhone app:'; echo '```'; echo "$ios" | head -50; echo '```'
+            fi
+            echo
+            # shellcheck disable=SC2016 # Markdown backticks, not command substitution
+            echo '_hexplus-gate fast-forwards `hex-plus` to this merge once Hex+ CI is green; then this PR shows as merged._'
+          } > "$RUNNER_TEMP/body.md"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+          echo "status=pushed" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Open or update the sync PR
+        if: steps.merge.outputs.status == 'pushed'
+        env:
+          TITLE: ${{ steps.merge.outputs.title }}
+        run: |
+          number=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh pr edit "$number" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --head "$SYNC_BRANCH" --base hex-plus --title "$TITLE" \
+              --body-file "$RUNNER_TEMP/body.md" --label sync
+          fi
       - name: Keep only Hex+ workflows enabled
         if: always()
         run: |
@@ -107,22 +129,24 @@ jobs:
             gh issue close "$number" --comment 'Resolved: the sync succeeded again.'
           done
       - name: Report problem as an issue
-        if: failure() && (steps.rebase.outputs.status == 'conflict' || steps.rebase.outputs.status == 'protected')
+        if: failure() && (steps.merge.outputs.status == 'conflict' || steps.merge.outputs.status == 'protected')
         env:
-          STATUS: ${{ steps.rebase.outputs.status }}
-          UPSTREAM_SHA: ${{ steps.rebase.outputs.upstream }}
+          STATUS: ${{ steps.merge.outputs.status }}
+          UPSTREAM_SHA: ${{ steps.merge.outputs.upstream }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           title='Hex+ sync needs you'
           {
-            echo "The daily sync could not rebase \`hex-plus\` onto upstream \`$UPSTREAM_SHA\` ($STATUS)."
+            echo "The daily sync could not merge upstream \`$UPSTREAM_SHA\` into \`hex-plus\` ($STATUS)."
             echo; echo '```'; cat "$RUNNER_TEMP/problem.txt"; echo '```'; echo
             echo "Run: $RUN_URL"
-            echo; echo 'Resolve locally (this issue closes itself after the next successful sync):'
+            echo; echo 'Resolve locally, then the next sync continues (this issue closes itself):'
             echo '```sh'
-            echo 'git fetch origin && git fetch upstream && git switch hex-plus && git merge --ff-only origin/hex-plus'
-            echo 'git rebase upstream/dev   # fix conflicts, git rebase --continue'
-            echo 'git push --force-with-lease'
+            echo 'git fetch origin && git fetch upstream'
+            echo 'git switch -C sync/upstream origin/hex-plus'
+            echo 'git merge upstream/dev        # fix conflicts, git commit'
+            echo 'git push --force origin sync/upstream'
+            echo 'gh pr create --base hex-plus --head sync/upstream --label sync --fill'
             echo '```'
           } > "$RUNNER_TEMP/body.md"
           number=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')

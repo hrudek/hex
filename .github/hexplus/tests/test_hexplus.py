@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import plistlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -81,6 +82,36 @@ class IdentityTests(unittest.TestCase):
     def test_rejects_invalid_team(self):
         with self.assertRaises(ValueError):
             identity.apply(self.ios, self.config, 'bad\nTEAM')
+
+
+class ScopeTests(unittest.TestCase):
+    """scope.sh: feature PRs touch only ios/ and HEXPLUS.md; Hex+ automation needs the infra label."""
+
+    def run_scope(self, files, labels=''):
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ['git', '-C', tmp, '-c', 'user.name=t', '-c', 'user.email=t@t']
+            subprocess.run(git[:3] + ['init', '-q'], check=True)
+            subprocess.run(git + ['commit', '-q', '--allow-empty', '-m', 'base'], check=True)
+            for name in files:
+                path = Path(tmp, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('x')
+            subprocess.run(git + ['add', '-A'], check=True)
+            subprocess.run(git + ['commit', '-q', '-m', 'change'], check=True)
+            return subprocess.run(['bash', str(HERE / 'scope.sh'), 'HEAD~1', 'HEAD'], cwd=tmp,
+                                  env={'PATH': '/usr/bin:/bin', 'LABELS': labels},
+                                  capture_output=True, text=True).returncode
+
+    def test_ios_and_notes_pass(self):
+        self.assertEqual(self.run_scope(['ios/HEXShared/A.swift', 'HEXPLUS.md']), 0)
+
+    def test_automation_needs_infra_label(self):
+        self.assertEqual(self.run_scope(['.github/hexplus/build.sh']), 1)
+        self.assertEqual(self.run_scope(['.github/workflows/hexplus-ci.yml'], 'feature,infra'), 0)
+
+    def test_everything_else_fails(self):
+        self.assertEqual(self.run_scope(['src/main.rs']), 1)
+        self.assertEqual(self.run_scope(['.github/workflows/release.yml'], 'infra'), 1)
 
 
 if __name__ == '__main__':

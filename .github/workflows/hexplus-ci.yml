@@ -1,23 +1,20 @@
-# Hex+ (fork-only): test, build and sign the iPhone app from hex-plus.
-# Upstream never touches this file or .github/hexplus/; hexplus-sync refuses
-# upstream commits that would.
-name: Hex+ iOS
-# Expressions can't shorten a SHA; the run list already shows the short commit.
-run-name: "Hex+ iOS · ${{ inputs.distribution || 'unsigned' }} · ${{ github.event_name }}"
+# Hex+ (fork-only) CI for the iPhone app.
+#   push hex-plus       → iOS changed? tests, archive, TestFlight upload (automatic)
+#   push sync/upstream  → the daily upstream merge: checks; hexplus-gate promotes it when green
+#   pull_request        → feature PRs: checks, scope, iOS tests and archive
+#   workflow_dispatch   → any of the above by hand; ad-hoc from hex-plus or feature/*
+name: Hex+ CI
+run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event_name }}"
 
 on:
   push:
+    branches: [hex-plus, sync/upstream]
+  pull_request:
     branches: [hex-plus]
-    paths:
-      - ios/**
-      - app/AppIcon.icon/**
-      - tests/fixtures/vocabulary/audio/**
-      - .github/hexplus/**
-      - .github/workflows/hexplus-ios.yml
   workflow_dispatch:
     inputs:
       distribution:
-        description: unsigned only builds; ad-hoc and testflight sign after your approval
+        description: unsigned builds only; ad-hoc (hex-plus or feature/*) and testflight (hex-plus) also sign
         type: choice
         options: [unsigned, ad-hoc, testflight]
         default: unsigned
@@ -31,16 +28,44 @@ permissions:
   contents: read
 
 concurrency:
-  group: hexplus-ios-${{ github.ref }}-${{ inputs.distribution || 'unsigned' }}
-  cancel-in-progress: false
+  group: hexplus-ci-${{ github.event_name }}-${{ github.ref }}-${{ inputs.distribution || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/sync/upstream' }}
 
 jobs:
-  changes:
+  linux:
+    name: Linux checks
+    # The sync PR's checks come from its push run; its pull_request run would only repeat them.
+    if: github.head_ref != 'sync/upstream'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Hex+ script tests
+        run: python3 -m unittest discover -s .github/hexplus/tests -v
+      - name: Shell syntax
+        run: for script in .github/hexplus/*.sh; do bash -n "$script"; done
+      - name: Lint Hex+ workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color .github/workflows/hexplus-*.yml
+      - name: Feature PR scope
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: bash .github/hexplus/scope.sh "$BASE" "$HEAD"
+
+  decide:
     name: Decide
+    if: github.head_ref != 'sync/upstream'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
+      sign: ${{ steps.decide.outputs.sign }}
       config: ${{ steps.config.outputs.config }}
     steps:
       - name: Require configuration
@@ -57,40 +82,70 @@ jobs:
       - name: Load Hex+ identity
         id: config
         run: python3 .github/hexplus/config.py
-      - name: Did anything the iOS build reads change?
+      - name: Did anything the iOS build reads change, and what gets signed?
         id: decide
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          DISTRIBUTION: ${{ inputs.distribution }}
           REPO: ${{ github.server_url }}/${{ github.repository }}
         run: |
+          set -euo pipefail
+          zero=0000000000000000000000000000000000000000
+          base='' head=$AFTER sign=''
+          case "$EVENT" in
+            push)
+              if [[ "$REF" == refs/heads/hex-plus ]]; then
+                [[ "$BEFORE" != "$zero" ]] && base=$BEFORE
+                sign=testflight
+              else
+                base=$(git ls-remote "$REPO" refs/heads/hex-plus | cut -f1)
+              fi ;;
+            pull_request) base=$PR_BASE head=$PR_HEAD ;;
+            workflow_dispatch)
+              case "$DISTRIBUTION" in
+                unsigned) ;;
+                ad-hoc) [[ "$REF" == refs/heads/hex-plus || "$REF" == refs/heads/feature/* ]] \
+                          || { echo 'Ad-hoc signing only from hex-plus or feature/*'; exit 1; }
+                        sign=ad-hoc ;;
+                testflight) [[ "$REF" == refs/heads/hex-plus ]] || { echo 'TestFlight only from hex-plus'; exit 1; }
+                            sign=testflight ;;
+              esac ;;
+          esac
           run=true
-          if [[ "$EVENT" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+          if [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
             git init -q "$RUNNER_TEMP/fp"
-            if git -C "$RUNNER_TEMP/fp" fetch -q --depth=1 --filter=blob:none "$REPO" "$BEFORE" "$AFTER"; then
-              a=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$BEFORE")
-              b=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$AFTER")
+            if git -C "$RUNNER_TEMP/fp" fetch -q --depth=1 --filter=blob:none "$REPO" "$base" "$head"; then
+              a=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$base")
+              b=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$head")
               diff <(echo "$a") <(echo "$b") || true
               [[ "$a" != "$b" ]] || run=false
             fi
           fi
+          [[ "$run" == true ]] || sign=''
           echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "sign=$sign" >> "$GITHUB_OUTPUT"
           {
-            echo '### Hex+ iOS'
+            echo '### Hex+ CI'
             echo "| | |"; echo "|---|---|"
-            echo "| Commit | \`$AFTER\` |"
+            echo "| Commit | \`${head:0:8}\` |"
+            echo "| Compared with | \`${base:0:8}\` |"
             echo "| iOS inputs changed | $run |"
+            echo "| Signs | ${sign:-nothing} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   test:
     name: Simulator tests
-    needs: changes
-    if: needs.changes.outputs.run == 'true' && inputs.only_testing != 'none'
+    needs: decide
+    if: needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
-      APP_CONFIG: ${{ needs.changes.outputs.config }}
+      APP_CONFIG: ${{ needs.decide.outputs.config }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -115,16 +170,16 @@ jobs:
 
   build:
     name: Unsigned archive
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 90
     env:
       CI: "true"
-      APP_CONFIG: ${{ needs.changes.outputs.config }}
+      APP_CONFIG: ${{ needs.decide.outputs.config }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       ARTIFACT_AGE_RECIPIENT: ${{ vars.ARTIFACT_AGE_RECIPIENT }}
-      SOURCE_SHA: ${{ github.sha }}
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -148,20 +203,20 @@ jobs:
           retention-days: 7
 
   sign:
-    name: Sign (${{ inputs.distribution }})
-    needs: [changes, test, build]
-    # Signed builds only on request, from hex-plus, after green tests (or tests skipped on purpose).
+    name: Sign (${{ needs.decide.outputs.sign }})
+    needs: [decide, test, build]
+    # Automatic TestFlight needs green tests; a by-hand run may skip them on purpose.
     if: >-
-      always() && github.event_name == 'workflow_dispatch' && inputs.distribution != 'unsigned'
-      && github.ref == 'refs/heads/hex-plus' && needs.build.result == 'success'
-      && (needs.test.result == 'success' || needs.test.result == 'skipped')
+      always() && needs.decide.outputs.sign != '' && needs.build.result == 'success'
+      && (needs.test.result == 'success'
+          || (needs.test.result == 'skipped' && github.event_name == 'workflow_dispatch'))
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 30
-    environment: hexplus-${{ inputs.distribution }}
+    environment: hexplus-${{ needs.decide.outputs.sign }}
     env:
-      APP_CONFIG: ${{ needs.changes.outputs.config }}
+      APP_CONFIG: ${{ needs.decide.outputs.config }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      DISTRIBUTION: ${{ inputs.distribution }}
+      DISTRIBUTION: ${{ needs.decide.outputs.sign }}
       ARTIFACT_AGE_RECIPIENT: ${{ vars.ARTIFACT_AGE_RECIPIENT }}
     steps:
       # Only Hex+'s own scripts; no source build runs on this runner.
@@ -198,12 +253,12 @@ jobs:
       - name: Upload encrypted IPA and public provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: hexplus-${{ inputs.distribution }}-${{ github.run_id }}
+          name: hexplus-${{ needs.decide.outputs.sign }}-${{ github.run_id }}
           path: ${{ runner.temp }}/encrypted-deliverables/
           if-no-files-found: error
           retention-days: 7
       - name: Upload to App Store Connect for TestFlight processing
-        if: inputs.distribution == 'testflight'
+        if: needs.decide.outputs.sign == 'testflight'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -213,6 +268,7 @@ jobs:
             echo 'Upload failed. Download and decrypt the signing diagnostics.'
             exit 1
           fi
+          echo "Uploaded build ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT} to TestFlight." >> "$GITHUB_STEP_SUMMARY"
       - name: Encrypt signing diagnostics
         if: always()
         run: bash .github/hexplus/encrypt-signing-logs.sh
