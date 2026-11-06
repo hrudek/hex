@@ -165,6 +165,8 @@ final class AutocorrectEngine {
     let checker: TextChecking
     let learnedWords: LearnedWordsStore
     var isEnabled = true
+    /// Hex+: German layer; `nil` keeps today's behaviour exactly.
+    var german: GermanAutocorrect?
     private(set) var lexiconShortcuts: [String: String] = [:]
     private var lexiconTerms: [String] = []
     private var suppressedInSession: Set<String> = []
@@ -289,9 +291,11 @@ final class AutocorrectEngine {
 
         // Spelling guesses or prefix completions from `UITextChecker`.
         if pool.count < 2 && token.count >= 2 {
+            // Hex+: German-valid words count as valid; German guesses come first.
             let valid = Self.shorthandAllowlist.contains(lower) || learnedWords.contains(lower) || checker.isWordValid(token)
+                || (german?.isValid(token) ?? false)
             if !valid {
-                for guess in rankedGuesses(for: token) {
+                for guess in (german?.guesses(for: token) ?? []) + rankedGuesses(for: token) {
                     let cased = Self.matchCase(of: token, onto: guess)
                     if cased.caseInsensitiveCompare(token) != .orderedSame,
                        !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
@@ -364,8 +368,17 @@ final class AutocorrectEngine {
         let hasInternalCaps = token.dropFirst().contains(where: \.isUppercase) && !isAllCaps
         if hasInternalCaps { return nil }
 
+        // Hex+: German umlaut digraphs (`fuer` -> `für`), before the all-caps bail-out so `FUER` -> `FÜR`.
+        if let german,
+           let umlaut = german.umlautReplacement(
+               for: token,
+               englishValid: checker.isWordValid(token) || checker.isWordValid(lower)
+           ) {
+            return umlaut
+        }
+
         // 2. Deterministic contractions and common QWERTY transpositions.
-        if let fixed = Self.unambiguousFixes[lower] {
+        if let fixed = Self.unambiguousFixes[lower], german?.blocksEnglishFix(lower) != true {
             if isAllCaps && token.count < 3 { return nil }
             return Self.matchCase(of: token, onto: fixed)
         }
@@ -375,6 +388,25 @@ final class AutocorrectEngine {
         // 3. Single-edit `UITextChecker` typo on words of 3+ characters, never rewriting valid words.
         guard token.count >= 3, !token.contains("'") else { return nil }
         guard !checker.isWordValid(token) else { return nil }
+        // Hex+: a German word is valid too; German guesses win over English ones.
+        if let german {
+            guard !german.isValid(token) else { return nil }
+            var germanBest: String?
+            var germanScore = Double.greatestFiniteMagnitude
+            for (rank, rawGuess) in german.guesses(for: token).enumerated() {
+                guard !rawGuess.contains(" ") else { continue }
+                let normalized = rawGuess.replacingOccurrences(of: "'", with: "").lowercased()
+                guard let cost = german.costAdjustedForUmlauts(from: lower, to: normalized) else { continue }
+                let total = cost + Double(rank) * 0.08
+                if total < germanScore {
+                    germanScore = total
+                    germanBest = rawGuess
+                }
+            }
+            if let germanBest, germanScore <= 1.6 {
+                return Self.matchCase(of: token, onto: germanBest)
+            }
+        }
 
         var bestGuess: String?
         var bestScore = Double.greatestFiniteMagnitude

@@ -158,6 +158,7 @@ struct ContentView: View {
 
                 settingsCard
                 ExperimentsCard()
+                HexPlusCard()
                 practiceField
             }
             .frame(maxWidth: 500)
