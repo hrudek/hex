@@ -30,7 +30,7 @@ is the entry point for them and for the owner.
     remove the switch and the old code path, set its table status to `permanent`.
 - Every feature brings simulator tests (`ios/HEXMobileTests`), so the daily
   merge cannot silently break it. Hand over promptly: a successful local simulator
-  run is not required before the push; PR CI runs tests alongside the archive.
+  run is not required before the push; CI runs tests after merging to `hex-plus`.
   Use targeted tests for debugging or when the owner asks to fix failures first,
   and report honestly which tests ran or are left to CI. On a macOS runner, use
   `bash .github/hexplus/agent-test.sh [Target/Class,…]` (it leaves the app's
@@ -40,12 +40,16 @@ is the entry point for them and for the owner.
   check must pass.
 - The PR description says: what changes for the user, which files, how it was
   tested, what could not be tested (anything only a real iPhone proves).
-- Screenshots: CI posts simulator screenshots of fixed `--snap-state` scenes
-  (`ready`, `keyboard-warm`, `keyboard-recording`, `full-keyboard-idle`,
-  `full-keyboard-idle-dark`) on every PR that changes the app. Add a line
-  `Screenshots: scene-a, scene-b` to the PR description for the scenes your
-  change touches; if a new screen has no scene yet, add one in the style of
-  `KeyboardPreviewHost.swift` / `FullKeyboardSnapshotStage.swift`.
+- PRs allocate no simulator runner: no automatic simulator tests or screenshots.
+  For an optional visual/test check before merging, manually run Hex+ CI on the
+  feature branch with distribution `simulator`. It runs tests, then captures the
+  fixed `--snap-state` scenes (`ready`, `keyboard-warm`, `keyboard-recording`,
+  `full-keyboard-idle`, `full-keyboard-idle-dark`) using the same simulator build,
+  with no device archive or signing. Download `hexplus-screenshots-RUN_ID` from
+  the run's artifacts (kept seven days); screenshots are no longer posted to PRs.
+  List affected scenes in the PR's `Screenshots:` line as suggestions for this
+  optional check, and pass them through the manual `scenes` input. New screens
+  can add a scene in `KeyboardPreviewHost.swift` / `FullKeyboardSnapshotStage.swift`.
 - Update the feature table below in the same PR.
 
 Orientation:
@@ -76,12 +80,14 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   technical plan for the build agent sits collapsed below it. Revise with `@claude plan …`; approve with
   `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
   implements that plan and its tests on `feature/<n>-…`, without waiting for
-  a local simulator test run. PR CI runs the tests in parallel with the archive. The PR
+  a local simulator test run. PR CI builds only the device archive; simulator tests
+  run after merging to `hex-plus`. The PR
   then opens itself with auto-merge: it lands on `hex-plus` as soon as it
   compiles, and TestFlight follows (fast lane, as upstream). Red tests are
   repaired afterwards by **Hex+ fix**. To try a PR before it merges, run
   **Hex+ PR to iPhone** with its number. Disable auto-merge before the required
-  checks finish if you want to wait for tests or try the PR before merging.
+  checks finish if you want to run the optional manual simulator check or try the
+  PR on your iPhone before merging.
   You can then request fixes in the open PR and merge whenever you choose. Each run
   starts fresh and reads the issue and all comments by `hrudek` and Claude.
   A small change needs no plan: comment `@claude …` on an issue without the
@@ -130,9 +136,11 @@ hexplus-sync (daily 04:23 UTC, or by hand)
 Hex+ CI (fast lane: only Linux checks and compiling block; tests never hold anything up)
 ├─ Linux checks: script tests, actionlint, no conflict markers, scope (every PR and push)
 ├─ Decide: did the app change (pushes to hex-plus) / the app or Hex+ CI scripts (PRs)? no → stop
-├─ Unsigned archive (required in PRs) ┐ in parallel, no secrets
-├─ Simulator tests, PR screenshots    ┘ (not required; red → Hex+ fix)
-├─ Nightly 05:41 UTC: every test on hex-plus, no signing
+├─ PRs: Unsigned archive (required), no simulator tests or screenshots
+├─ Push to hex-plus with app changes: archive and simulator tests in parallel
+│  └─ Test failures → Hex+ fix → fix PR → archive → merge → tests again
+├─ Manual simulator mode: tests + screenshot artifacts, no device archive/signing
+├─ Nightly 05:41 UTC: every test on hex-plus, no device archive/signing
 └─ Sign
    ├─ push to hex-plus → TestFlight as soon as the archive compiled
    └─ by hand → ad-hoc (hex-plus or feature/*, needs approval) or testflight
@@ -152,7 +160,7 @@ Hex+ fix (no owner step; at most 6 attempts per incident)
 
 Hex+ PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
 ├─ Verify current PR commit, successful Linux checks, Decide and unsigned archive
-├─ Simulator tests keep running independently; pending or red tests do not block signing
+├─ No automatic PR simulator tests; optional manual checks do not block signing
 ├─ Your approval in hexplus-ad-hoc
 ├─ Revalidate PR, download existing archive, check GitHub SHA-256 and build provenance
 └─ Sign → encrypted ad-hoc IPA (no rebuild, no TestFlight upload)
@@ -235,6 +243,12 @@ closed when upstream's identity changes.
 # Run from hex-plus, enter the PR number, approve on the run page:
 gh workflow run hexplus-ad-hoc.yml -R hrudek/hex --ref hex-plus -f pr=123
 
+# Optional pre-merge simulator tests + screenshots (no device archive/signing):
+gh workflow run hexplus-ci.yml -R hrudek/hex --ref feature/NAME \
+  -f distribution=simulator -f scenes=keyboard-transcribing,full-keyboard-numbers-dark
+# Download screenshots from that run's hexplus-screenshots-RUN_ID artifact.
+# only_testing optionally restricts tests; none skips the simulator job and screenshots.
+
 # Fallback: build a fresh ad-hoc archive of hex-plus or a feature branch:
 gh workflow run hexplus-ci.yml -R hrudek/hex --ref feature/NAME -f distribution=ad-hoc
 
@@ -261,8 +275,10 @@ python3 -m unittest discover -s .github/hexplus/tests
 The fast path accepts only open, non-draft `feature/*` PRs from this repository
 into `hex-plus`. It requires the latest PR CI run for the current head commit,
 with `Linux checks`, `Decide` and `Unsigned archive` successful (none may be
-skipped). Simulator tests and screenshots may still be running or have failed;
-they remain active in CI and their results can be reviewed before a manual merge.
+skipped). PRs do not automatically run simulator tests or screenshots. Optional
+manual simulator checks do not gate archive reuse. Automated simulator tests run
+on `hex-plus` after app changes and nightly; the upstream-sync gate still requires
+successful tests before promotion.
 A cancelled or not-yet-started CI run is refused. It checks again after approval;
 if the PR changed, rerun once the new commit's required jobs pass.
 Artifacts expire after seven days: rerun PR CI if the archive is missing or
