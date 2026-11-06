@@ -37,6 +37,12 @@ is the entry point for them and for the owner.
   check must pass.
 - The PR description says: what changes for the user, which files, how it was
   tested, what could not be tested (anything only a real iPhone proves).
+- Screenshots: CI posts simulator screenshots of fixed `--snap-state` scenes
+  (`ready`, `keyboard-warm`, `keyboard-recording`, `full-keyboard-idle`,
+  `full-keyboard-idle-dark`) on every PR that changes the app. Add a line
+  `Screenshots: scene-a, scene-b` to the PR description for the scenes your
+  change touches; if a new screen has no scene yet, add one in the style of
+  `KeyboardPreviewHost.swift` / `FullKeyboardSnapshotStage.swift`.
 - Update the feature table below in the same PR.
 
 Orientation:
@@ -112,7 +118,7 @@ hexplus-sync (daily 04:23 UTC, or by hand)
 
 Hex+ CI
 ├─ Linux checks: script tests, actionlint, no conflict markers, scope (every PR and push)
-├─ Decide: did ios/, its icon/fixtures or Hex+ scripts change? no → stop
+├─ Decide: did the app change (pushes to hex-plus) / the app or Hex+ CI scripts (PRs)? no → stop
 ├─ Simulator tests, unsigned archive                        (no secrets)
 └─ Sign
    ├─ push to hex-plus → TestFlight, automatically after green tests
