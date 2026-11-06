@@ -1,12 +1,12 @@
 # Hex+ (fork-only) CI for the iPhone app.
-# Fast lane (as upstream): a PR must only pass the Linux checks and compile; tests and
-# screenshots run beside it without blocking, and hex-plus ships to TestFlight as soon
-# as it compiles. Red tests anywhere are repaired by hexplus-fix, not by waiting here.
+# Fast lane: PRs run Linux checks and compile only. Simulator tests run after
+# merging to hex-plus, beside the TestFlight build, and nightly. Screenshots and
+# pre-merge tests are opt-in via the manual simulator distribution.
 #   push hex-plus       → app changed? archive → TestFlight at once; tests in parallel
 #   schedule (nightly)  → every test on hex-plus (catches runner/Xcode drift); no signing
 #   push sync/upstream  → the daily upstream merge: tests AND archive; hexplus-gate promotes it when green
 #   push upstream-pr/*  → an unmerged upstream PR taken over by hexplus-upstream-pr: checks, scope
-#   pull_request        → feature/fix PRs: checks, scope, labels, archive (required), tests and screenshots
+#   pull_request        → feature/fix PRs: checks, scope, labels, archive (required); no simulator
 # Bot branches (sync/upstream, upstream-pr/*) get their PR checks from their push runs.
 #   workflow_dispatch   → any of the above by hand; ad-hoc from hex-plus or feature/*
 name: Hex+ CI
@@ -25,13 +25,17 @@ on:
   workflow_dispatch:
     inputs:
       distribution:
-        description: unsigned builds only; ad-hoc (hex-plus or feature/*) and testflight (hex-plus) also sign
+        description: simulator runs tests/screenshots only; unsigned builds; ad-hoc and testflight also sign
         type: choice
-        options: [unsigned, ad-hoc, testflight]
+        options: [unsigned, ad-hoc, testflight, simulator]
         default: unsigned
         required: true
       only_testing:
         description: "Comma-separated -only-testing targets (empty: every test, none: skip tests)"
+        type: string
+        default: ""
+      scenes:
+        description: "Extra screenshot scenes, comma-separated (manual simulator mode only)"
         type: string
         default: ""
 
@@ -162,7 +166,7 @@ jobs:
             schedule) ;;   # nightly: always test, never sign
             workflow_dispatch)
               case "$DISTRIBUTION" in
-                unsigned) ;;
+                unsigned|simulator) ;;
                 ad-hoc) [[ "$REF" == refs/heads/hex-plus || "$REF" == refs/heads/feature/* ]] \
                           || { echo 'Ad-hoc signing only from hex-plus or feature/*'; exit 1; }
                         sign=ad-hoc ;;
@@ -195,7 +199,8 @@ jobs:
   test:
     name: Simulator tests
     needs: decide
-    if: needs.decide.outputs.run == 'true' && inputs.only_testing != 'none' && !github.event.pull_request.draft
+    # No simulator allocation for PRs; manual branch runs remain available.
+    if: github.event_name != 'pull_request' && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
@@ -214,22 +219,14 @@ jobs:
         env:
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: bash .github/hexplus/test.sh
-      - name: Scenes the PR asks for ("Screenshots:" line in its description)
-        id: scenes
-        if: github.event_name == 'pull_request'
-        env:
-          BODY: ${{ github.event.pull_request.body }}
-        run: |
-          scenes=$(printf '%s\n' "$BODY" | grep -i -m1 '^screenshots:' | cut -d: -f2- | tr -cd 'a-z0-9,-' || true)
-          echo "scenes=$scenes" >> "$GITHUB_OUTPUT"
       - name: Screenshots of the app's scenes (same build, no second compile)
-        if: github.event_name == 'pull_request' && !cancelled() && steps.tests.outcome != 'skipped'
+        if: github.event_name == 'workflow_dispatch' && inputs.distribution == 'simulator' && !cancelled() && steps.tests.outcome != 'skipped'
         continue-on-error: true
         env:
-          SCENES: ${{ steps.scenes.outputs.scenes }}
+          SCENES: ${{ inputs.scenes }}
         run: bash .github/hexplus/screenshots.sh
       - name: Upload screenshots
-        if: github.event_name == 'pull_request' && !cancelled()
+        if: github.event_name == 'workflow_dispatch' && inputs.distribution == 'simulator' && !cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: hexplus-screenshots-${{ github.run_id }}
@@ -245,71 +242,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  screenshots:
-    name: Screenshots in PR
-    needs: test
-    # Same-repo PRs only (a fork's token cannot write); bot branches have no test run.
-    if: >-
-      !cancelled() && github.event_name == 'pull_request' && needs.test.result != 'skipped'
-      && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      pull-requests: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      PR: ${{ github.event.number }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        continue-on-error: true
-        with:
-          name: hexplus-screenshots-${{ github.run_id }}
-          path: shots
-      - name: Publish to pr-assets/pr-N and update the PR comment
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          files=(shots/*.png)
-          if (( ${#files[@]} == 0 )); then echo 'No screenshots.'; exit 0; fi
-          # One orphan commit per run on pr-assets/pr-N (as upstream's pr-assets/* branches).
-          git init -q assets && cp "${files[@]}" assets/
-          git -C assets add -A
-          git -C assets -c user.name=hexplus-ci -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' \
-            commit -q -m "Screenshots for PR #$PR at ${HEAD_SHA:0:8}"
-          git -C assets push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/pr-assets/pr-$PR"
-          commit=$(git -C assets rev-parse HEAD)
-          marker='<!-- hexplus-screenshots -->'
-          {
-            echo "$marker"
-            echo "### Screenshots · \`${HEAD_SHA:0:8}\`"
-            echo
-            echo '<table><tr>'
-            i=0
-            for f in "${files[@]}"; do
-              name=$(basename "$f" .png)
-              if (( i > 0 && i % 3 == 0 )); then echo '</tr><tr>'; fi
-              echo "<td align=\"center\"><img src=\"https://raw.githubusercontent.com/$GH_REPO/$commit/$name.png\" width=\"220\"><br><sub>$name</sub></td>"
-              i=$((i + 1))
-            done
-            echo '</tr></table>'
-            echo
-            echo '<sub>Simulator scenes from this PR'"'"'s build. Add more with a line like <code>Screenshots: keyboard-transcribing, full-keyboard-numbers-dark</code> in the PR description.</sub>'
-          } > comment.md
-          existing=$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
-            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
-          if [[ -n "$existing" ]]; then
-            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@comment.md >/dev/null
-          else
-            gh pr comment "$PR" --body-file comment.md
-          fi
 
   build:
     name: Unsigned archive
     needs: decide
-    if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft
+    if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft && inputs.distribution != 'simulator' && github.event_name != 'schedule'
     runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 90
     env:
