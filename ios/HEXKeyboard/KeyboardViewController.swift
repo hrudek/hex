@@ -89,11 +89,10 @@ final class KeyboardViewController: UIInputViewController {
         fullKeyboard.warmUpTextCheckerAsync()
         guard !didWarmLexicon else { return }
         didWarmLexicon = true
-        requestSupplementaryLexicon { [weak self] lexicon in
-            DispatchQueue.main.async {
-                self?.fullKeyboard?.loadLexicon(lexicon)
-            }
-        }
+        // UIKit calls this completion on a background queue; it must not be MainActor-isolated.
+        requestSupplementaryLexicon(completion: LexiconDelivery.handler { [weak self] entries in
+            self?.fullKeyboard?.loadLexiconEntries(entries)
+        })
     }
 
     private func configureView() {

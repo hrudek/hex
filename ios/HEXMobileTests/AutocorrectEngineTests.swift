@@ -48,6 +48,24 @@ final class AutocorrectEngineTests: XCTestCase {
         }
     }
 
+    func testLexiconHopDeliversOnMainFromBackgroundQueue() {
+        let delivered = expectation(description: "delivered on main")
+        let entries = [LexiconEntry(userInput: "omw", documentText: "On my way!")]
+        DispatchQueue.global().async {
+            LexiconDelivery.hop(entries) { received in
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(received, entries)
+                delivered.fulfill()
+            }
+        }
+        wait(for: [delivered], timeout: 2)
+    }
+
+    func testLexiconEntriesLoadShortcut() {
+        engine.autocorrect.loadLexiconEntries([LexiconEntry(userInput: "omw", documentText: "On my way!")])
+        XCTAssertEqual(engine.autocorrect.lexiconShortcuts["omw"], "On my way!")
+    }
+
     func testFiftyWordAndContextCases() {
         engine.autocorrect.loadLexiconEntries([
             ("omw", "On my way!"),

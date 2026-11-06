@@ -69,7 +69,7 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
 
 | Feature | Issue | PR | Status | Main files |
 | --- | --- | --- | --- | --- |
-| _none yet_ | | | | |
+| Hex keyboard no longer falls back to the iOS keyboard (Swift 6 lexicon crash) | #31 | pending | fix | ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXShared/FullKeyboard/LexiconDelivery.swift |
 
 ## Asking for work (owner)
 

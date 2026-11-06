@@ -138,6 +138,11 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         engine.refreshSuggestions()
     }
 
+    func loadLexiconEntries(_ entries: [LexiconEntry]) {
+        engine.autocorrect.loadLexiconEntries(entries)
+        engine.refreshSuggestions()
+    }
+
     func syncSettings() {
         let wantsAutocorrect = FullKeyboardSettings().autocorrect
         if engine.autocorrect.isEnabled != wantsAutocorrect {
