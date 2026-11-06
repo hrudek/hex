@@ -52,6 +52,9 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
   with a **Create PR** link: open the PR (that starts CI and labels it), try it
   with an ad-hoc build, merge with **Squash and merge**.
 - **Changes to a PR:** comment `@claude …` on it; Claude pushes to that branch.
+- **Automation changes** need the `infra` label; label events start no CI run
+  (as in OpenCode), so after adding it, re-run the failed `Linux checks`.
+  Draft PRs get only the Linux checks until marked ready.
 - **An unmerged upstream PR:** `gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=1234`,
   or ask in an issue comment. It opens a PR from `upstream-pr/1234`; merge it
   with **Create a merge commit**. The daily sync PR reports when upstream

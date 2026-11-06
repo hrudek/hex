@@ -6,14 +6,16 @@
 # Bot branches (sync/upstream, upstream-pr/*) get their PR checks from their push runs.
 #   workflow_dispatch   → any of the above by hand; ad-hoc from hex-plus or feature/*
 name: Hex+ CI
-run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event_name }}"
+run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event.action || github.event_name }}"
 
 on:
   push:
     branches: [hex-plus, sync/upstream, "upstream-pr/**"]
   pull_request:
     branches: [hex-plus]
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    # As OpenCode's checks: no label events (after adding "infra", re-run the failed check);
+    # drafts get only the Linux checks until marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       distribution:
@@ -81,6 +83,7 @@ jobs:
   labels:
     name: Label PR
     if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'reopened')
+      && !startsWith(github.head_ref, 'upstream-pr/') && github.head_ref != 'sync/upstream'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -184,7 +187,7 @@ jobs:
   test:
     name: Simulator tests
     needs: decide
-    if: needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
+    if: needs.decide.outputs.run == 'true' && inputs.only_testing != 'none' && !github.event.pull_request.draft
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
@@ -214,7 +217,7 @@ jobs:
   build:
     name: Unsigned archive
     needs: decide
-    if: needs.decide.outputs.run == 'true'
+    if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 90
     env:
