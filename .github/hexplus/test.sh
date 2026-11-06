@@ -33,6 +33,7 @@ for runtime in runtimes:
 raise SystemExit("no available iPhone simulator")
 ')
 echo "Simulator: $udid"
+echo "$udid" > "$RUNNER_TEMP/simulator-udid"   # screenshots.sh reuses this simulator
 
 only=()
 if [[ -n "$ONLY_TESTING" ]]; then
