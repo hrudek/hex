@@ -138,6 +138,36 @@ Branch rules: changes reach `hex-plus` through PRs with green `Linux checks`;
 no force pushes or deletion. Repository admins (the owner, and the sync gate
 through `SYNC_TOKEN`) can bypass, so the gate can fast-forward.
 
+### Automatic upstream sync
+
+The sync creates/updates its PR with `SYNC_TOKEN` (the owner's trusted account),
+not `github-actions[bot]`, avoiding the bot's first-contributor approval prompt.
+The token needs permission to create and update pull requests in this repository
+as well as push branches. The repository's approval policy for other contributors
+stays unchanged; no automatic approval of arbitrary workflows is added.
+
+After a successful `sync/upstream` push CI, a small job explicitly dispatches
+`hexplus-gate.yml` on `hex-plus`. It uses only `GITHUB_TOKEN` with Actions write
+permission and executes no branch code. `workflow_run` remains a fallback; two
+requests for the same sync are harmless. The gate independently checks the run's
+repository, workflow, push event, branch, conclusion and required job results
+before its separate privileged job can push. It waits up to five minutes if the
+requesting CI has not quite finished yet. A sync with no app changes can skip
+both simulator tests and archive, not just one.
+
+Promotion requires an open sync PR, the tested SHA still at `sync/upstream`, and
+a fast-forward from the current `hex-plus`. Changes to Hex+'s protected control
+files are refused even with green CI. An already promoted SHA is a no-op; if
+`hex-plus` moved in the meantime, the next sync rebuilds the merge. For recovery,
+run `gh workflow run hexplus-gate.yml --ref hex-plus -f run_id=CI_RUN_ID`.
+Ordinary green syncs need no manual workflow approval or merge. Conflicts and
+protected-file changes still require intervention; ad-hoc signing still requires
+the owner's approval. Verification logic has Linux tests for rejected runs,
+job outcomes, pagination and bounded waiting. Local Git integration tests execute
+the actual promotion shell for success, duplicate requests, stale branches,
+missing PRs, divergence and protected files. These checks alone are not proof
+that GitHub dispatch, promotion and downstream TestFlight ran end-to-end.
+
 ### Files Hex+ owns
 
 Upstream never touches these, and the sync refuses upstream commits that would:

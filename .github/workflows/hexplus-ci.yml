@@ -414,3 +414,26 @@ jobs:
       - name: Remove signing material
         if: always()
         run: bash .github/hexplus/cleanup-signing.sh
+
+  sync-gate:
+    name: Request sync promotion
+    needs: [linux, decide, test, build]
+    if: >-
+      always() && github.event_name == 'push' && github.ref == 'refs/heads/sync/upstream'
+      && needs.linux.result == 'success' && needs.decide.result == 'success'
+      && ((needs.decide.outputs.run == 'true'
+           && needs.test.result == 'success' && needs.build.result == 'success')
+          || (needs.decide.outputs.run == 'false'
+              && needs.test.result == 'skipped' && needs.build.result == 'skipped'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Dispatch is allowed with GITHUB_TOKEN. No PAT, checkout or branch code
+      # here; the canonical gate independently verifies this run before pushing.
+      - name: Invoke the canonical gate on hex-plus
+        run: gh workflow run hexplus-gate.yml --ref hex-plus -f run_id="$GITHUB_RUN_ID"
