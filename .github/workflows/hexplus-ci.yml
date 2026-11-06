@@ -310,7 +310,7 @@ jobs:
     name: Unsigned archive
     needs: decide
     if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 90
     env:
       CI: "true"
@@ -345,7 +345,7 @@ jobs:
     # Ships as soon as the archive compiled; the tests run in parallel and hexplus-fix repairs them.
     needs: [decide, build]
     if: needs.decide.outputs.sign != '' && needs.build.result == 'success'
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 30
     environment: hexplus-${{ needs.decide.outputs.sign }}
     env:
@@ -456,7 +456,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RESULT: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+      # A job GitHub could not give a runner ends "cancelled": neither red nor green.
+      RESULT: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
       BRANCH: ${{ github.head_ref || github.ref_name }}
     steps:
       - name: Dispatch hexplus-fix with this run

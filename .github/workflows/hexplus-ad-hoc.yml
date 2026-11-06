@@ -45,7 +45,7 @@ jobs:
   sign:
     name: Sign existing PR archive (ad-hoc)
     needs: select
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 30
     environment:
       name: hexplus-ad-hoc
