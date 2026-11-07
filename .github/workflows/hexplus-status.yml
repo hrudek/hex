@@ -1,13 +1,11 @@
 # Hex+ (fork-only): keep the pinned issue "Hex+ status" current, so the owner only watches.
-# Hourly and after each fix attempt (dispatched by hexplus-fix); once a day it also reads SYNC_TOKEN's expiry.
+# No schedule: dispatched after each fix attempt (hexplus-fix), each hex-plus CI run
+# (hexplus-ci) and the daily sync (hexplus-sync), which also checks SYNC_TOKEN.
 # gh only; runs Hex+'s status.py from hex-plus, never branch code.
 name: Hex+ status
 run-name: "Hex+ status · ${{ github.event_name }}"
 
 on:
-  schedule:
-    - cron: "17 6 * * *"   # daily, with token check
-    - cron: "47 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +17,7 @@ concurrency:
 
 jobs:
   token:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 6 * * *'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: hexplus-sync

@@ -1,4 +1,7 @@
 # Trusted coordinator only: never execute PR code, never give the resolver SYNC_TOKEN.
+# Event-driven, no schedule. Conflicts appear only when hex-plus moves (push) or a
+# Hex+ PR is opened/updated; sync, upstream-pr and fix push and open PRs with
+# SYNC_TOKEN, so their branches arrive here as pull_request_target events.
 name: Hex+ automatic conflicts
 
 on:
@@ -7,11 +10,6 @@ on:
     types: [opened, synchronize, reopened, labeled]
   push:
     branches: [hex-plus]
-  workflow_run:
-    workflows: ["Hex* CI", "Hex* sync upstream", "Hex* upstream PR", "Hex* fix"]
-    types: [completed]
-  schedule:
-    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,14 +21,15 @@ concurrency:
 
 jobs:
   detect:
+    # PR events only for branches conflicts.py handles; a label only when it is "conflict".
     if: >-
-      (github.event_name != 'pull_request_target'
-       || github.event.pull_request.head.repo.full_name == github.repository)
-      && (github.event_name != 'workflow_run'
-          || github.event.workflow_run.path == '.github/workflows/hexplus-sync.yml'
-          || github.event.workflow_run.path == '.github/workflows/hexplus-upstream-pr.yml'
-          || github.event.workflow_run.path == '.github/workflows/hexplus-ci.yml'
-          || github.event.workflow_run.path == '.github/workflows/hexplus-fix.yml')
+      github.event_name != 'pull_request_target'
+      || (github.event.pull_request.head.repo.full_name == github.repository
+          && (github.event.pull_request.head.ref == 'sync/upstream'
+              || startsWith(github.event.pull_request.head.ref, 'feature/')
+              || startsWith(github.event.pull_request.head.ref, 'upstream-pr/')
+              || startsWith(github.event.pull_request.head.ref, 'fix/ci-'))
+          && (github.event.action != 'labeled' || github.event.label.name == 'conflict'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: hexplus-sync

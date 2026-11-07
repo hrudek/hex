@@ -50,9 +50,12 @@ class FastLaneContracts(unittest.TestCase):
                       job('sync-gate'))
         self.assertIn('needs: [decide, build]', job('sign'))
 
-    def test_nightly_and_manual_preview_do_not_build_device_archive(self):
-        self.assertTrue(condition('test', 'schedule'))
-        self.assertFalse(condition('build', 'schedule'))
+    def test_no_schedule_and_manual_preview_does_not_build_device_archive(self):
+        # Only the upstream sync runs on a schedule; CI, fix, conflicts and status are event-driven.
+        workflows = ROOT / '.github/workflows'
+        scheduled = sorted(p.name for p in workflows.glob('hexplus-*.yml')
+                           if re.search(r'^  schedule:', p.read_text(), re.M))
+        self.assertEqual(scheduled, ['hexplus-sync.yml'])
         self.assertTrue(condition('test', 'workflow_dispatch', 'simulator'))
         self.assertFalse(condition('build', 'workflow_dispatch', 'simulator'))
         self.assertFalse(condition('test', 'workflow_dispatch', 'simulator', only_testing='none'))

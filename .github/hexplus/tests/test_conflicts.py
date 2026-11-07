@@ -64,6 +64,38 @@ class PolicyTests(unittest.TestCase):
                     self.assertEqual(outputs[-1]['model'], 'opus')
                     self.assertEqual(outputs[-1]['work'], 'feature/example')
 
+    def test_ci_result_without_a_fix_resumes_a_waiting_incident(self):
+        # No schedule: a green (or cancelled) CI result is when a waiting incident resumes.
+        run = {'path': '.github/workflows/hexplus-ci.yml', 'head_branch': 'feature/other',
+               'head_repository': {'full_name': REPO}, 'html_url': 'https://example/run/1'}
+        for picked, proceeds in ((None, 'false'), (({'number': 35, 'labels': [], 'target': 'hex-plus'},
+                                                     'hex-plus', '42'), 'true')):
+            outputs = []
+            with self.subTest(picked=bool(picked)), tempfile.TemporaryDirectory() as tmp, \
+                    patch.dict(os.environ, {'GH_REPO': REPO, 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+                                            'RUN_ID': '1', 'RESULT': 'success', 'CONFLICT_PR': '',
+                                            'RUNNER_TEMP': tmp}), \
+                    patch.object(triage, 'gh_json', side_effect=lambda *a, **k: run if a[0] == 'api' else []), \
+                    patch.object(triage, 'close_incidents') as close, \
+                    patch.object(triage, 'pick_waiting', return_value=picked) as pick, \
+                    patch.object(triage, 'failed_jobs', return_value=['Simulator tests']), \
+                    patch.object(triage, 'attempt_comments', return_value=[]), \
+                    patch.object(triage, 'remote_branch_exists', return_value=False), \
+                    patch.object(triage.subprocess, 'run') as sub, \
+                    patch.object(triage, 'summary'), \
+                    patch.object(triage, 'output', side_effect=lambda **kw: outputs.append(kw)):
+                sub.return_value.stdout = 'log'
+                try:
+                    triage.main()
+                except SystemExit:
+                    pass
+            close.assert_called_once()
+            pick.assert_called_once()
+            self.assertEqual(outputs[-1]['proceed'], proceeds)
+            if picked:
+                self.assertEqual(outputs[-1]['issue'], '35')
+                self.assertEqual(outputs[-1]['run_id'], '42')
+
     def test_foreign_conflict_dispatch_is_rejected_before_agent_or_incident(self):
         pr = pr_fixture()
         pr['labels'] = [{'name': 'conflict'}]
@@ -150,6 +182,24 @@ class MergeTests(unittest.TestCase):
                 patch.object(conflicts, 'gh', side_effect=gh) as mock:
             conflicts.process(pr)
         return mock
+
+    def test_unknown_mergeability_is_awaited_after_a_hex_plus_push(self):
+        # No schedule rescans: right after hex-plus moves, GitHub reports mergeable=None.
+        pending = {**pr_fixture(), 'mergeable': None}
+        known = {**pr_fixture(), 'mergeable': False}
+        with patch.object(conflicts, 'api', side_effect=[pending, known]) as api, \
+                patch.object(conflicts.time, 'sleep') as sleep:
+            self.assertIs(conflicts.settled(pending)['mergeable'], False)
+        self.assertEqual(api.call_count, 2)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_mergeability_that_never_settles_is_left_alone(self):
+        pending = {**pr_fixture(), 'mergeable': None}
+        with patch.object(conflicts, 'api', return_value=pending), \
+                patch.object(conflicts.time, 'sleep'), \
+                patch.object(conflicts, 'gh') as gh:
+            conflicts.process(pending)
+        gh.assert_not_called()
 
     def test_text_conflict_is_committed_and_dispatched_without_losing_ancestry(self):
         pr = self.setup_divergence()
