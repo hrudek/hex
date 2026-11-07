@@ -222,6 +222,25 @@ jobs:
         env:
           XCODE_PATH: ${{ vars.XCODE_PATH }}
         run: bash .github/hexplus/select-xcode.sh
+      - name: Cache keys (Xcode, month)
+        id: cache-keys
+        run: |
+          xcode=$(xcodebuild -version | awk 'NR==1{v=$2} NR==2{b=$3} END{print v "-" b}')
+          echo "spm=hexplus-spm-$xcode-${{ hashFiles('ios/project.yml') }}" >> "$GITHUB_OUTPUT"
+          # A new compilation cache each month, so it never grows without bound.
+          echo "cas=hexplus-cas-test-${{ runner.arch }}-$xcode-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
+      - name: Restore Swift package checkouts
+        id: spm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: ${{ steps.cache-keys.outputs.spm }}
+      - name: Restore compilation cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/CompilationCache
+          key: ${{ steps.cache-keys.outputs.cas }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache-keys.outputs.cas }}
       - name: Run unit tests on the simulator
         id: tests
         env:
@@ -249,6 +268,20 @@ jobs:
           path: ${{ runner.temp }}/test-output
           if-no-files-found: ignore
           retention-days: 7
+      # Saved from pushes, schedules and manual runs only, never from a PR, so a PR
+      # cannot plant anything that a hex-plus (TestFlight) build later restores.
+      - name: Save Swift package checkouts
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && github.event_name != 'pull_request' && steps.spm-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: ${{ steps.cache-keys.outputs.spm }}
+      - name: Save compilation cache
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && github.event_name != 'pull_request' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/CompilationCache
+          key: ${{ steps.cache-keys.outputs.cas }}${{ github.run_id }}-${{ github.run_attempt }}
 
 
   build:
@@ -273,8 +306,42 @@ jobs:
         env:
           XCODE_PATH: ${{ vars.XCODE_PATH }}
         run: bash .github/hexplus/select-xcode.sh
+      - name: Cache keys (Xcode, month)
+        id: cache-keys
+        run: |
+          xcode=$(xcodebuild -version | awk 'NR==1{v=$2} NR==2{b=$3} END{print v "-" b}')
+          echo "spm=hexplus-spm-$xcode-${{ hashFiles('ios/project.yml') }}" >> "$GITHUB_OUTPUT"
+          # A new compilation cache each month, so it never grows without bound.
+          echo "cas=hexplus-cas-archive-${{ runner.arch }}-$xcode-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
+      - name: Restore Swift package checkouts
+        id: spm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: ${{ steps.cache-keys.outputs.spm }}
+      - name: Restore compilation cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/CompilationCache
+          key: ${{ steps.cache-keys.outputs.cas }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache-keys.outputs.cas }}
       - name: Build unsigned device archive (app, keyboard and widgets)
+        id: archive
         run: bash .github/hexplus/build.sh
+      # Saved from pushes, schedules and manual runs only, never from a PR, so a PR
+      # cannot plant anything that a hex-plus (TestFlight) build later restores.
+      - name: Save Swift package checkouts
+        if: ${{ !cancelled() && steps.archive.outcome != 'skipped' && github.event_name != 'pull_request' && steps.spm-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: ${{ steps.cache-keys.outputs.spm }}
+      - name: Save compilation cache
+        if: ${{ !cancelled() && steps.archive.outcome != 'skipped' && github.event_name != 'pull_request' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/CompilationCache
+          key: ${{ steps.cache-keys.outputs.cas }}${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload encrypted archive and public provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
