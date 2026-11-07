@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What a PR into hex-plus may change. Usage: scope.sh <base-sha> <head-sha>
+# What a PR into hex-plus may change. Usage: scope.sh <base-sha> <head-sha> 
 #   feature/* and others: only ios/ and HEXPLUS.md
 #   upstream-pr/*:        whatever the upstream PR changes
 # Hex+'s own automation (.github/hexplus/, hexplus-* workflows, issue templates) always needs the
