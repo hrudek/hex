@@ -29,6 +29,10 @@ private final class FakeAudioManager: AudioManaging {
     var isKeepaliveRunning = false
     var permissionGranted = true
     var keepaliveShouldThrow = false
+    /// False models Hex in the background: iOS refuses to start microphone input there,
+    /// though input that is already running keeps going.
+    var canStartInput = true
+    var startKeepaliveCount = 0
     var nextCaptureDuration: TimeInterval = 1.4
     var nextCaptureIsRecording = true
     var deactivateCount = 0
@@ -42,7 +46,8 @@ private final class FakeAudioManager: AudioManaging {
     }
 
     func startKeepalive(allowBluetooth: Bool) throws {
-        if keepaliveShouldThrow {
+        startKeepaliveCount += 1
+        if keepaliveShouldThrow || !canStartInput {
             isKeepaliveRunning = false
             throw CocoaError(.coderInvalidValue)
         }
@@ -63,7 +68,8 @@ private final class FakeAudioManager: AudioManaging {
         maxDuration: TimeInterval,
         allowBluetooth: Bool
     ) throws -> any ActiveAudioCapture {
-        isKeepaliveRunning = false
+        // Captures record from the keepalive input, starting it when it isn't running.
+        try ensureKeepalive(allowBluetooth: allowBluetooth)
         let capture = FakeAudioCapture(url: url, initialDuration: nextCaptureDuration)
         capture.isRecording = nextCaptureIsRecording
         createdCaptures.append(capture)
@@ -352,6 +358,48 @@ final class DictationControllerTests: XCTestCase {
         controller.handleAudioSystemEvent(.interruptionBegan)
         XCTAssertEqual(controller.phase, .ready)
         XCTAssertNotEqual(bridge.snapshot().state, .recording)
+    }
+
+    func testWarmSessionStaysHotForTheNextKeyboardDictationWhileInBackground() async throws {
+        let now = 9_000.0
+        let audio = FakeAudioManager()
+        let transcriber = ControlledTranscriber()
+        let bridge = KeyboardBridge(defaults: defaults)
+
+        let controller = DictationController(
+            audio: audio,
+            keyboardBridge: bridge,
+            transcriber: transcriber,
+            transcriberFactory: { transcriber },
+            now: { now },
+            autoPrepareOnInit: false
+        )
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+        XCTAssertTrue(controller.keyboardSessionEnabled)
+        let startsWhileForeground = audio.startKeepaliveCount
+
+        // The person returns to the host app: from now on iOS won't start input again.
+        audio.canStartInput = false
+
+        for job in ["first", "second", "third"] {
+            bridge.send(.start, jobID: job, style: .polished, sentAt: now)
+            controller.processPendingKeyboardCommandForTesting()
+            try await settle()
+            XCTAssertEqual(controller.phase, .recording, "\(job) dictation should record from the keyboard")
+
+            controller.finishRecording()
+            try await settle()
+            XCTAssertEqual(controller.phase, .ready)
+            XCTAssertTrue(controller.keyboardSessionEnabled, "\(job) dictation must not end the warm session")
+            XCTAssertTrue(audio.isKeepaliveRunning)
+            XCTAssertEqual(bridge.snapshot().state, .ready)
+        }
+
+        XCTAssertEqual(audio.startKeepaliveCount, startsWhileForeground, "no input restart in the background")
+        XCTAssertEqual(audio.deactivateCount, 0)
     }
 
     func testRecordedWAVFixtureIsValidSilentTestInput() throws {

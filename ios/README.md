@@ -47,7 +47,10 @@ it never accesses the microphone, speech model, or network.
     mic warm** starts an `AVAudioEngine` input session immediately (default
     `15m`) so subsequent taps on **Dictate** record directly inside the
     keyboard with zero app switches; picking `Off` or tapping the header timer
-    ends it.
+    ends it. Captures record from that running input (a tap writing a 16 kHz
+    WAV) instead of switching to a recorder, so the input never stops between
+    dictations: iOS won't start microphone input while Hex is in the
+    background, and restarting it there ended the session after each one.
   - **Styles:** `Polished` (sentence case + punctuation + filler trim),
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
     `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware

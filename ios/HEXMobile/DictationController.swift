@@ -851,8 +851,12 @@ final class DictationController {
                 audio.deactivateSession()
                 return
             }
+            // An interruption stopped the input; `.interruptionEnded` resumes the session.
+            guard !suspendedWarmSessionOnInterruption else { return }
             do {
-                try audio.startKeepalive(allowBluetooth: allowBluetoothMic)
+                // The capture recorded from the keepalive input, so it is normally still
+                // running. Restarting it here would fail in the background and end the session.
+                try audio.ensureKeepalive(allowBluetooth: allowBluetoothMic)
             } catch {
                 keyboardSessionEnabled = false
                 keyboardSessionRemaining = 0
