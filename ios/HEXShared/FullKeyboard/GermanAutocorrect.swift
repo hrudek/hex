@@ -118,14 +118,25 @@ final class GermanAutocorrect {
 
     /// Single-edit cost where an umlaut or ß in the target counts as a cheap 0.4 swap for its plain letter.
     func costAdjustedForUmlauts(from source: String, to target: String) -> Double? {
-        if let direct = AutocorrectEngine.singleEditKeyboardCost(from: source, to: target) {
-            return direct
-        }
+        let direct = AutocorrectEngine.singleEditKeyboardCost(from: source, to: target)
         let folded = String(target.map { Self.fold[$0] ?? $0 })
-        guard folded != target else { return nil }
-        if folded == source { return 0.4 }
-        guard let base = AutocorrectEngine.singleEditKeyboardCost(from: source, to: folded) else { return nil }
-        return base + 0.4
+        guard folded != target else { return direct }
+        // A missing umlaut ("fur" for "für") is cheaper than an ordinary
+        // substitution, so it wins over the direct edit cost.
+        let umlaut: Double?
+        if folded == source {
+            umlaut = 0.4
+        } else if let base = AutocorrectEngine.singleEditKeyboardCost(from: source, to: folded) {
+            umlaut = base + 0.4
+        } else {
+            umlaut = nil
+        }
+        switch (direct, umlaut) {
+        case let (d?, u?): return min(d, u)
+        case let (d?, nil): return d
+        case let (nil, u?): return u
+        case (nil, nil): return nil
+        }
     }
 
     // MARK: - Built-in table

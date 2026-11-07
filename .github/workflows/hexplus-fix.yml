@@ -141,6 +141,8 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
+          # The CI failure dispatches this workflow as github-actions; without this the action refuses to run.
+          allowed_bots: github-actions
           prompt: |
             You are the FIX step for Hex+, a personal fork of anomalyco/hex that only ships the iPhone app (ios/). Nobody reviews your work before it merges; CI is the only judge, so be careful and minimal.
 
@@ -335,7 +337,7 @@ jobs:
         run: |
           marker='<!-- hexplus-fix-waiting -->'
           body="$marker
-          The agent could not run (usage limit or runner problem): $FIX_RUN
+          The agent could not run (usage limit, runner problem, or an action error; see the log): $FIX_RUN
           Retrying automatically every 30 minutes; this does not count as an attempt. Last update: $(date -u '+%Y-%m-%d %H:%M UTC')."
           id=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -1)
           if [[ -n "$id" ]]; then gh api -X PATCH "repos/$GH_REPO/issues/comments/$id" -f body="$body" >/dev/null
