@@ -98,7 +98,6 @@ def main() -> None:
 
     ci = runs("hexplus-ci.yml", branch="hex-plus")
     push = next((r for r in ci if r["event"] == "push"), None)
-    nightly = next((r for r in ci if r["event"] == "schedule"), None)
     sync = (runs("hexplus-sync.yml") or [None])[0]
     gate = (runs("hexplus-gate.yml") or [None])[0]
     lines += ["### Pipeline", "| | Last | |", "|---|---|---|"]
@@ -108,7 +107,6 @@ def main() -> None:
         else:
             lines.append(f"| {name} | – | never |")
     row("hex-plus (last merge)", push)
-    row("Nightly tests", nightly)
     row("Upstream sync", sync)
     row("Sync promotion (gate)", gate)
     lines.append(f"| TestFlight upload | {last_testflight(repo)} | |")

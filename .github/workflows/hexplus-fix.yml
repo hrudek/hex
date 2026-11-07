@@ -11,15 +11,14 @@
 #   push (Linux, SYNC_TOKEN, no repository code): applies the patch, pushes, opens the
 #       fix PR with auto-merge (hex-plus incidents), marks a resolved sync PR ready.
 #   The push starts Hex+ CI again; a red result comes straight back here (next
-#   attempt, Opus from attempt 2). Every 30 minutes the schedule resumes incidents
-#   whose agent could not run (usage limit) or made no change. After 6 attempts, or
+#   attempt, Opus from attempt 2). No schedule: an incident whose agent could not run
+#   (usage limit) or made no change is resumed by the next Hex+ CI result on any
+#   branch, or by hand (gh workflow run hexplus-fix.yml). After 6 attempts, or
 #   more than 4 incidents in a day, the incident gets "needs-human" and work stops.
 name: Hex+ fix
 run-name: "Hex+ fix · ${{ inputs.branch && format('{0} · {1}', inputs.branch, inputs.result) || github.event_name }}"
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       run_id:
@@ -332,13 +331,13 @@ jobs:
       ISSUE: ${{ needs.triage.outputs.issue }}
       FIX_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      # Not an attempt: usage limits and runner trouble are retried every 30 minutes.
+      # Not an attempt: resumed by the next Hex+ CI result or by hand.
       - name: Say the agent could not run (one comment, updated)
         run: |
           marker='<!-- hexplus-fix-waiting -->'
           body="$marker
           The agent could not run (usage limit, runner problem, or an action error; see the log): $FIX_RUN
-          Retrying automatically every 30 minutes; this does not count as an attempt. Last update: $(date -u '+%Y-%m-%d %H:%M UTC')."
+          It is retried with the next Hex+ CI result, or now with \`gh workflow run hexplus-fix.yml -R $GH_REPO\`; this does not count as an attempt. Last update: $(date -u '+%Y-%m-%d %H:%M UTC')."
           id=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -1)
           if [[ -n "$id" ]]; then gh api -X PATCH "repos/$GH_REPO/issues/comments/$id" -f body="$body" >/dev/null
           else gh issue comment "$ISSUE" --body "$body"; fi

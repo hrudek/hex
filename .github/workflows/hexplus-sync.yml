@@ -210,3 +210,7 @@ jobs:
           else
             gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
           fi
+      # The status workflow has no schedule: the daily sync refreshes it, token check included.
+      - name: Refresh the status issue
+        if: always()
+        run: gh workflow run hexplus-status.yml --ref hex-plus
