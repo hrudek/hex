@@ -104,8 +104,9 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   4. The revert conflicts (a later feature builds on it): comment on the
      feature's issue `@claude remove this feature again, keep <other feature>`.
   Agents: a revert is mechanical; prefer GitHub's Revert over rewriting code.
-- **Automation changes** need the `infra` label; label events start no CI run
-  (as in OpenCode), so after adding it, re-run the failed `Linux checks`.
+- **Automation changes** need the `infra` label. Adding it re-runs the PR's failed
+  Hex+ CI jobs by itself (`hexplus-recheck.yml`; the scope check reads labels live).
+  Other label events start no CI run (as in OpenCode).
   Draft PRs get only the Linux checks until marked ready.
 - **An unmerged upstream PR:** `gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=1234`,
   or ask in an issue comment. It opens a PR from `upstream-pr/1234`; merge it
