@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 MARKERS = r'^(<<<<<<< |=======$|>>>>>>> )'
 
@@ -39,6 +40,16 @@ def markers():
     return result.stdout.splitlines()
 
 
+def settled(pr, attempts=12, delay=5):
+    """GitHub computes mergeability after a push to hex-plus; wait for it (no schedule rescans)."""
+    for _ in range(attempts):
+        if pr['mergeable'] is not None:
+            break
+        time.sleep(delay)
+        pr = api(f'pulls/{pr["number"]}')
+    return pr
+
+
 def needs_human(pr, paths):
     gh('pr', 'edit', str(pr['number']), '--add-label', 'needs-human')
     gh('pr', 'comment', str(pr['number']), '--body',
@@ -52,7 +63,11 @@ def process(pr):
     if not eligible(pr, repo):
         return
     labels = {label['name'] for label in pr['labels']}
+    if 'conflict' not in labels:
+        pr = settled(pr)
     if pr['mergeable'] is not False and 'conflict' not in labels:
+        if pr['mergeable'] is None:
+            print(f'PR #{number}: GitHub has not computed mergeability; the next push or PR event checks again.')
         return
     # Refresh exact SHAs immediately before preparing the branch.
     pr = api(f'pulls/{number}')
@@ -98,7 +113,7 @@ def process(pr):
         current = api(f'pulls/{number}')
         if (not eligible(current, repo) or current['head']['sha'] != head
                 or current['base']['sha'] != base):
-            print(f'PR #{number} changed during preparation; leave it for the next scan.')
+            print(f'PR #{number} changed during preparation; its push triggers the next check.')
             return
         # No force push: another writer always wins.
         command('git', 'push', '-q', 'origin', f'HEAD:refs/heads/{pr["head"]["ref"]}')

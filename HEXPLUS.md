@@ -146,7 +146,6 @@ Hex+ CI (fast lane: only Linux checks and compiling block; tests never hold anyt
 ├─ Push to hex-plus with app changes: archive and simulator tests in parallel
 │  └─ Test failures → Hex+ fix → fix PR → archive → merge → tests again
 ├─ Manual simulator mode: tests + screenshot artifacts, no device archive/signing
-├─ Nightly 05:41 UTC: every test on hex-plus, no device archive/signing
 └─ Sign
    ├─ push to hex-plus → TestFlight as soon as the archive compiled
    └─ by hand → ad-hoc (hex-plus or feature/*, needs approval) or testflight
@@ -161,7 +160,8 @@ Hex+ fix (no owner step; at most 6 attempts per incident)
 ├─ push job (git/gh only): commit → hex-plus incidents: PR fix/ci-<n> with auto-merge;
 │  sync/upstream: commit there, conflict PR marked ready; feature PRs: their branch
 ├─ CI runs again → still red → next attempt right away
-├─ usage limit / no change → retried every 30 minutes (limits do not count as attempts)
+├─ usage limit / no change → resumed by the next Hex+ CI result, or by hand with
+│  `gh workflow run hexplus-fix.yml` (limits do not count as attempts; no schedule)
 └─ 6 attempts or > 4 incidents a day → label needs-human, work stops, status says so
 
 Hex+ PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
@@ -347,7 +347,7 @@ into `hex-plus`. It requires the latest PR CI run for the current head commit,
 with `Linux checks`, `Decide` and `Unsigned archive` successful (none may be
 skipped). PRs do not automatically run simulator tests or screenshots. Optional
 manual simulator checks do not gate archive reuse. Automated simulator tests run
-on `hex-plus` after app changes and nightly; the upstream-sync gate still requires
+on `hex-plus` after app changes; the upstream-sync gate still requires
 successful tests before promotion.
 A cancelled or not-yet-started CI run is refused. It checks again after approval;
 if the PR changed, rerun once the new commit's required jobs pass.

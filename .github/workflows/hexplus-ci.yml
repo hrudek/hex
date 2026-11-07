@@ -1,9 +1,8 @@
 # Hex+ (fork-only) CI for the iPhone app.
 # Fast lane: PRs run Linux checks and compile only. Simulator tests run after
-# merging to hex-plus, beside the TestFlight build, and nightly. Screenshots and
+# merging to hex-plus, beside the TestFlight build (no nightly run). Screenshots and
 # pre-merge tests are opt-in via the manual simulator distribution.
 #   push hex-plus       → app changed? archive → TestFlight at once; tests in parallel
-#   schedule (nightly)  → every test on hex-plus (catches runner/Xcode drift); no signing
 #   push sync/upstream  → the daily upstream merge: tests AND archive; hexplus-gate promotes it when green
 #   push upstream-pr/*  → an unmerged upstream PR taken over by hexplus-upstream-pr: checks, scope
 #   pull_request        → feature/fix PRs: checks, scope, labels, archive (required); no simulator
@@ -15,8 +14,6 @@ run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}
 on:
   push:
     branches: [hex-plus, sync/upstream, "upstream-pr/**"]
-  schedule:
-    - cron: "41 5 * * *"
   pull_request:
     branches: [hex-plus]
     # As OpenCode's checks: no label events (after adding "infra", re-run the failed check);
@@ -163,7 +160,6 @@ jobs:
                 base=$(git ls-remote "$REPO" refs/heads/hex-plus | cut -f1)
               fi ;;
             pull_request) base=$PR_BASE head=$PR_HEAD ;;
-            schedule) ;;   # nightly: always test, never sign
             workflow_dispatch)
               case "$DISTRIBUTION" in
                 unsigned|simulator) ;;
@@ -246,7 +242,7 @@ jobs:
   build:
     name: Unsigned archive
     needs: decide
-    if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft && inputs.distribution != 'simulator' && github.event_name != 'schedule'
+    if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft && inputs.distribution != 'simulator'
     runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 90
     env:
@@ -400,3 +396,7 @@ jobs:
     steps:
       - name: Dispatch hexplus-fix with this run
         run: gh workflow run hexplus-fix.yml --ref hex-plus -f run_id="$GITHUB_RUN_ID" -f result="$RESULT" -f branch="$BRANCH"
+      # No status schedule: a hex-plus run is what the status issue reports.
+      - name: Refresh the status issue
+        if: github.event_name == 'push' && github.ref == 'refs/heads/hex-plus'
+        run: gh workflow run hexplus-status.yml --ref hex-plus

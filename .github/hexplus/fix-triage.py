@@ -70,6 +70,10 @@ def stop(reason: str) -> None:
     raise SystemExit(0)
 
 
+class NothingToFix(Exception):
+    """This CI run needs no fix; a waiting incident may still be resumed."""
+
+
 def incidents() -> list[dict]:
     issues = gh_json("issue", "list", "--label", "fix", "--state", "open", "--limit", "50",
                      "--json", "number,body,labels,createdAt,title") or []
@@ -163,7 +167,7 @@ def ensure_incident(target: str, run_url: str) -> dict | None:
     return {"number": number, "target": target, "labels": labels}
 
 
-def pick_scheduled() -> tuple[dict, str, str] | None:
+def pick_waiting() -> tuple[dict, str, str] | None:
     """Resume an open incident whose latest CI run is red and whose last attempt is old."""
     now = dt.datetime.now(dt.timezone.utc)
     me = os.environ.get("GITHUB_RUN_ID", "")
@@ -224,54 +228,65 @@ def main() -> None:
         failed = ["Merge conflicts"]
         run_id = ""
     elif run_id:
-        if not run_id.isdigit():
-            stop("run_id must be a number")
-        run = gh_json("api", f"repos/{repo}/actions/runs/{run_id}") or {}
-        if run.get("path", "").split("@")[0] != ".github/workflows/hexplus-ci.yml":
-            stop("not a Hex+ CI run")
-        if (run.get("head_repository") or {}).get("full_name") != repo:
-            stop("run from another repository")
-        # CI dispatches this from its own last job, so the run itself is still in progress.
-        branch = run["head_branch"]
-        conclusion = os.environ.get("RESULT") or run.get("conclusion") or ""
-        if conclusion not in ("failure", "success"):
-            stop(f"result {conclusion or 'unknown'}")
-        if conclusion == "success":
-            if branch in ("hex-plus", "sync/upstream") or branch.startswith(("feature/", "upstream-pr/", "fix/ci-")):
-                close_incidents(branch, f"Hex+ CI is green again ({run['html_url']}).")
-            stop("CI is green")
-        if conclusion != "failure":
-            stop(f"CI {conclusion}")
-        failed = failed_jobs(run_id)
-        code = [j for j in failed if j in CODE_JOBS]
-        signing = [j for j in failed if j.startswith(SIGN_PREFIX)]
-        if not code:
-            if signing and branch == "hex-plus" and run.get("run_attempt", 1) == 1:
-                # The dispatching CI job must finish before its run can be re-run.
-                for _ in range(40):
-                    if gh_json("api", f"repos/{repo}/actions/runs/{run_id}", "--jq", "{status}")["status"] == "completed":
-                        break
-                    time.sleep(15)
-                gh("run", "rerun", run_id, "--failed")
-                stop("signing/upload failed once; re-running it")
-            if signing and branch == "hex-plus":
-                ensure = ensure_incident("hex-plus-signing", run["html_url"])
-                if ensure:
-                    gh("issue", "edit", str(ensure["number"]), "--add-label", "needs-human")
-                    gh("issue", "comment", str(ensure["number"]), "--body",
-                       f"Signing or the TestFlight upload failed twice ({run['html_url']}). "
-                       "This is Apple's side (certificate, profile, agreement), not code.")
-                stop("signing needs a human")
-            stop(f"no code job failed ({', '.join(failed) or 'none'})")
-        classified = classify(branch)
-        if not classified:
-            stop(f"branch {branch} is not auto-fixed")
-        target, work = classified
-        issue = ensure_incident(target, run["html_url"])
-        if not issue:
-            stop("incident needs a human")
-    elif event_name in ("schedule", "workflow_dispatch"):  # resume waiting incidents
-        picked = pick_scheduled()
+        try:
+            if not run_id.isdigit():
+                stop("run_id must be a number")
+            run = gh_json("api", f"repos/{repo}/actions/runs/{run_id}") or {}
+            if run.get("path", "").split("@")[0] != ".github/workflows/hexplus-ci.yml":
+                stop("not a Hex+ CI run")
+            if (run.get("head_repository") or {}).get("full_name") != repo:
+                stop("run from another repository")
+            # CI dispatches this from its own last job, so the run itself is still in progress.
+            branch = run["head_branch"]
+            conclusion = os.environ.get("RESULT") or run.get("conclusion") or ""
+            if conclusion not in ("failure", "success"):
+                raise NothingToFix(f"result {conclusion or 'unknown'}")
+            if conclusion == "success":
+                if branch in ("hex-plus", "sync/upstream") or branch.startswith(("feature/", "upstream-pr/", "fix/ci-")):
+                    close_incidents(branch, f"Hex+ CI is green again ({run['html_url']}).")
+                raise NothingToFix("CI is green")
+            if conclusion != "failure":
+                raise NothingToFix(f"CI {conclusion}")
+            failed = failed_jobs(run_id)
+            code = [j for j in failed if j in CODE_JOBS]
+            signing = [j for j in failed if j.startswith(SIGN_PREFIX)]
+            if not code:
+                if signing and branch == "hex-plus" and run.get("run_attempt", 1) == 1:
+                    # The dispatching CI job must finish before its run can be re-run.
+                    for _ in range(40):
+                        if gh_json("api", f"repos/{repo}/actions/runs/{run_id}", "--jq", "{status}")["status"] == "completed":
+                            break
+                        time.sleep(15)
+                    gh("run", "rerun", run_id, "--failed")
+                    stop("signing/upload failed once; re-running it")
+                if signing and branch == "hex-plus":
+                    ensure = ensure_incident("hex-plus-signing", run["html_url"])
+                    if ensure:
+                        gh("issue", "edit", str(ensure["number"]), "--add-label", "needs-human")
+                        gh("issue", "comment", str(ensure["number"]), "--body",
+                           f"Signing or the TestFlight upload failed twice ({run['html_url']}). "
+                           "This is Apple's side (certificate, profile, agreement), not code.")
+                    stop("signing needs a human")
+                raise NothingToFix(f"no code job failed ({', '.join(failed) or 'none'})")
+            classified = classify(branch)
+            if not classified:
+                raise NothingToFix(f"branch {branch} is not auto-fixed")
+            target, work = classified
+            issue = ensure_incident(target, run["html_url"])
+            if not issue:
+                stop("incident needs a human")
+        except NothingToFix as nothing:
+            # No cron: every CI result is also the moment to resume an incident whose
+            # agent could not run earlier (usage limit, runner trouble).
+            picked = pick_waiting()
+            if not picked:
+                stop(str(nothing))
+            summary(f"{nothing}; resuming a waiting incident instead")
+            issue, work, run_id = picked
+            target = issue["target"]
+            failed = [j for j in failed_jobs(run_id) if j in CODE_JOBS]
+    elif event_name == "workflow_dispatch":  # manual: resume waiting incidents
+        picked = pick_waiting()
         if not picked:
             stop("no incident waiting for another attempt")
         issue, work, run_id = picked
