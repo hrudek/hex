@@ -14,6 +14,7 @@ if [[ "${HEXPLUS_IDENTITY:-}" != keep ]]; then
   : "${APPLE_TEAM_ID:?}"
   python3 "$here/identity.py" "$root/ios"
 fi
+source "$here/cache-args.sh"
 cd "$root/ios"
 command -v xcodegen >/dev/null || brew install xcodegen
 xcodegen generate
@@ -50,12 +51,14 @@ xcodebuild test \
   -project "$project" -scheme "$scheme" \
   -destination "id=$udid" \
   -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+  ${cache_args[@]+"${cache_args[@]}"} \
   -resultBundlePath "$RUNNER_TEMP/test-output/Tests.xcresult" \
   ${only[@]+"${only[@]}"} \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
   2>&1 | tee "$RUNNER_TEMP/test-output/xcodebuild-test.log"
 status=${PIPESTATUS[0]}
 set -e
+cache_report
 grep -E "Test Case .*(passed|failed)|error:|Executed [0-9]+ tests" "$RUNNER_TEMP/test-output/xcodebuild-test.log" \
   | tail -200 >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
 exit "$status"
