@@ -13,9 +13,18 @@ is the entry point for them and for the owner.
   label (CI's scope check fails otherwise). Never edit upstream's `AGENTS.md`
   or other upstream files outside `ios/`: every change there conflicts with
   the daily upstream merge.
-- One feature = one issue (the spec) → branch `feature/<name>` from `hex-plus`
-  → one PR to `hex-plus` with label `feature` → squash merge, so the feature is
-  one commit whose message ends with `Closes #<issue>`.
+- Local development with Pi is **PR-first**: discuss the request in Pi → branch
+  `feature/<name>` from `hex-plus` → PR to `hex-plus` with label `feature` → squash
+  merge. No issue or issue number in the branch name is required. Do not create
+  an issue retroactively just to document an already implemented change.
+- Use an existing relevant issue when there is one. Create an issue only for
+  deferred or unresolved work, explicit delegation (including the optional
+  GitHub agent), coordination across multiple PRs, or at the owner's request.
+  Use `Closes #<issue>` only when the PR fully resolves that issue; otherwise
+  link it without closing it. Automatic CI incident and status issues keep
+  their existing roles and are not affected by this rule.
+- Keep each PR cohesive and independently reviewable. A larger feature may span
+  several PRs; do not force it into one commit merely to match an issue.
 - Follow upstream's iPhone rules in `ios/README.md` and `AGENTS.md`, except for
   switches: Hex+ is the owner's personal app, so its features are wanted.
   - Bug fixes and small corrections: no switch.
@@ -26,8 +35,9 @@ is the entry point for them and for the owner.
     the toggles; create them with the first switch), never in upstream's
     `ExperimentsCard.swift` or `FullKeyboardSettings.swift`. The off position
     keeps today's behaviour exactly.
-  - A proven feature becomes permanent through its own issue ("Make … permanent"):
-    remove the switch and the old code path, set its table status to `permanent`.
+  - Make a proven feature permanent through a PR: remove the switch and the old
+    code path, set its table status to `permanent`. The same optional-issue rule
+    applies; no separate "Make … permanent" issue is required.
 - Every feature brings simulator tests (`ios/HEXMobileTests`), so the daily
   merge cannot silently break it. Hand over promptly: a successful local simulator
   run is not required before the push; CI runs tests after merging to `hex-plus`.
@@ -38,8 +48,12 @@ is the entry point for them and for the owner.
 - Merge-conflict markers in a `sync` or `upstream-pr` PR: keep upstream's
   change and Hex+'s behaviour, remove every marker; CI's "No conflict markers"
   check must pass.
-- The PR description says: what changes for the user, which files, how it was
-  tested, what could not be tested (anything only a real iPhone proves).
+- The PR is the durable record of a directly developed change. Its description
+  says: the goal, agreed user-visible behaviour, important decisions and their
+  reasons, which files changed, what was tested, and what could not be tested
+  (anything only a real iPhone proves). Carry relevant outcomes out of the Pi
+  conversation into the PR or repository documentation; session logs alone are
+  not the handover. Update the description when the agreed scope changes.
 - PRs allocate no simulator runner: no automatic simulator tests or screenshots.
   For an optional visual/test check before merging, manually run Hex+ CI on the
   feature branch with distribution `simulator`. It runs tests, then captures the
@@ -66,6 +80,9 @@ gh pr list --state all --label upstream-pr             # upstream PRs carried ea
 
 Status: `switch` (on by default, can be turned off in the app's Hex+ section),
 `permanent` (no switch), `fix` (bug fix, never had a switch).
+The PR is the primary change reference. Use `—` in the Issue column when no
+issue is needed; never create one just to fill the table. Multiple related PRs
+may be listed for a feature. Documentation-only process changes need no feature row.
 
 | Feature | Issue | PR | Status | Main files |
 | --- | --- | --- | --- | --- |
@@ -76,7 +93,15 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
 
 ## Asking for work (owner)
 
-- **A feature:** open an issue with the **Hex+ feature** form (it sets the
+- **Default: develop here with Pi.** Describe the change in the conversation;
+  Pi clarifies requirements as needed, implements on `feature/<name>`, performs
+  appropriate checks and opens a PR to `hex-plus`. No issue is needed. Use a
+  draft PR if an early durable work-in-progress record helps. The PR preserves
+  the agreed behaviour, decisions and verification; lasting product or
+  architecture rules belong in repository documentation. Existing CI, merge
+  requirements and distribution rules still apply.
+- **Optional: delegate through the GitHub agent.** Open an issue with the
+  **Hex+ feature** form (it sets the
   `agent` label itself), or label any issue `agent`. A blank issue stays a
   note the agent ignores. **Planning** (Opus, Linux runner, cannot change code) replies with
   a short summary and at most 3 questions (with suggested defaults); the full
@@ -95,16 +120,20 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
   starts fresh and reads the issue and all comments by `hrudek` and Claude.
   A small change needs no plan: comment `@claude …` on an issue without the
   `agent` label. Label `model:opus` makes building use Opus too.
-- **Changes to a PR:** comment `@claude …` on it; Claude pushes to that branch.
+- **Changes to a PR:** ask Pi here to continue on that branch, or comment
+  `@claude …` on the PR to delegate to the GitHub agent.
 - **Removing a feature:**
   1. Not merged yet: close the PR.
   2. Merged, just not wanted right now: turn its switch off in the app's Hex+ section.
   3. For good: on the merged feature PR click **Revert**, then squash-merge the
-     revert PR. It removes the one squash commit, including the feature's row
-     in the table below; issue and PRs stay as history. Reverting the revert
-     brings it back.
-  4. The revert conflicts (a later feature builds on it): comment on the
-     feature's issue `@claude remove this feature again, keep <other feature>`.
+     revert PR. For a feature spanning several PRs, revert the relevant commits
+     together, accounting for dependencies. Remove its table row only when the
+     whole feature is removed; PRs and any existing issue stay as history.
+     Reverting the revert brings it back.
+  4. The revert conflicts (a later feature builds on it): ask Pi to remove the
+     feature while preserving the dependent behaviour. Alternatively, delegate
+     through an existing feature issue, or create one for this handover, with
+     `@claude remove this feature again, keep <other feature>`.
   Agents: a revert is mechanical; prefer GitHub's Revert over rewriting code.
 - **Automation changes** need the `infra` label. Adding it re-runs the PR's failed
   Hex+ CI jobs by itself (`hexplus-recheck.yml`; the scope check reads labels live).
