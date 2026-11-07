@@ -72,6 +72,7 @@ Status: `switch` (on by default, can be turned off in the app's Hex+ section),
 | Hex keyboard no longer falls back to the iOS keyboard (Swift 6 lexicon crash) | #31 | pending | fix | ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXShared/FullKeyboard/LexiconDelivery.swift |
 | German autocorrect: ae/oe/ue/ss → ä/ö/ü/ß and German typo fixes on the full keyboard | #33 | pending | switch | ios/HEXShared/FullKeyboard/GermanAutocorrect.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
 | Keep mic warm stays hot after a keyboard dictation (no trip back into the app for the next one) | #42 | pending | fix | ios/HEXMobile/AudioBackend.swift, ios/HEXMobile/DictationController.swift |
+| Keyboard switch key: tap on the dictation bar shows the full keyboard; hold 0.35 s on the full keyboard shows the dictation bar | #44 | pending | switch | ios/HEXShared/FullKeyboard/KeyboardSwitchKey.swift, ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXShared/FullKeyboard/FullKeyboardView.swift, ios/HEXShared/KeyboardSurface.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
 
 ## Asking for work (owner)
 

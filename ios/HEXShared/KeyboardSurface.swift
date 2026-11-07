@@ -59,6 +59,8 @@ final class KeyboardViewModel: ObservableObject {
     @Published var returnAppID: String?
     @Published var quickReturnApps: [HostApp] = HostAppCatalog.quickChips
     @Published var activeTray: PickerTray = .none
+    /// Hex+: the utility row starts with a key that shows the full keyboard.
+    @Published var showsFullKeyboardSwitch = false
 
     // Non-published live telemetry read directly by `DotScopeHostView` / button tap handlers
     // so 25–30 Hz polling never invalidates SwiftUI views mid-spring.
@@ -77,6 +79,8 @@ final class KeyboardViewModel: ObservableObject {
     var onDelete: (() -> Void)?
     var onReturn: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
+    /// Hex+: the full-keyboard key was tapped.
+    var onShowFullKeyboard: (() -> Void)?
     weak var inputViewController: UIInputViewController?
 
     var selectedReturnApp: HostApp? {
@@ -849,6 +853,21 @@ struct KeyboardSurfaceView: View {
     private var utilityRow: some View {
         let p = palette
         return HStack(spacing: 6) {
+            if model.showsFullKeyboardSwitch { // Hex+
+                Button {
+                    model.onShowFullKeyboard?()
+                } label: {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(p.textBase)
+                        .frame(width: 44, height: 42)
+                        .contentShape(RoundedRectangle(cornerRadius: HexTheme.controlRadius, style: .continuous))
+                }
+                .buttonStyle(KeyboardKeyButtonStyle(palette: p))
+                .disabled(isStageActive)
+                .accessibilityLabel("Show full keyboard")
+            }
+
             if model.needsGlobeKey {
                 GlobeKeyRepresentable(controller: model.inputViewController, isDark: p.isDark)
                     .frame(width: 44, height: 42)

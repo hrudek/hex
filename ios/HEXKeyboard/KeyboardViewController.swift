@@ -125,6 +125,7 @@ final class KeyboardViewController: UIInputViewController {
             guard let self else { return }
             ContainingAppOpener.open(url, from: self)
         }
+        viewModel.onShowFullKeyboard = { [weak self] in self?.switchSurface(toCompactBar: false) }
 
         let heightConstraint = view.heightAnchor.constraint(equalToConstant: 140)
         heightConstraint.priority = UILayoutPriority(999)
@@ -134,9 +135,20 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// The dictation bar, or the full keyboard when its experiment is on (iPhone only).
+    /// Hex+: with the switch key on, the compact bar when it was picked with that key.
     /// Only switches while idle.
     private func mountSurface() {
-        let wantsFull = FullKeyboardSettings().isEnabled && UIDevice.current.userInterfaceIdiom == .phone
+        let experimentOn = FullKeyboardSettings().isEnabled && UIDevice.current.userInterfaceIdiom == .phone
+        let switchKeyOn = experimentOn && HexPlusSettings().keyboardSwitchKey
+        let wantsFull = KeyboardSurfaceChoice.wantsFullKeyboard(
+            experimentOn: experimentOn,
+            switchKeyOn: switchKeyOn,
+            compactChosen: KeyboardSurfaceChoice().showsCompactBar
+        )
+        if viewModel.showsFullKeyboardSwitch != switchKeyOn {
+            viewModel.showsFullKeyboardSwitch = switchKeyOn
+        }
+        fullKeyboard?.showsCompactSwitch = switchKeyOn
         guard surface == nil || wantsFull != (fullKeyboard != nil) else { return }
         guard surface == nil || viewModel.stagePhase == .idle || viewModel.stagePhase == .failed else { return }
 
@@ -156,6 +168,8 @@ final class KeyboardViewController: UIInputViewController {
             )
             keyboard.hostController = self
             keyboard.allowsHaptics = { [weak self] in self?.hasFullAccess ?? false }
+            keyboard.showsCompactSwitch = switchKeyOn
+            keyboard.onShowCompactBar = { [weak self] in self?.switchSurface(toCompactBar: true) }
             fullKeyboard = keyboard
             mounted = keyboard
             heightConstraint?.constant = keyboard.preferredHeight
@@ -178,6 +192,24 @@ final class KeyboardViewController: UIInputViewController {
         ])
         surface = mounted
         schedulePoll(force: false)
+    }
+
+    /// Hex+: the switch key picked the compact bar or the full keyboard. Only while idle.
+    private func switchSurface(toCompactBar compact: Bool) {
+        guard viewModel.stagePhase == .idle || viewModel.stagePhase == .failed else { return }
+        KeyboardSurfaceChoice().showsCompactBar = compact
+        // Let the tapped key's touch handling finish before its view goes away.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.viewModel.activeTray != .none {
+                self.viewModel.setActiveTray(.none, reduceMotion: true)
+            }
+            self.mountSurface()
+            self.fullKeyboard?.prepareForField()
+            self.warmFullKeyboardLexiconIfNeeded()
+            self.syncFromBridge(animated: false)
+            self.schedulePoll(force: true)
+        }
     }
 
     /// The dictation bar polls at 25 Hz; the full keyboard at 4 Hz, and 30 Hz while recording.

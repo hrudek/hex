@@ -85,6 +85,8 @@ final class FullKeyboardEngine {
     var width: CGFloat = 375 { didSet { if width != oldValue { rebuildLayout() } } }
     var orientation: KeyboardOrientation = .portrait { didSet { if orientation != oldValue { rebuildLayout() } } }
     var showsGlobe = false { didSet { if showsGlobe != oldValue { rebuildLayout() } } }
+    /// Hex+: the bottom row starts with the compact-bar switch key.
+    var showsCompactSwitch = false { didSet { if showsCompactSwitch != oldValue { rebuildLayout() } } }
     var horizontalInset: CGFloat = 0 { didSet { if horizontalInset != oldValue { rebuildLayout() } } }
     private(set) var layout = KeyboardLayout(width: 375)
 
@@ -230,7 +232,7 @@ final class FullKeyboardEngine {
             if next == .letters { shift.reset() }
             rebuildLayout()
             if next == .letters { refreshAutoCapitalization() }
-        case .character, .space, .returnKey, .hex, .globe:
+        case .character, .space, .returnKey, .hex, .globe, .compactSwitch:
             break
         }
         touches[id] = touch
@@ -364,7 +366,7 @@ final class FullKeyboardEngine {
                 rebuildLayout()
                 refreshAutoCapitalization()
             }
-        case .delete, .hex, .globe:
+        case .delete, .hex, .globe, .compactSwitch:
             break
         }
         onChange?()
@@ -536,7 +538,8 @@ final class FullKeyboardEngine {
             layer: layerState.layer,
             field: field,
             showsGlobe: showsGlobe,
-            horizontalInset: horizontalInset
+            horizontalInset: horizontalInset,
+            showsCompactSwitch: showsCompactSwitch
         )
     }
 }

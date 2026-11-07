@@ -6,6 +6,7 @@ import Foundation
 struct HexPlusSettings {
     private enum Key {
         static let germanAutocorrect = "hexplus.germanAutocorrect"
+        static let keyboardSwitchKey = "hexplus.keyboardSwitchKey"
     }
 
     private let defaults: UserDefaults?
@@ -18,5 +19,12 @@ struct HexPlusSettings {
     var germanAutocorrect: Bool {
         get { defaults?.object(forKey: Key.germanAutocorrect) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.germanAutocorrect) }
+    }
+
+    /// A key on both keyboards switches between the full keyboard and the compact dictation
+    /// bar (the full keyboard's key needs a short hold). On by default.
+    var keyboardSwitchKey: Bool {
+        get { defaults?.object(forKey: Key.keyboardSwitchKey) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.keyboardSwitchKey) }
     }
 }
