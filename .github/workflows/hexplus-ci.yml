@@ -16,7 +16,8 @@ on:
     branches: [hex-plus, sync/upstream, "upstream-pr/**"]
   pull_request:
     branches: [hex-plus]
-    # As OpenCode's checks: no label events (after adding "infra", re-run the failed check);
+    # As OpenCode's checks: no label events, so a label never starts a macOS run. Adding
+    # "infra" re-runs the failed jobs instead (hexplus-recheck.yml); Scope reads labels live.
     # drafts get only the Linux checks until marked ready.
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
@@ -49,6 +50,9 @@ jobs:
     if: ${{ !(github.head_ref == 'sync/upstream' || startsWith(github.head_ref, 'upstream-pr/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read   # Scope reads the PR's current labels
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -81,10 +85,18 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           base=${BASE:-$(git rev-parse origin/hex-plus)}
+          # The PR's labels now, not the event's: a re-run after adding "infra" must see it.
+          LABELS=''
+          if [[ -n "$PR" ]]; then
+            LABELS=$(gh api "repos/$GH_REPO/pulls/$PR" --jq '[.labels[].name] | join(",")')
+          fi
+          export LABELS
           bash .github/hexplus/scope.sh "$base" "$HEAD"
 
   labels:

@@ -118,5 +118,24 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(self.run_scope(['src/main.rs', '.github/hexplus/x.sh'], head_ref='upstream-pr/12'), 1)
 
 
+class InfraLabelTests(unittest.TestCase):
+    """Adding "infra" must approve without a manual close/reopen or a label-triggered macOS run."""
+    WORKFLOWS = HERE.parent / 'workflows'
+
+    def test_scope_reads_live_labels_not_the_event_payload(self):
+        ci = (self.WORKFLOWS / 'hexplus-ci.yml').read_text()
+        self.assertNotIn('github.event.pull_request.labels', ci)
+        self.assertIn('gh api "repos/$GH_REPO/pulls/$PR"', ci)
+        self.assertIn('pull-requests: read', ci)
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', ci)
+
+    def test_infra_label_reruns_failed_ci_without_running_pr_code(self):
+        recheck = (self.WORKFLOWS / 'hexplus-recheck.yml').read_text()
+        self.assertIn('types: [labeled]', recheck)
+        self.assertIn("if: github.event.label.name == 'infra'", recheck)
+        self.assertIn('gh run rerun "$id" --failed', recheck)
+        self.assertNotIn('actions/checkout', recheck)
+
+
 if __name__ == '__main__':
     unittest.main()
