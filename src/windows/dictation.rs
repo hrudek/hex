@@ -50,6 +50,8 @@ pub fn wake() {
 struct Job {
     transcript: PendingTranscript,
     audio_ms: u64,
+    /// The language the model was asked for at submission.
+    language: String,
     /// The clip, kept for History while Labs › Keep recordings is on.
     recording: Option<crate::history::Recording>,
     /// Dictate without processing: paste the transcript as heard.
@@ -340,10 +342,10 @@ pub fn run(
         }
         // Only the newest saved settings matter; they wait for a moment
         // without a recording.
-        if let Some(next) = updates.try_iter().last()
-            && !recording
+        if !recording
             && !start_pending
             && finishing.is_none()
+            && let Some(next) = updates.try_iter().last()
         {
             let next_config = WindowsDictationConfig::from_settings(&next);
             paste_with_shift.store(next_config.paste_with_shift, Ordering::Relaxed);
@@ -677,10 +679,18 @@ pub fn run(
             let job_id = job_ids.pop_front();
             if let (Some(indicator), Some(job_id)) = (&indicator, job_id) {
                 // Repaste ids were never announced, so the HUD ignores them.
-                indicator.send(if result.result.is_ok() {
-                    crate::rune_hud::HudEvent::JobCompleted { job_id }
+                // A failed Paste last dictation is not a failed capture, so it
+                // gets no notice either.
+                let failure = (result.kind != OutputKind::Repaste)
+                    .then(|| result.result.as_ref().err().cloned())
+                    .flatten();
+                indicator.send(if let Some(message) = failure {
+                    crate::rune_hud::HudEvent::JobFailed {
+                        job_id,
+                        message: Some(message),
+                    }
                 } else {
-                    crate::rune_hud::HudEvent::JobFailed { job_id }
+                    crate::rune_hud::HudEvent::JobCompleted { job_id }
                 });
             }
             match result.result {
@@ -839,9 +849,12 @@ pub fn run(
                 // and stay released rather than killing the listener.
                 start_pending = false;
                 audio_suppressor.restore();
-                fail(&events, format!("could not open microphone: {error}"))?;
+                let error = format!("could not open microphone: {error}");
+                fail(&events, error.clone())?;
                 if let Some(indicator) = &indicator {
-                    indicator.send(crate::rune_hud::HudEvent::Failed);
+                    indicator.send(crate::rune_hud::HudEvent::Failed {
+                        message: Some(error),
+                    });
                 }
                 emit_current_state(&mut events, recording, pending, &device_label)?;
             }
@@ -911,7 +924,7 @@ fn process_dictation_job(
                 .read()
                 .unwrap_or_else(|error| error.into_inner())
                 .clone();
-            mode_runtime.process(&raw_text, &context, transformations)
+            mode_runtime.process(&raw_text, &job.language, &context, transformations)
         };
         let text = processed.text.clone();
         if text.trim().is_empty() {
@@ -1168,10 +1181,15 @@ fn submit_capture(
             let audio_ms = clip.duration_ms();
             let stream = clip.take_stream();
             let samples = clip.into_transcription_samples();
+            let language = engine
+                .held_selection()
+                .unwrap_or_else(|| crate::app_settings::transcription_selection().1)
+                .language;
             let recording = crate::history::Recording::keep(&samples);
             let job = OutputJob::Dictation(Job {
                 transcript: engine.finish(stream, samples)?,
                 audio_ms,
+                language,
                 recording,
                 print,
                 raw,

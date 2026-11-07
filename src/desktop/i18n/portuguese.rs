@@ -17,6 +17,8 @@ pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
 const TRANSLATIONS: &[(&str, &str)] = &[
     ("Hex picks a fast model", "O Hex escolhe um modelo rápido"),
     ("Follow live transcript", "Acompanhar a transcrição ao vivo"),
+    ("More call apps", "Mais apps de chamada"),
+    ("Offer to record calls in Signal, Telegram, WeChat, LINE, Webex, Element and the Phone app, and name calls on more websites.", "Ofereça gravar chamadas no Signal, Telegram, WeChat, LINE, Webex, Element e no app Telefone, e nomeie chamadas em mais sites"),
     ("While a meeting records, the transcript scrolls to the newest line. Scroll up to read earlier text; scroll back to the bottom to follow again.", "Enquanto uma reunião é gravada, a transcrição rola até a linha mais recente. Role para cima para ler o texto anterior; volte ao final para acompanhar de novo."),
     ("Summary models show once Hex connects to OpenCode.", "Os modelos de resumo aparecem quando o Hex se conecta ao OpenCode."),
     ("Start OpenCode to choose a summary model. Hex keeps the saved one.", "Inicie o OpenCode para escolher um modelo de resumo. O Hex mantém o salvo."),
@@ -34,6 +36,8 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("On a screen with a notch, the recording indicator grows out of the notch instead of sitting below the menu bar", "Em uma tela com notch, o indicador de gravação sai do notch em vez de ficar abaixo da barra de menus"),
     ("Hide menu bar icon", "Ocultar ícone da barra de menus"),
     ("Hide Hex's icon from the menu bar. Shortcuts keep working; open Hex again from Finder or Spotlight for Settings", "Oculta o ícone do Hex na barra de menus. Os atalhos continuam funcionando; abra o Hex de novo pelo Finder ou Spotlight para ver os Ajustes"),
+    ("⌘Q closes Settings", "⌘Q fecha os Ajustes"),
+    ("⌘Q closes the Settings window instead of quitting Hex. Dictation keeps running; quit from the menu bar icon", "⌘Q fecha a janela de Ajustes em vez de encerrar o Hex. O ditado continua funcionando; para encerrar, use o ícone da barra de menus"),
     ("Movable meeting capsules", "Cápsulas de reunião móveis"),
     ("Drag meeting capsules out of the way; they come back in the corner you left them", "Arraste as cápsulas de reunião para fora do caminho; elas voltam no canto onde você as deixou"),
     ("Choose meeting summary model", "Escolher o modelo dos resumos de reunião"),
@@ -121,6 +125,10 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Hex Microphone virtual input and real-time voice filters", "Entrada virtual Hex Microphone e filtros de voz em tempo real"),
     ("Live text", "Texto ao vivo"),
     ("Show provisional words beside the HUD while dictating", "Mostra palavras provisórias ao lado do HUD durante o ditado"),
+    ("Failure notices", "Avisos de falha"),
+    ("Show why a dictation failed beside the HUD", "Mostra por que um ditado falhou ao lado do HUD"),
+    ("Live typing", "Digitação ao vivo"),
+    ("Show provisional words in the focused text field while dictating on Wayland, then type the final text there", "Mostra palavras provisórias no campo de texto em foco durante o ditado no Wayland e digita ali o texto final"),
     ("Live chapters", "Capítulos ao vivo"),
     ("Break meeting transcripts into chapters while recording", "Divide as transcrições de reuniões em capítulos durante a gravação"),
     ("Scene and story browser in the window", "Navegador de cenas e histórias na janela"),
@@ -203,7 +211,8 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Special keys alone", "Teclas especiais sozinhas"),
     ("Use Menu, Pause, or Scroll Lock as a shortcut without a modifier, such as Caps Lock remapped to Menu", "Use Menu, Pause ou Scroll Lock como atalho sem modificador, como um Caps Lock remapeado para Menu"),
     ("Dictation stats", "Estatísticas de ditado"),
-    ("Show a summary of your retained dictations at the top of History, with hex history stats", "Mostra um resumo dos seus ditados guardados no topo do Histórico, também com hex history stats"),
+    ("Stats", "Estatísticas"),
+    ("Add a Stats button to History that shows a summary of your retained dictations, with hex history stats", "Adiciona um botão Estatísticas ao Histórico que mostra um resumo dos seus ditados guardados, também com hex history stats"),
     ("Dictations: {count} · Words: {words} · Words per minute: {wpm}", "Ditados: {count} · Palavras: {words} · Palavras por minuto: {wpm}"),
     ("Changed by Output: {percent}% · Daily streak: {days}", "Alterados pela Saída: {percent}% · Dias seguidos: {days}"),
     ("Top apps: {}", "Apps mais usados: {}"),
@@ -470,6 +479,8 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("OpenCode", "OpenCode"),
     ("Default", "Padrão"),
     ("Last dictation failed: {}", "O último ditado falhou: {}"),
+    ("Built-in mic is off with the lid closed. Open the lid or connect a mic.", "O microfone integrado fica desligado com a tampa fechada. Abra a tampa ou conecte um microfone."),
+    ("No microphone is available. Connect a microphone.", "Não há microfone disponível. Conecte um microfone."),
     ("Version {}", "Versão {}"),
     ("Hold", "Segurar"),
     ("Activity", "Atividade"),
@@ -580,6 +591,12 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Remind me before meetings", "Lembrar antes das reuniões"),
     ("Shows a reminder with Record and Join buttons", "Mostra um lembrete com os botões Gravar e Entrar"),
     ("Keep meetings", "Manter reuniões"),
+    ("Keep audio", "Manter áudio"),
+    ("Follow Keep meetings", "Como Manter reuniões"),
+    ("Expire meeting audio separately", "Expirar o áudio das reuniões separadamente"),
+    ("Choose how long to keep meeting audio. Transcripts, notes, and summaries follow Keep meetings.", "Escolha por quanto tempo manter o áudio das reuniões. Transcrições, notas e resumos seguem Manter reuniões."),
+    ("Audio follows Keep meetings. Choose a time to delete only meeting audio first", "O áudio segue Manter reuniões. Escolha um tempo para excluir primeiro apenas o áudio das reuniões"),
+    ("Finished meetings keep their transcript, notes, summary, and Markdown after their audio moves to the Trash", "Reuniões concluídas mantêm a transcrição, as notas, o resumo e o Markdown depois que o áudio vai para a lixeira"),
     ("Audio, transcripts, notes, and Hex's Markdown copy move to the Trash", "Áudio, transcrições, notas e a cópia em Markdown do Hex vão para a Lixeira"),
     ("Audio, transcripts, notes, and Hex's Markdown copy move to the Trash. Meetings from before this setting stay until you choose", "Áudio, transcrições, notas e a cópia em Markdown do Hex vão para a Lixeira. Reuniões anteriores a este ajuste ficam até você escolher"),
     ("Deleted after {}", "Excluídas após {}"),
@@ -726,6 +743,12 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Show recording indicator", "Mostrar indicador de gravação"),
     ("Floating pill to copy live transcript turns or stop recording", "Pílula flutuante para copiar trechos da transcrição ao vivo ou parar a gravação"),
     ("Start recording", "Começar a gravar"),
+    ("Import audio…", "Importar áudio…"),
+    ("Import audio", "Importar áudio"),
+    ("Audio files", "Arquivos de áudio"),
+    ("Add an audio file to Meetings and transcribe it on this Mac", "Adicione um arquivo de áudio às reuniões e transcreva-o neste Mac"),
+    ("Audio could not be imported.", "Não foi possível importar o áudio."),
+    ("Speaker", "Falante"),
     ("Starting…", "Iniciando…"),
     ("Stop & transcribe", "Parar e transcrever"),
     ("Change anytime in Settings", "Altere quando quiser nos Ajustes"),
@@ -1146,6 +1169,13 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("macOS takes this shortcut first. Turn off its screenshot shortcuts in Keyboard Shortcuts › Screenshots, or choose another", "O macOS usa este atalho primeiro. Desative os atalhos de captura dele em Atalhos de Teclado › Capturas de tela ou escolha outro"),
     ("Open Keyboard Settings", "Abrir Ajustes de Teclado"),
     ("Full screen · Click to capture", "Tela inteira · Clique para capturar"),
+    ("Settings search", "Pesquisa em Ajustes"),
+    ("Find any setting in General with a search field", "Encontre qualquer ajuste na seção Geral com um campo de pesquisa"),
+    ("Search settings", "Pesquisar ajustes"),
+    ("No settings match", "Nenhum ajuste corresponde"),
+    ("Try another search", "Tente outra pesquisa"),
+    ("Descriptive meeting file names", "Nomes descritivos para arquivos de reunião"),
+    ("Rename exported meeting Markdown to the meeting's title once notes or a rename provide one, keeping the date and time", "Renomeia o Markdown exportado da reunião com o título dela assim que as notas ou uma renomeação fornecerem um, mantendo a data e a hora"),
 ];
 
 #[cfg(test)]
@@ -1155,8 +1185,7 @@ mod tests {
     #[test]
     fn every_interface_string_has_a_portuguese_translation() {
         let portuguese = super::table();
-        let missing: Vec<&str> = super::super::TRANSLATIONS
-            .iter()
+        let missing: Vec<&str> = super::super::all_translations()
             .map(|(english, _)| *english)
             .filter(|english| portuguese.get(english).is_none_or(|text| text.is_empty()))
             .collect();

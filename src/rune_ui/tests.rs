@@ -386,6 +386,121 @@ fn restore_default_brings_back_paste_last_only_with_its_lab_on() {
 }
 
 #[test]
+fn settings_search_shows_with_its_lab_and_filters_general() {
+    let mut rt = runtime("portal", true, TALL_SIZE);
+    assert!(
+        rt.find("settings-search").is_none(),
+        "hidden while Labs › Settings search is off"
+    );
+
+    rt.state.settings.labs.settings_search = true;
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(rt.find("settings-search").is_some());
+    key(&mut rt, Key::Command('f'), Mods::default());
+    assert!(rt.state.general_search.focused, "⌘F focuses the field");
+
+    // A match keeps its card and hides the others.
+    rt.update(|ui, _| ui.general_search = rune::TextEdit::new("microphone"));
+    settle(&mut rt);
+    assert!(rt.find("microphone").is_some());
+    assert!(rt.find("transcription").is_none());
+    assert!(rt.find("settings-empty").is_none());
+
+    // Advanced stays folded, but its rows match.
+    assert!(!rt.state.advanced.contains(&Pane::General));
+    rt.update(|ui, _| ui.general_search = rune::TextEdit::new("terminal paste"));
+    settle(&mut rt);
+    assert!(rt.find("terminal-paste").is_some());
+    assert!(
+        rt.find("advanced-toggle").is_none(),
+        "the fold hides while searching"
+    );
+
+    // Nothing matching shows the empty state; clearing restores the pane.
+    rt.update(|ui, _| {
+        ui.general_search = rune::TextEdit::new("no such setting");
+    });
+    settle(&mut rt);
+    assert!(rt.find("settings-empty").is_some());
+    assert!(rt.find("microphone").is_none());
+
+    rt.update(|ui, _| ui.general_search = rune::TextEdit::new(""));
+    settle(&mut rt);
+    assert!(rt.find("settings-empty").is_none());
+    assert!(rt.find("microphone").is_some());
+    assert!(rt.find("basics").is_some());
+}
+
+#[test]
+fn settings_search_matches_descriptions() {
+    let mut rt = runtime("mac-settings", true, TALL_SIZE);
+    rt.state.settings.labs.settings_search = true;
+    rt.state.settings.shortcut_mode = crate::dictation::ShortcutMode::Toggle;
+    rt.invalidate();
+    settle(&mut rt);
+
+    rt.update(|ui, _| ui.general_search = rune::TextEdit::new("airpods"));
+    settle(&mut rt);
+    assert!(rt.find("avoid-bluetooth-microphone").is_some());
+
+    rt.update(|ui, _| ui.general_search = rune::TextEdit::new("discards"));
+    settle(&mut rt);
+    assert!(rt.find("cancel-shortcut").is_some());
+    assert!(rt.find("settings-empty").is_none());
+}
+
+#[test]
+fn settings_search_keeps_permissions_and_status_cards() {
+    // A permissions card always shows, even when nothing matches it.
+    let mut rt = runtime("mac-settings-permissions", true, TALL_SIZE);
+    rt.state.settings.labs.settings_search = true;
+    rt.invalidate();
+    settle(&mut rt);
+    rt.update(|ui, _| {
+        ui.general_search = rune::TextEdit::new("no such setting");
+    });
+    settle(&mut rt);
+    assert!(rt.find("permissions").is_some());
+    assert!(rt.find("settings-empty").is_some());
+
+    // Without a portal, the desktop-commands card counts as a match, as
+    // does the listener card on its title.
+    let mut rt = runtime("commands", true, TALL_SIZE);
+    rt.state.settings.labs.settings_search = true;
+    rt.invalidate();
+    settle(&mut rt);
+    rt.update(|ui, _| ui.general_search = rune::TextEdit::new("shortcut"));
+    settle(&mut rt);
+    assert!(rt.find("desktop-shortcuts").is_some());
+    assert!(rt.find("settings-empty").is_none());
+
+    rt.update(|ui, _| ui.general_search = rune::TextEdit::new("enabled"));
+    settle(&mut rt);
+    assert!(rt.find("listening").is_some());
+    assert!(rt.find("settings-empty").is_none());
+}
+
+#[test]
+fn command_f_focuses_general_search_only_with_its_lab_and_pane() {
+    let mut rt = runtime("mac-settings", true, TALL_SIZE);
+    key(&mut rt, Key::Command('f'), Mods::default());
+    assert!(!rt.state.general_search.focused, "the lab is off");
+
+    rt.state.settings.labs.settings_search = true;
+    rt.invalidate();
+    settle(&mut rt);
+    key(&mut rt, Key::Command('f'), Mods::default());
+    assert!(rt.state.general_search.focused);
+
+    rt.state.general_search.focused = false;
+    tap(&mut rt, "nav-history");
+    assert_eq!(rt.state.pane, Pane::History);
+    key(&mut rt, Key::Command('f'), Mods::default());
+    assert!(!rt.state.general_search.focused, "another pane");
+}
+
+#[test]
 fn choosing_an_update_channel_saves_it_and_checks_now() {
     let mut rt = runtime("portal", true, GOLDEN_SIZE);
     tap(&mut rt, "advanced-toggle");
@@ -1184,6 +1299,95 @@ fn history_selects_deletes_and_clears_in_two_steps() {
     tap(&mut rt, &clear);
     tap(&mut rt, "history-confirm-clear");
     assert!(rt.state.history.entries.is_empty());
+}
+
+#[test]
+fn history_stats_button_opens_and_closes_the_dialog() {
+    let mut rt = runtime("history", true, PANE_SIZE);
+    assert!(!rt.state.settings.labs.history_stats);
+    assert!(rt.find("history-stats-open").is_none(), "off, no Stats");
+    rt.state.history.stats = Some(history::HistoryPane::fixture_stats());
+    rt.state.settings.labs.history_stats = true;
+    crate::labs::apply(&rt.state.settings.labs);
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(rt.find("history-stats-open").is_some(), "on, Stats shows");
+    assert!(
+        rt.find("history-stats").is_none(),
+        "the summary is no longer a block above the list"
+    );
+
+    tap(&mut rt, "history-stats-open");
+    assert!(rt.state.history.stats_open);
+    assert!(rt.find("history-stats-dialog").is_some());
+    assert!(texts(&rt).iter().any(|text| text == "Dictation stats"));
+    tap(&mut rt, "history-stats-close");
+    assert!(!rt.state.history.stats_open);
+    assert!(rt.find("history-stats-dialog").is_none());
+
+    tap(&mut rt, "history-stats-open");
+    let pane = rt.state.pane;
+    key(
+        &mut rt,
+        Key::Command('1'),
+        Mods {
+            cmd: true,
+            ..Mods::default()
+        },
+    );
+    assert!(rt.state.history.stats_open);
+    assert_eq!(
+        rt.state.pane, pane,
+        "Command-1 waits while the stats dialog is open"
+    );
+    rt.update(on_close);
+    settle(&mut rt);
+    assert!(
+        !rt.state.history.stats_open,
+        "closing the window closes the dialog"
+    );
+
+    tap(&mut rt, "history-stats-open");
+    rt.update(|ui, tx| show(ui, Destination::History, tx));
+    settle(&mut rt);
+    assert!(
+        !rt.state.history.stats_open,
+        "showing History again closes the dialog"
+    );
+
+    tap(&mut rt, "history-stats-open");
+    key(&mut rt, Key::Escape, Mods::default());
+    settle(&mut rt);
+    assert!(!rt.state.history.stats_open, "Escape closes the dialog");
+    assert!(
+        focused(&rt).ends_with("history-stats-open"),
+        "focus returns to Stats: {}",
+        focused(&rt)
+    );
+
+    tap(&mut rt, "history-stats-open");
+    rt.state.history.stats = Some(Default::default());
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(
+        !rt.state.history.stats_open,
+        "emptying the stats closes the dialog"
+    );
+    assert!(rt.find("history-stats-open").is_none());
+
+    rt.state.history.stats = Some(history::HistoryPane::fixture_stats());
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "history-stats-open");
+    rt.state.settings.labs.history_stats = false;
+    crate::labs::apply(&rt.state.settings.labs);
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(
+        !rt.state.history.stats_open,
+        "turning the lab off closes the dialog"
+    );
+    assert!(rt.find("history-stats-open").is_none());
 }
 
 #[test]

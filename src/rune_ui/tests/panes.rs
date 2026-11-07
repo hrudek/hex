@@ -83,6 +83,38 @@ fn settings_rows_follow_each_os() {
 }
 
 #[test]
+fn a_listener_notice_reads_apart_from_a_dictation_failure() {
+    let mut rt = runtime("portal", true, TALL_SIZE);
+    open_advanced(&mut rt, Pane::General);
+    if let Some(view) = &mut rt.state.view {
+        view.listener.warning = Some("Microphone unavailable".into());
+    }
+    refresh(&mut rt);
+    let shown = texts(&rt);
+    assert!(
+        shown
+            .iter()
+            .any(|text| text == "Last dictation failed: Microphone unavailable"),
+        "{shown:?}"
+    );
+
+    let notice = "wl-copy is not installed. Install the wl-clipboard package, then try again.";
+    if let Some(view) = &mut rt.state.view {
+        view.listener.warning = None;
+        view.listener.notice = Some(notice.into());
+    }
+    refresh(&mut rt);
+    let shown = texts(&rt);
+    assert!(shown.iter().any(|text| text == notice), "{shown:?}");
+    assert!(
+        !shown
+            .iter()
+            .any(|text| text.starts_with("Last dictation failed:")),
+        "{shown:?}"
+    );
+}
+
+#[test]
 fn launch_at_login_asks_the_login_item_and_needs_approval_first() {
     let mut rt = runtime("mac-settings", true, (980.0, 2400.0));
     tap(&mut rt, "launch-at-login");
@@ -469,6 +501,34 @@ fn on_this_mac_without_apple_intelligence_stays_chosen_with_the_fix() {
     tap(&mut rt, "meeting-summaries-menu-item2");
     assert_eq!(rt.state.settings.meetings.summaries, MeetingSummaries::Mac);
     assert!(rt.find("meeting-summary-model").is_none());
+}
+
+/// The separate Keep audio row follows its Labs toggle and saves the window.
+#[test]
+fn keep_audio_shows_with_its_lab_and_saves_its_window() {
+    use crate::app_settings::MeetingRetention;
+    let mut rt = runtime("portal", true, TALL_SIZE);
+    rt.state.settings.meetings.enabled = true;
+    rt.state.pane = Pane::Meetings;
+    rt.state.meetings.view = super::super::meetings::View::Settings;
+    refresh(&mut rt);
+    assert!(
+        rt.find("meeting-audio-retention").is_none(),
+        "hidden while the lab is off"
+    );
+
+    rt.state.settings.labs.expire_meeting_audio = true;
+    refresh(&mut rt);
+    assert!(rt.find("meeting-audio-retention").is_some());
+    assert_eq!(
+        a11y_value(&rt, "meeting-audio-retention-control-trigger").as_deref(),
+        Some("Follow Keep meetings")
+    );
+    pick(&mut rt, "meeting-audio-retention", 2);
+    assert_eq!(
+        rt.state.settings.meetings.audio_retention,
+        Some(MeetingRetention::Week)
+    );
 }
 
 /// Off a Mac, Summaries is a switch that turns OpenCode on.
@@ -1328,8 +1388,10 @@ fn deleting_a_meeting_takes_the_menu_then_a_confirmation() {
     let mut rt = runtime("meetings", true, PANE_SIZE);
     tap(&mut rt, "meeting-more");
     assert_eq!(rt.state.open, Some(Menu::MeetingActions));
-    // Copy summary, Reveal Markdown, Regenerate summary, a separator, Delete.
-    tap(&mut rt, "meeting-actions-item4");
+    // Copy summary, Reveal Markdown, Reveal files, Regenerate summary, a
+    // separator, Delete.
+    let delete = menu_item(&rt, "meeting-actions", "Delete…");
+    tap(&mut rt, &delete);
     assert_eq!(
         rt.state.meetings.delete_armed.as_deref(),
         Some("preview-notes")
@@ -1373,18 +1435,79 @@ fn deleting_a_meeting_takes_the_menu_then_a_confirmation() {
 #[test]
 fn the_overflow_menu_copies_the_summary_and_asks_for_new_notes() {
     let mut rt = runtime("meetings-actions", true, PANE_SIZE);
-    tap(&mut rt, "meeting-actions-item0");
+    let copy = menu_item(&rt, "meeting-actions", "Copy summary");
+    tap(&mut rt, &copy);
     assert!(
         rt.copy_request
             .as_deref()
             .is_some_and(|summary| summary.starts_with("One login"))
     );
     assert_eq!(rt.state.open, Some(Menu::MeetingActions), "stays open");
-    tap(&mut rt, "meeting-actions-item2");
+    let regenerate = menu_item(&rt, "meeting-actions", "Regenerate summary");
+    tap(&mut rt, &regenerate);
     assert_eq!(
         asked(&rt),
         [PlatformRequest::Meeting(MeetingRequest::Summarize(
             "preview-notes".into()
+        ))]
+    );
+}
+
+#[test]
+fn reveal_markdown_asks_for_the_exported_file_and_reveal_files_for_the_recording() {
+    let mut rt = runtime("meetings", true, PANE_SIZE);
+    tap(&mut rt, "meeting-more");
+    assert!(
+        texts(&rt).iter().any(|text| text == "Reveal Markdown"),
+        "the meeting with a Markdown copy"
+    );
+    assert!(
+        texts(&rt).iter().any(|text| text == "Reveal files"),
+        "its recording folder stays reachable"
+    );
+    let markdown = menu_item(&rt, "meeting-actions", "Reveal Markdown");
+    tap(&mut rt, &markdown);
+    assert_eq!(
+        asked(&rt),
+        [PlatformRequest::Meeting(MeetingRequest::Reveal(
+            crate::meeting::RevealTarget::Markdown(
+                "/Users/kit/Documents/Hex Meetings/Arcade launch plan.md".into()
+            )
+        ))]
+    );
+
+    let mut rt = runtime("meetings", true, PANE_SIZE);
+    tap(&mut rt, "meeting-more");
+    let files = menu_item(&rt, "meeting-actions", "Reveal files");
+    tap(&mut rt, &files);
+    assert_eq!(
+        asked(&rt),
+        [PlatformRequest::Meeting(MeetingRequest::Reveal(
+            crate::meeting::RevealTarget::Folder(
+                "/Users/kit/Library/Application Support/hex/meetings/preview-notes".into()
+            )
+        ))]
+    );
+
+    let mut rt = runtime("meetings", true, PANE_SIZE);
+    tap(&mut rt, "meeting-preview-design");
+    tap(&mut rt, "meeting-more");
+    assert!(
+        !texts(&rt).iter().any(|text| text == "Reveal Markdown"),
+        "no Markdown copy to reveal"
+    );
+    assert!(
+        texts(&rt).iter().any(|text| text == "Reveal files"),
+        "the recording folder is always offered"
+    );
+    let files = menu_item(&rt, "meeting-actions", "Reveal files");
+    tap(&mut rt, &files);
+    assert_eq!(
+        asked(&rt),
+        [PlatformRequest::Meeting(MeetingRequest::Reveal(
+            crate::meeting::RevealTarget::Folder(
+                "/Users/kit/Library/Application Support/hex/meetings/preview-design".into()
+            )
         ))]
     );
 }

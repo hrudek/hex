@@ -88,6 +88,16 @@ pub(super) const SCENES: &[Scene] = &[
         ui.history.clear_armed = true;
         ui.pane = Pane::History;
     }),
+    // Labs › Dictation stats: the Stats button with its dialog open.
+    ("history-stats", |ui| {
+        *ui = portal_fixture();
+        ui.history = history::HistoryPane::fixture();
+        ui.history.stats = Some(history::HistoryPane::fixture_stats());
+        ui.history.stats_open = true;
+        ui.settings.labs.history_stats = true;
+        crate::labs::apply(&ui.settings.labs);
+        ui.pane = Pane::History;
+    }),
     ("history-empty", |ui| {
         *ui = portal_fixture();
         ui.history = history::HistoryPane::fixture_empty();
@@ -909,6 +919,7 @@ pub(super) fn fixture(shortcuts: DesktopShortcuts) -> Ui {
         ..AppSettings::default()
     };
     let mut ui = Ui::with(settings, Service::Fixture(Vec::new()));
+    ui.platform.wayland = true;
     ui.models = models::Models::fixture();
     ui.picker.installed = Some(vec![TranscriptionModelId::ParakeetUnifiedEnglish]);
     ui.view = Some(ServiceView {
@@ -916,6 +927,8 @@ pub(super) fn fixture(shortcuts: DesktopShortcuts) -> Ui {
             running: true,
             status: "Enabled".into(),
             warning: None,
+            notice: None,
+            last_failure: None,
             shortcuts,
             shortcuts_configurable: false,
         },

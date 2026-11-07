@@ -17,6 +17,8 @@ pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
 const TRANSLATIONS: &[(&str, &str)] = &[
     ("Hex picks a fast model", "Hex выбирает быструю модель"),
     ("Follow live transcript", "Следить за расшифровкой в реальном времени"),
+    ("More call apps", "Больше приложений для звонков"),
+    ("Offer to record calls in Signal, Telegram, WeChat, LINE, Webex, Element and the Phone app, and name calls on more websites.", "Предлагайте записывать звонки в Signal, Telegram, WeChat, LINE, Webex, Element и приложении «Телефон», а также распознавайте звонки на большем числе сайтов"),
     ("While a meeting records, the transcript scrolls to the newest line. Scroll up to read earlier text; scroll back to the bottom to follow again.", "Пока встреча записывается, расшифровка прокручивается к самой новой строке. Прокрутите вверх, чтобы прочитать предыдущий текст; прокрутите обратно вниз, чтобы снова следить."),
     ("Summary models show once Hex connects to OpenCode.", "Модели для сводок появятся, когда Hex подключится к OpenCode."),
     ("Start OpenCode to choose a summary model. Hex keeps the saved one.", "Запустите OpenCode, чтобы выбрать модель для сводок. Hex сохранит выбранную ранее."),
@@ -34,6 +36,8 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("On a screen with a notch, the recording indicator grows out of the notch instead of sitting below the menu bar", "На экране с вырезом индикатор записи появляется из выреза, а не под строкой меню"),
     ("Hide menu bar icon", "Скрыть значок в строке меню"),
     ("Hide Hex's icon from the menu bar. Shortcuts keep working; open Hex again from Finder or Spotlight for Settings", "Скрывает значок Hex в строке меню. Сочетания клавиш продолжают работать; чтобы открыть Настройки, снова откройте Hex из Finder или Spotlight"),
+    ("⌘Q closes Settings", "⌘Q закрывает Настройки"),
+    ("⌘Q closes the Settings window instead of quitting Hex. Dictation keeps running; quit from the menu bar icon", "⌘Q закрывает окно настроек, а не завершает Hex. Диктовка продолжает работать; чтобы выйти, используйте значок в строке меню"),
     ("Movable meeting capsules", "Перемещаемые капсулы встреч"),
     ("Drag meeting capsules out of the way; they come back in the corner you left them", "Перетаскивайте капсулы встреч в сторону; они появятся в том углу, где вы их оставили"),
     ("Choose meeting summary model", "Выбор модели для сводок встреч"),
@@ -117,6 +121,10 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Hex Microphone virtual input and real-time voice filters", "Виртуальный вход Hex Microphone и голосовые фильтры в реальном времени"),
     ("Live text", "Текст в реальном времени"),
     ("Show provisional words beside the HUD while dictating", "Показывать предварительные слова рядом с HUD во время диктовки"),
+    ("Failure notices", "Уведомления об ошибках"),
+    ("Show why a dictation failed beside the HUD", "Показывать причину неудачной диктовки рядом с HUD"),
+    ("Live typing", "Ввод в реальном времени"),
+    ("Show provisional words in the focused text field while dictating on Wayland, then type the final text there", "Показывает промежуточные слова в поле ввода при диктовке в Wayland и вводит туда итоговый текст"),
     ("Live chapters", "Главы в реальном времени"),
     ("Break meeting transcripts into chapters while recording", "Разбивать расшифровки встреч на главы во время записи"),
     ("Scene and story browser in the window", "Обозреватель сцен и историй в окне"),
@@ -199,7 +207,8 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Special keys alone", "Специальные клавиши отдельно"),
     ("Use Menu, Pause, or Scroll Lock as a shortcut without a modifier, such as Caps Lock remapped to Menu", "Использовать Menu, Pause или Scroll Lock как сочетание без модификатора, например Caps Lock, переназначенный на Menu"),
     ("Dictation stats", "Статистика диктовки"),
-    ("Show a summary of your retained dictations at the top of History, with hex history stats", "Показывает сводку сохранённых диктовок вверху Истории, а также командой hex history stats"),
+    ("Stats", "Статистика"),
+    ("Add a Stats button to History that shows a summary of your retained dictations, with hex history stats", "Добавляет в Историю кнопку «Статистика», которая показывает сводку сохранённых диктовок, а также команду hex history stats"),
     ("Dictations: {count} · Words: {words} · Words per minute: {wpm}", "Диктовок: {count} · Слов: {words} · Слов в минуту: {wpm}"),
     ("Changed by Output: {percent}% · Daily streak: {days}", "Изменено Выводом: {percent}% · Дней подряд: {days}"),
     ("Top apps: {}", "Частые приложения: {}"),
@@ -463,6 +472,8 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("OpenCode", "OpenCode"),
     ("Default", "По умолчанию"),
     ("Last dictation failed: {}", "Последняя диктовка не удалась: {}"),
+    ("Built-in mic is off with the lid closed. Open the lid or connect a mic.", "Встроенный микрофон выключен, пока крышка закрыта. Откройте крышку или подключите микрофон."),
+    ("No microphone is available. Connect a microphone.", "Нет доступного микрофона. Подключите микрофон."),
     ("Version {}", "Версия {}"),
     ("Hold", "Удерживать"),
     ("Activity", "Активность"),
@@ -573,6 +584,12 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Remind me before meetings", "Напоминать перед встречами"),
     ("Shows a reminder with Record and Join buttons", "Показывает напоминание с кнопками «Записать» и «Присоединиться»"),
     ("Keep meetings", "Хранить встречи"),
+    ("Keep audio", "Хранить аудио"),
+    ("Follow Keep meetings", "Как «Хранить встречи»"),
+    ("Expire meeting audio separately", "Удалять аудио встреч отдельно"),
+    ("Choose how long to keep meeting audio. Transcripts, notes, and summaries follow Keep meetings.", "Выберите, как долго хранить аудио встреч. Расшифровки, заметки и сводки следуют параметру «Хранить встречи»."),
+    ("Audio follows Keep meetings. Choose a time to delete only meeting audio first", "Аудио следует параметру «Хранить встречи». Выберите срок, чтобы сначала удалять только аудио встреч"),
+    ("Finished meetings keep their transcript, notes, summary, and Markdown after their audio moves to the Trash", "Завершённые встречи сохраняют расшифровку, заметки, сводку и Markdown после перемещения аудио в корзину"),
     ("Audio, transcripts, notes, and Hex's Markdown copy move to the Trash", "Звук, расшифровки, заметки и копия Markdown от Hex перемещаются в Корзину"),
     ("Audio, transcripts, notes, and Hex's Markdown copy move to the Trash. Meetings from before this setting stay until you choose", "Звук, расшифровки, заметки и копия Markdown от Hex перемещаются в Корзину. Встречи, записанные до этой настройки, остаются, пока вы не сделаете выбор"),
     ("Deleted after {}", "Удаляются через {}"),
@@ -719,6 +736,12 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Show recording indicator", "Показывать индикатор записи"),
     ("Floating pill to copy live transcript turns or stop recording", "Плавающая панель, чтобы копировать реплики расшифровки в реальном времени или остановить запись"),
     ("Start recording", "Начать запись"),
+    ("Import audio…", "Импортировать аудио…"),
+    ("Import audio", "Импортировать аудио"),
+    ("Audio files", "Аудиофайлы"),
+    ("Add an audio file to Meetings and transcribe it on this Mac", "Добавьте аудиофайл в встречи и расшифруйте его на этом Mac"),
+    ("Audio could not be imported.", "Не удалось импортировать аудио."),
+    ("Speaker", "Говорящий"),
     ("Starting…", "Запуск…"),
     ("Stop & transcribe", "Остановить и распознать"),
     ("Change anytime in Settings", "Можно изменить в Настройках в любое время"),
@@ -1149,6 +1172,13 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Save the last 15 seconds of your screen. macOS shows the screen-recording dot the whole time it's on", "Сохраняет последние 15 секунд экрана. Пока включено, macOS постоянно показывает точку записи экрана"),
     ("Replay last 15 s", "Сохранить последние 15 с"),
     ("Press to save the last 15 s; hold to narrate over it", "Нажмите, чтобы сохранить последние 15 с; удерживайте, чтобы озвучить"),
+    ("Settings search", "Поиск по настройкам"),
+    ("Find any setting in General with a search field", "Находите любую настройку в разделе «Основные» с помощью поля поиска"),
+    ("Search settings", "Поиск настроек"),
+    ("No settings match", "Нет подходящих настроек"),
+    ("Try another search", "Попробуйте другой запрос"),
+    ("Descriptive meeting file names", "Описательные имена файлов встреч"),
+    ("Rename exported meeting Markdown to the meeting's title once notes or a rename provide one, keeping the date and time", "Переименовывает экспортированный Markdown встречи по её названию, как только его дадут заметки или переименование, сохраняя дату и время"),
 ];
 
 #[cfg(test)]
@@ -1158,8 +1188,7 @@ mod tests {
     #[test]
     fn every_interface_string_has_a_russian_translation() {
         let russian = super::table();
-        let missing: Vec<&str> = super::super::TRANSLATIONS
-            .iter()
+        let missing: Vec<&str> = super::super::all_translations()
             .map(|(english, _)| *english)
             .filter(|english| russian.get(english).is_none_or(|text| text.is_empty()))
             .collect();

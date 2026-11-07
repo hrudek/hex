@@ -52,12 +52,16 @@ impl Feature {
     pub const fn group(self) -> Group {
         match self {
             Self::LiveText
+            | Self::FailureNotices
+            | Self::LiveTyping
             | Self::NotchIndicator
             | Self::VocabularyBiasing
             | Self::PauseBrowser
             | Self::SkipPauses
             | Self::VoiceFilter
             | Self::HideMenuBarIcon
+            | Self::QuitClosesWindow
+            | Self::SettingsSearch
             | Self::Playground => Group::Dictation,
             Self::SmartSpacing
             | Self::SpokenFormatting
@@ -77,7 +81,11 @@ impl Feature {
             | Self::MeetingNotesVocabulary
             | Self::MeetingFinishedEvent
             | Self::FollowLiveTranscript
-            | Self::GnomeMeetingCapsules => Group::Meetings,
+            | Self::MoreCallApps
+            | Self::GnomeMeetingCapsules
+            | Self::MeetingImport
+            | Self::MeetingDescriptiveFilenames
+            | Self::ExpireMeetingAudio => Group::Meetings,
             Self::Screenshots | Self::AnnotateReplay => Group::Annotate,
             Self::MouseShortcuts
             | Self::SecondDictationShortcut

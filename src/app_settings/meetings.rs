@@ -68,6 +68,11 @@ pub struct MeetingSettings {
     /// while unchosen: a build from before it can't read `null` (#744).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<MeetingRetention>,
+    /// How long finished meetings keep their WAV tracks, apart from their
+    /// text (Labs › Expire meeting audio separately). `None` follows
+    /// `retention`, and is left out of the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_retention: Option<MeetingRetention>,
     /// The OpenCode `provider/model` that writes meeting notes when
     /// `summaries` is OpenCode; left out of the file while unset, when Hex
     /// picks a fast model.
@@ -251,6 +256,34 @@ pub const KNOWN_MEETING_PROVIDERS: [(&str, &str); 8] = [
     ("com.hnc.Discord", "Discord"),
 ];
 
+/// The call services Labs › More call apps adds, by the same provider keys.
+/// Settings lists them only while the lab is on; an offer's "…" still saves
+/// a choice for any of them.
+pub const MORE_MEETING_PROVIDERS: [(&str, &str); 10] = [
+    ("org.whispersystems.signal-desktop", "Signal"),
+    ("ru.keepcoder.Telegram", "Telegram"),
+    ("com.tencent.xinWeChat", "WeChat"),
+    ("jp.naver.line.mac", "LINE"),
+    ("com.webex.meetingmanager", "Webex"),
+    ("im.riot.app", "Element"),
+    ("com.apple.mobilephone", "Phone"),
+    ("voice.google.com", "Google Voice"),
+    ("messenger.com", "Messenger"),
+    ("web.groupme.com", "GroupMe"),
+];
+
+/// The providers Settings always lists: the known services, then Labs › More
+/// call apps' while `more_call_apps` is on.
+pub fn known_meeting_providers(
+    more_call_apps: bool,
+) -> impl Iterator<Item = (&'static str, &'static str)> {
+    KNOWN_MEETING_PROVIDERS.into_iter().chain(
+        MORE_MEETING_PROVIDERS
+            .into_iter()
+            .filter(move |_| more_call_apps),
+    )
+}
+
 /// What Hex does when it detects a call from a provider.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -292,6 +325,7 @@ impl Default for MeetingSettings {
             providers: Vec::new(),
             calendar: CalendarSettings::default(),
             retention: None,
+            audio_retention: None,
             opencode_model: None,
         }
     }
@@ -367,9 +401,35 @@ pub fn meeting_retention() -> Option<MeetingRetention> {
 }
 
 fn stored_meeting_retention() -> Option<MeetingRetention> {
+    stored_retention("retention")
+}
+
+/// [`MeetingSettings::audio_retention`] for the running meeting controller:
+/// the chosen audio retention only while Labs › Expire meeting audio
+/// separately is on; `None` means audio follows `meetings.retention`. A
+/// process that never loaded settings reads it from `settings.json` without
+/// writing anything.
+pub fn meeting_audio_retention() -> Option<MeetingRetention> {
+    let chosen = match MEETING_AUDIO_RETENTION.load(Ordering::Acquire) {
+        RETENTION_UNSET if cfg!(test) => None,
+        RETENTION_UNSET => stored_retention("audio_retention"),
+        value => MeetingRetention::decode(value),
+    };
+    effective_audio_retention(crate::labs::expire_meeting_audio(), chosen)
+}
+
+fn stored_retention(field: &str) -> Option<MeetingRetention> {
     let data = fs::read(path().ok()?).ok()?;
     let settings: serde_json::Value = serde_json::from_slice(&data).ok()?;
-    serde_json::from_value(settings.get("meetings")?.get("retention")?.clone()).ok()
+    serde_json::from_value(settings.get("meetings")?.get(field)?.clone()).ok()
+}
+
+/// A separate audio retention applies only while its Labs feature is on.
+fn effective_audio_retention(
+    lab_on: bool,
+    chosen: Option<MeetingRetention>,
+) -> Option<MeetingRetention> {
+    if lab_on { chosen } else { None }
 }
 
 pub fn calendar_settings() -> CalendarSettings {
@@ -439,4 +499,45 @@ pub fn meeting_output_folder() -> PathBuf {
         .unwrap_or_else(|error| error.into_inner())
         .clone()
         .unwrap_or_else(default_meeting_output_folder)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_extra_providers_are_listed_only_with_their_lab() {
+        let off = known_meeting_providers(false).collect::<Vec<_>>();
+        assert_eq!(off, KNOWN_MEETING_PROVIDERS);
+        assert!(!off.iter().any(|(key, _)| *key == "ru.keepcoder.Telegram"));
+
+        let on = known_meeting_providers(true).collect::<Vec<_>>();
+        assert_eq!(
+            on.len(),
+            KNOWN_MEETING_PROVIDERS.len() + MORE_MEETING_PROVIDERS.len()
+        );
+        assert!(on.contains(&("org.whispersystems.signal-desktop", "Signal")));
+        assert!(on.contains(&("ru.keepcoder.Telegram", "Telegram")));
+        assert!(on.contains(&("com.tencent.xinWeChat", "WeChat")));
+        assert!(on.contains(&("jp.naver.line.mac", "LINE")));
+        assert!(on.contains(&("com.webex.meetingmanager", "Webex")));
+        assert!(on.contains(&("im.riot.app", "Element")));
+        assert!(on.contains(&("com.apple.mobilephone", "Phone")));
+        assert!(on.contains(&("voice.google.com", "Google Voice")));
+        assert!(on.contains(&("messenger.com", "Messenger")));
+        assert!(on.contains(&("web.groupme.com", "GroupMe")));
+    }
+
+    #[test]
+    fn a_separate_audio_retention_needs_its_lab_and_a_choice() {
+        use MeetingRetention::{Day, Forever};
+        assert_eq!(effective_audio_retention(false, Some(Day)), None);
+        assert_eq!(effective_audio_retention(true, None), None);
+        assert_eq!(effective_audio_retention(true, Some(Day)), Some(Day));
+        assert_eq!(
+            effective_audio_retention(true, Some(Forever)),
+            Some(Forever)
+        );
+        assert_eq!(MeetingSettings::default().audio_retention, None);
+    }
 }

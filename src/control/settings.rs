@@ -280,6 +280,21 @@ const KEYS: &[Key] = &[
         "Labs: provisional words beside the HUD while dictating",
     ),
     key(
+        "labs.failure_notices",
+        Kind::Bool,
+        "Labs: when a dictation fails, show why for a few seconds beside the HUD",
+    ),
+    key(
+        "labs.live_typing",
+        Kind::Bool,
+        "Labs: provisional words in the focused text field as an underlined input-method preedit, and the final text typed there instead of pasted (Linux Wayland)",
+    ),
+    key(
+        "labs.settings_search",
+        Kind::Bool,
+        "Labs: a search field at the top of General that filters its rows",
+    ),
+    key(
         "labs.live_chapters",
         Kind::Bool,
         "Labs: chapter meeting transcripts while recording",
@@ -410,9 +425,14 @@ const KEYS: &[Key] = &[
         "Labs: hide Hex's menu bar icon while nothing records; shortcuts keep working, and opening Hex again from Finder or Spotlight shows Settings (macOS)",
     ),
     key(
+        "labs.quit_closes_window",
+        Kind::Bool,
+        "Labs: the app menu's Quit Hex (⌘Q) closes the Settings window instead of quitting Hex; dictation keeps running, and the menu bar icon still quits (macOS)",
+    ),
+    key(
         "labs.notch_indicator",
         Kind::Bool,
-        "Labs: with indicator_position top, the recording indicator grows out of the notch on a screen that has one, and sits below the menu bar elsewhere (macOS)",
+        "Labs: on a screen with a notch, the recording indicator grows out of the notch at either visible position; Hidden still hides it, and flat screens keep the Top or Bottom setting (macOS)",
     ),
     key(
         "labs.skip_pauses",
@@ -423,6 +443,11 @@ const KEYS: &[Key] = &[
         "labs.stop_when_call_ends",
         Kind::Bool,
         "Labs: a meeting recording Hex started on its own stops 30 s after its call app leaves the microphone and goes quiet, unless you keep recording (macOS)",
+    ),
+    key(
+        "labs.more_call_apps",
+        Kind::Bool,
+        "Labs: offer to record calls in Signal, Telegram, WeChat, LINE, Webex, Element and the Phone app, and name calls on Google Voice, Messenger, Teams, FaceTime, GroupMe, and Webex pages",
     ),
     key(
         "labs.movable_meeting_capsules",
@@ -463,6 +488,21 @@ const KEYS: &[Key] = &[
         "labs.follow_live_transcript",
         Kind::Bool,
         "Labs: while a meeting records, its transcript in Meetings scrolls to the newest line; scroll up to read earlier text, back to the bottom to follow again",
+    ),
+    key(
+        "labs.meeting_import",
+        Kind::Bool,
+        "Labs: Meetings offers Import audio…, so a local audio file is transcribed and kept as a meeting (macOS)",
+    ),
+    key(
+        "labs.meeting_descriptive_filenames",
+        Kind::Bool,
+        "Labs: an exported meeting's Markdown follows its title once notes or a rename provide one, keeping the date and time",
+    ),
+    key(
+        "labs.expire_meeting_audio",
+        Kind::Bool,
+        "Labs: finished meetings drop their WAVs on meetings.audio_retention while their transcripts, notes, summary, and Markdown stay",
     ),
     key(
         "labs.output_fixes",
@@ -518,6 +558,11 @@ const KEYS: &[Key] = &[
         "meetings.retention",
         Kind::Choice(&["day", "week", "month", "forever"]),
         "How long finished meetings are kept before they move to the Trash; none keeps new meetings 24 hours and older ones until you choose",
+    ),
+    optional(
+        "meetings.audio_retention",
+        Kind::Choice(&["day", "week", "month", "forever"]),
+        "How long finished meetings keep their audio with Labs › Expire meeting audio separately on; none follows meetings.retention",
     ),
     key(
         "meetings.providers",
@@ -705,13 +750,16 @@ const NEEDS: &[(&str, &str)] = &[
     ("labs.live_chapters", "meetings"),
     ("labs.subtitle_export", "meetings"),
     ("labs.stop_when_call_ends", "meetings"),
+    ("labs.more_call_apps", "meetings"),
     ("labs.movable_meeting_capsules", "meetings"),
     ("labs.meeting_notes_vocabulary", "meetings"),
     ("labs.meeting_finished_event", "meetings"),
+    ("labs.meeting_descriptive_filenames", "meetings"),
     ("labs.follow_live_transcript", "meetings"),
     ("experimental.hex_microphone", "fun"),
     ("show_dock_icon", "dock_icon"),
     ("labs.hide_menu_bar_icon", "dock_icon"),
+    ("labs.quit_closes_window", "dock_icon"),
     ("keyboard_model_switching.", "keyboard_model_switching"),
     ("enable_on_launch", "listener_control"),
     ("share_dictation_shortcut", "share_shortcut"),
@@ -1528,6 +1576,7 @@ mod tests {
             }],
             meetings: crate::app_settings::MeetingSettings {
                 retention: Some(crate::app_settings::MeetingRetention::Day),
+                audio_retention: Some(crate::app_settings::MeetingRetention::Day),
                 opencode_model: Some("anthropic/claude-haiku".into()),
                 ..Default::default()
             },
@@ -1790,9 +1839,22 @@ mod tests {
         saved.microphone = Some("USB Mic".into());
         let change = apply(&saved, "microphone", "system-default", &rules()).unwrap();
         assert_eq!(change.settings.microphone, None);
-        let change = apply(&settings, "history_retention", "month", &rules()).unwrap();
+        let history = apply(&settings, "history_retention", "month", &rules()).unwrap();
+        let change = apply(&settings, "meetings.audio_retention", "week", &rules()).unwrap();
         assert_eq!(
-            change.effects,
+            change.settings.meetings.audio_retention,
+            Some(crate::app_settings::MeetingRetention::Week)
+        );
+        let cleared = apply(
+            &change.settings,
+            "meetings.audio_retention",
+            "none",
+            &rules(),
+        )
+        .unwrap();
+        assert_eq!(cleared.settings.meetings.audio_retention, None);
+        assert_eq!(
+            history.effects,
             vec![Effect::HistoryRetention(
                 crate::history::HistoryRetention::Month
             )]

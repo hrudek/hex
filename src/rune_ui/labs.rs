@@ -15,7 +15,8 @@ use rune::{El, Icon, TextEdit, Tx, row, text};
 
 pub(super) use self::store::{page, search_field, tabs};
 use super::controls::{self, Paint};
-use super::icons::{BOOK, CAMERA, GLOBE, KEYBOARD, MOUSE, SPARKLES, TERMINAL, TIMER, WAVE};
+use super::icons::{BOOK, CAMERA, CLOCK, GLOBE, KEYBOARD, MOUSE, SPARKLES, TERMINAL, TIMER, WAVE};
+use super::list_detail::SEARCH_ICON;
 use super::sidebar::{NAV_ROW_GAP, NAV_ROW_HEIGHT, VOICE_FILTER_ICON};
 use super::{Pane, Ui};
 use crate::desktop::i18n::{tr, tr_fill};
@@ -352,6 +353,26 @@ fn rows(ui: &Ui) -> Vec<Row> {
         tr("Live text"),
         tr("Show provisional words beside the HUD while dictating"),
     ));
+    rows.push(row(
+        Feature::FailureNotices,
+        None,
+        tr("Failure notices"),
+        tr("Show why a dictation failed beside the HUD"),
+    ));
+    if caps.os == super::platform::Os::Linux && ui.platform.wayland {
+        rows.push(row(
+            Feature::LiveTyping,
+            Some(&KEYBOARD),
+            tr("Live typing"),
+            tr("Show provisional words in the focused text field while dictating on Wayland, then type the final text there"),
+        ));
+    }
+    rows.push(row(
+        Feature::SettingsSearch,
+        Some(SEARCH_ICON),
+        tr("Settings search"),
+        tr("Find any setting in General with a search field"),
+    ));
     if caps.meetings {
         rows.push(row(
             Feature::LiveChapters,
@@ -389,6 +410,12 @@ fn rows(ui: &Ui) -> Vec<Row> {
             tr("Meeting titles and summaries read your vocabulary, so names are spelled the way you wrote them"),
         ));
         rows.push(row(
+            Feature::MeetingDescriptiveFilenames,
+            None,
+            tr("Descriptive meeting file names"),
+            tr("Rename exported meeting Markdown to the meeting's title once notes or a rename provide one, keeping the date and time"),
+        ));
+        rows.push(row(
             Feature::MeetingFinishedEvent,
             Some(&GLOBE),
             tr("Meeting finished event"),
@@ -399,6 +426,26 @@ fn rows(ui: &Ui) -> Vec<Row> {
             None,
             tr("Follow live transcript"),
             tr("While a meeting records, the transcript scrolls to the newest line. Scroll up to read earlier text; scroll back to the bottom to follow again."),
+        ));
+        rows.push(row(
+            Feature::MoreCallApps,
+            Some(&GLOBE),
+            tr("More call apps"),
+            tr("Offer to record calls in Signal, Telegram, WeChat, LINE, Webex, Element and the Phone app, and name calls on more websites."),
+        ));
+        if Feature::MeetingImport.on_this_os() {
+            rows.push(row(
+                Feature::MeetingImport,
+                None,
+                tr("Import audio"),
+                tr("Add an audio file to Meetings and transcribe it on this Mac"),
+            ));
+        }
+        rows.push(row(
+            Feature::ExpireMeetingAudio,
+            Some(&CLOCK),
+            tr("Expire meeting audio separately"),
+            tr("Choose how long to keep meeting audio. Transcripts, notes, and summaries follow Keep meetings."),
         ));
     }
     rows.push(row(
@@ -482,6 +529,13 @@ fn rows(ui: &Ui) -> Vec<Row> {
                 None,
                 tr("Hide menu bar icon"),
                 tr("Hide Hex's icon from the menu bar. Shortcuts keep working; open Hex again from Finder or Spotlight for Settings"),
+            ));
+            // macOS's app menu Quit Hex closes the window instead.
+            rows.push(row(
+                Feature::QuitClosesWindow,
+                None,
+                tr("⌘Q closes Settings"),
+                tr("⌘Q closes the Settings window instead of quitting Hex. Dictation keeps running; quit from the menu bar icon"),
             ));
             // macOS's HUD reads the screen's notch from NSScreen.
             rows.push(row(
@@ -587,7 +641,7 @@ fn rows(ui: &Ui) -> Vec<Row> {
         Feature::HistoryStats,
         None,
         tr("Dictation stats"),
-        tr("Show a summary of your retained dictations at the top of History, with hex history stats"),
+        tr("Add a Stats button to History that shows a summary of your retained dictations, with hex history stats"),
     ));
     rows.push(row(
         Feature::KeepRecordings,
@@ -695,6 +749,8 @@ fn row_key(lab: Lab) -> &'static str {
         Feature::VoiceFilter => "lab-voice-filter",
         Feature::Playground => "lab-playground",
         Feature::LiveText => "lab-live-text",
+        Feature::FailureNotices => "lab-failure-notices",
+        Feature::LiveTyping => "lab-live-typing",
         Feature::LiveChapters => "lab-live-chapters",
         Feature::VocabularyBiasing => "lab-vocabulary-biasing",
         Feature::TerminalPaste => "lab-terminal-paste",
@@ -728,7 +784,9 @@ fn row_key(lab: Lab) -> &'static str {
         Feature::PickerDownloaded => "lab-picker-downloaded",
         Feature::SectionKeyAlone => "lab-section-key",
         Feature::KeepRecordings => "lab-keep-recordings",
+        Feature::SettingsSearch => "lab-settings-search",
         Feature::HideMenuBarIcon => "lab-hide-menu-bar-icon",
+        Feature::QuitClosesWindow => "lab-quit-closes-window",
         Feature::MovableMeetingCapsules => "lab-movable-meeting-capsules",
         Feature::GnomeClipboardRestore => "lab-gnome-clipboard-restore",
         Feature::MeetingNotesVocabulary => "lab-meeting-notes-vocabulary",
@@ -737,7 +795,11 @@ fn row_key(lab: Lab) -> &'static str {
         Feature::GnomeMeetingCapsules => "lab-gnome-meeting-capsules",
         Feature::Screenshots => "lab-screenshots",
         Feature::FollowLiveTranscript => "lab-follow-live-transcript",
+        Feature::MoreCallApps => "lab-more-call-apps",
         Feature::AnnotateReplay => "lab-annotate-replay",
+        Feature::MeetingImport => "lab-meeting-import",
+        Feature::MeetingDescriptiveFilenames => "lab-meeting-descriptive-filenames",
+        Feature::ExpireMeetingAudio => "lab-expire-meeting-audio",
     }
 }
 
@@ -769,6 +831,8 @@ fn flip(ui: &mut Ui, lab: Lab) {
     ui.update(|settings| feature.set(settings, on));
     match feature {
         Feature::KeyboardModelSwitching => ui.open = None,
+        // A notice already on screen leaves with its lab.
+        Feature::FailureNotices if !on => crate::rune_ui::live_text::dismiss_failure(),
         // Hex hears the browser through System Audio Recording.
         Feature::PauseBrowser if on && !ui.platform.system_audio => {
             ui.ask(super::platform::PlatformRequest::SystemAudio);

@@ -366,6 +366,8 @@ substitute for source inspection or a second roadmap.
   Hex, Paste last dictation, the downloaded-model picker, the update item,
   Enable / Disable Hex, Quit Hex) and the model entries the macOS menu bar
   lists too. Each tray maps a `TrayCommand` onto its own runtime.
+- `desktop/tray_icon`: the tray mark Linux and Windows share: the white Hex
+  mark, drawn black on a light panel or taskbar, where white would vanish.
 - `linux/login_item`: Launch at login on Linux, the managed XDG autostart
   entry the installer also writes; the file is the only state.
 - `net`: Hex's own HTTPS (model downloads, update checks, transformation
@@ -602,10 +604,18 @@ CoreAudio formats, AppleScript details, or event serialization.
 
 - Settings errors never prevent launch. `app_settings/persistence` defaults
   only invalid fields in memory and logs each key and reason; unknown keys
-  are ignored. Invalid JSON or unreadable files use defaults without changing
-  the original. Before any save over invalid settings, preserve the exact
+  are ignored. Invalid JSON or a file that isn't a JSON object uses defaults
+  without changing the original, and launch reports the parse error. An
+  unreadable file also uses defaults without changing it, but reports no
+  launch note. Before any save over invalid fields, preserve the exact
   original beside it as `settings.json.unreadable-<sha256>` (owner-only;
-  identical originals share one backup). A failed backup blocks the save.
+  identical originals share one backup). A failed backup blocks the save. A
+  file that isn't a JSON object is never backed up or replaced: every save is
+  refused until a restart. A process that loaded such a file keeps refusing
+  saves even after the file is fixed, because its in-memory settings may be
+  stale defaults. On Linux only, the two-second poll also clears that refusal
+  when it adopts a valid or removed file. The refusal and launch note use the
+  same wording on every OS.
   Keep saved values readable by older builds: an unchosen
   `meetings.retention` is omitted, not `null`. Do not omit optional fields
   whose absence restores a nonempty default, such as `paste_last_hotkey`.
@@ -697,10 +707,11 @@ CoreAudio formats, AppleScript details, or event serialization.
   fences remain required. Never strip Fn globally from shortcut matching.
 - Hold the shortcut to dictate and release to transcribe. Captures shorter than
   300 ms discard. A 450 ms hotkey pre-roll
-  protects speech onset, except when "While dictating" mutes or pauses other
-  audio: that audio predates the mute and holds whatever was playing, so those
-  hotkey captures keep no pre-roll (#1309; `dictation::hotkey_pre_roll`, every
-  OS). Ducking keeps 450 ms. There is no separate pre-roll setting. Capture has
+  protects speech onset, except when "While dictating" mutes, pauses, or lowers
+  other audio: that audio predates the suppression and holds whatever was
+  playing, so those hotkey captures keep no pre-roll (#1309, #1468;
+  `dictation::hotkey_pre_roll`, every OS). Do nothing keeps 450 ms. There is no
+  separate pre-roll setting. Capture has
   no automatic duration limit; release or
   an explicit stop ends it.
 - Only Toggle mode has a cancel (#786, #1022): its cancel shortcut
@@ -1025,8 +1036,11 @@ CoreAudio formats, AppleScript details, or event serialization.
   Summarize with OpenCode) run only after final publication, on a
   utility-QoS thread that yields to dictation, within a bounded chunk count and
   total deadline. Failures record `notes_error` and leave the Markdown
-  untouched. Notes never rename the file and rewrite only the heading Hex wrote
-  and the `<!-- hex:notes -->` block.
+  untouched. Notes rewrite only the heading Hex wrote and the
+  `<!-- hex:notes -->` block. With Labs › Descriptive meeting file names on,
+  notes or chapter refinement that change the title, and user renames, also
+  rename the exported Markdown to the new title, keeping its date and time
+  prefix and never overwriting.
 - Annotate (captures; `hex annotate`, alias `hex capture`) is compiled into
   every macOS, Linux, and Windows build and on by default in every build,
   stable included (`capture.enabled`, the pane's switch; the `annotate-on-by-default`
@@ -1168,7 +1182,9 @@ CoreAudio formats, AppleScript details, or event serialization.
   to the Trash (never `rm`), after a two-step confirmation, and is refused while
   it records, transcribes, or writes notes. Renaming rewrites the manifest and
   only a Markdown heading that still reads the previous title; files keep
-  their names.
+  their names unless Labs › Descriptive meeting file names is on, which renames
+  the exported Markdown to the new title, keeping its date and time prefix and
+  never overwriting.
 - Meeting data is a liability: until the user chooses a `meetings.retention`,
   meetings recorded since the default began (manifest `retention_applies`)
   are kept 24 hours and older ones stay; a chosen retention covers every
@@ -1258,7 +1274,9 @@ CoreAudio formats, AppleScript details, or event serialization.
   `renamex_np(RENAME_SWAP)` at restart or quit, and the new version removes
   the old bundle at launch.
 - The Wayland beta requires compatible clipboard protocols, and layer-shell or
-  XWayland for the HUD.
+  XWayland for the HUD. Copy and paste need `wl-copy` from `wl-clipboard`,
+  which direct installs don't bring; while it's missing Hex warns in Settings
+  and `hex status`, and a paste fails naming the package.
   Paste sends its shortcut through `wtype` when the compositor advertises
   `zwp_virtual_keyboard_manager_v1`, and otherwise through the
   RemoteDesktop portal, the general injection path: one keyboard-only session
