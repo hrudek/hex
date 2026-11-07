@@ -17,7 +17,7 @@ xcodebuild archive \
   -project "$project" -scheme "$scheme" -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath "$RUNNER_TEMP/output/App.xcarchive" \
-  -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+  -derivedDataPath "$RUNNER_TEMP/DerivedData" -showBuildTimingSummary \
   ${cache_args[@]+"${cache_args[@]}"} \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
   CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \

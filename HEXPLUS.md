@@ -361,6 +361,11 @@ TestFlight build as before. Archive selection, provenance, digest and ZIP checks
 have Linux unit tests; these do not prove Xcode export or installation on a real
 iPhone.
 
+Archive and simulator builds restore the Swift package checkouts and Xcode's
+compilation cache (`.github/hexplus/cache-args.sh`), so unchanged modules such as
+FluidAudio are not compiled again. Only pushes, nightly and manual runs save them,
+never PRs; the compilation cache starts empty each month.
+
 All builds share one bundle ID: an ad-hoc install replaces the TestFlight
 version on the iPhone (data stays). If GitHub's macOS runners are short on
 capacity, set the variable `MACOS_RUNNER` (now `macos-15-intel`; the default
