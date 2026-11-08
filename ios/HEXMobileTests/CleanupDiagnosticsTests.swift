@@ -37,7 +37,7 @@ final class CleanupDiagnosticsTests: XCTestCase {
             diagnostics.record(CleanupObservation(outcome: .skipped(.off), latencyMilliseconds: 0))
             XCTAssertEqual(diagnostics.lastSummary(), "Last dictation (just now): Apple Intelligence changed nothing (1.2 s)")
             diagnostics.record(CleanupObservation(outcome: .skipped(.language), latencyMilliseconds: 0))
-            XCTAssertTrue(diagnostics.lastSummary()!.contains("fewer than 3 words"))
+            XCTAssertTrue(diagnostics.lastSummary()!.contains("language not clearly recognised"))
             let later = Date().addingTimeInterval(3 * 60)
             XCTAssertTrue(diagnostics.lastSummary(now: later)!.hasPrefix("Last dictation (3 min ago): "))
             let stored = defaults.dictionary(forKey: CleanupDiagnostics.key)!
