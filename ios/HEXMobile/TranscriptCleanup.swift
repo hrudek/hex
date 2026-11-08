@@ -198,8 +198,8 @@ final class CleanupCoordinator {
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(.notesLineAnchors)))
                         } else if revised.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             resolve(job.id, value: raw, outcome: .failed(.emptyOutput))
-                        } else if !CleanupGuard.accepts(input: raw, output: revised, style: style) {
-                            resolve(job.id, value: raw, outcome: .failed(.guardRejected(.alignment)))
+                        } else if let rule = CleanupGuard.rejection(input: raw, output: revised, style: style) {
+                            resolve(job.id, value: raw, outcome: .failed(.guardRejected(rule)))
                         } else {
                             let cleaned = revised.trimmingCharacters(in: .whitespacesAndNewlines)
                             dependencies.observer.recordChange(cleaned != raw.trimmingCharacters(in: .whitespacesAndNewlines))

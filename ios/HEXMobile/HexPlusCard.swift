@@ -19,7 +19,7 @@ struct HexPlusCard: View {
             VStack(spacing: 0) {
                 row(
                     "AI cleanup",
-                    detail: "Apple Intelligence tries to fix misheard words and keeps only your corrected version when you correct yourself. Not in Verbatim. Falls back to the plain transcript when unavailable."
+                    detail: "Apple Intelligence keeps only your final version when you correct yourself, removes ähm and stutters, and fixes misheard words. Not in Verbatim. Falls back to the plain transcript when unavailable."
                         + (cleanupReason.map { "\n" + $0 } ?? "")
                         + (cleanupLast.map { "\n" + $0 } ?? ""),
                     isOn: $aiCleanup
