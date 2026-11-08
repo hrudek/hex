@@ -11,13 +11,7 @@ enum CleanupGuard {
         let negation: Bool
     }
 
-    // Longest phrases match first, so "nein besser" is one cue token, not "nein" + "besser".
-    // Not cues: "oder lieber"/"oder besser" (real alternatives: "Kaffee oder lieber Tee?").
-    private static let cues = [
-        "oder besser gesagt", "ich korrigiere", "nein besser", "nein lieber", "nein doch", "nein eher", "nein warte",
-        "besser gesagt", "ach nein", "äh nein", "ich meine", "korrektur", "nein",
-        "no make that", "scratch that", "no actually", "or rather", "correction", "no wait", "i mean", "no"
-    ]
+    private static let cues = ["ich korrigiere", "ich meine", "scratch that", "correction", "korrektur", "i mean", "nein", "no"]
     private static let markers = ["new paragraph", "bullet point", "next bullet", "new line", "bullet"]
     // A one-word replacement can otherwise turn a question into its answer (Was -> Paris).
     // Preserve interrogatives in local replacements; explicit cued retractions remain allowed.

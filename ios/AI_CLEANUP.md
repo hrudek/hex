@@ -36,15 +36,6 @@ all fall back to plain ASR text, formatted as before. Cleanup failures do not
 set `.failed`; ASR failures retain their existing error behavior. Logs use
 `ai-cleanup` and fixed reason strings, never transcript text or model error text.
 
-The Hex+ card shows the **last dictation's outcome** under the switch, e.g.
-“cleaned up by Apple Intelligence (1.8 s)”, “Apple Intelligence changed nothing”,
-“skipped: language not clearly recognised …”, “took longer than 4 s … (it finished
-after 6.2 s)” or “rejected by the safety check”. It is stored in the App Group as
-`hexplus.aiCleanup.last` (`CleanupDiagnostics`): a fixed English summary, a time
-and a deadline flag only, never dictated or model text. A model call that returns
-after its deadline reports only its real duration, to tune the 4 s deadline.
-Turning the switch off keeps the previous outcome visible.
-
 ## Explicit desktop alignment (D1–D9 and reviewed amendments)
 
 The reference is desktop **Rewrite with OpenCode**, not an existing desktop Apple
@@ -118,16 +109,9 @@ and `src/apple_intelligence.rs` / `.swift` (used for meetings).
 
 Protected tokens are numbers (including signs, separators, time and percentages),
 URLs, emails, @handles and #tags. Their comparison is case-sensitive. Other words
-are case-folded. Notes markers and the explicit cues are longest-first,
-non-overlapping phrase tokens. Cues: German `nein`, `nein besser`, `nein lieber`,
-`nein doch`, `nein eher`, `nein warte`, `ach nein`, `äh nein`, `besser gesagt`,
-`oder besser gesagt`, `ich meine`, `ich korrigiere`, `korrektur`; English `no`,
-`no wait`, `no actually`, `no make that`, `or rather`, `i mean`, `scratch that`,
-`correction`. `nein besser` and similar were added after the first iPhone test
-(“Wir treffen uns um 13:00 Uhr nein besser um 14:00 Uhr” could never pass, since a
-retraction must end in its cue). `oder lieber` / `oder besser` are deliberately not
-cues: they usually offer a real alternative (“Kaffee oder lieber Tee?”). Every
-changed example shown to the model must pass the guard (`testPromptExamplesPassTheGuard`). Negation overlaps those classes.
+are case-folded. Notes markers and the explicit cues `nein`, `ich meine`,
+`ich korrigiere`, `korrektur`, `no`, `i mean`, `scratch that`, `correction` are
+longest-first, non-overlapping phrase tokens. Negation overlaps those classes.
 Original string spans are retained. Punctuation is ignored.
 
 LCS alignment keeps earliest matches and forms deletion/insertion hunks. A local
