@@ -43,11 +43,13 @@ if hashlib.sha256(Path(os.environ["ACTUAL_FILE"]).read_bytes()).hexdigest() != o
 '
 }
 
+# Called in a condition, where errexit is off: every step checks its status.
+# Only a failed download falls back; a digest mismatch stops the script.
 install_release() {
   local archive="$tools/age.tar.gz"
   fetch "https://github.com/FiloSottile/age/releases/download/$version/age-$version-$platform.tar.gz" "$archive" || return 1
-  verify_sha256 "$archive" "$digest"
-  tar -xzf "$archive" -C "$tools" age/age age/age-keygen
+  verify_sha256 "$archive" "$digest" || { echo '::error::age release checksum mismatch' >&2; exit 1; }
+  tar -xzf "$archive" -C "$tools" age/age age/age-keygen || { echo '::error::age release archive did not extract' >&2; exit 1; }
 }
 
 # A Go new enough for age's go.mod (go 1.25): PATH, then the runner's tool
@@ -64,13 +66,13 @@ find_go() {
   local archive="$tools/go.tar.gz"
   fetch "https://dl.google.com/go/$go_version.$platform.tar.gz" "$archive" >&2 || return 1
   verify_sha256 "$archive" "$go_digest" >&2 || return 1
-  tar -xzf "$archive" -C "$tools" >&2
+  tar -xzf "$archive" -C "$tools" >&2 || return 1
   echo "$tools/go/bin/go"
 }
 
 install_from_module_proxy() {
   local go zip="$tools/age-module.zip" src="$tools/src"
-  go=$(find_go) || { echo 'no Go for the age fallback build' >&2; return 1; }
+  go=$(find_go) || { echo '::error::no verified Go for the age fallback build' >&2; return 1; }
   echo "age fallback: building with $("$go" version)" >&2
   fetch "https://proxy.golang.org/filippo.io/age/@v/$version.zip" "$zip"
   # Go's dirhash Hash1 over the module zip; a mismatch stops before any build.
@@ -93,6 +95,7 @@ if actual != os.environ["EXPECTED_H1"]:
 
 if ! install_release; then
   echo "::warning::age $version release download failed; building the pinned module from proxy.golang.org" >&2
+  # Outside any condition, so errexit stops at the first failing step.
   install_from_module_proxy
 fi
 "$tools/age/age" --version >/dev/null
