@@ -42,14 +42,16 @@ nonisolated struct HexPlusModelInfo: Equatable, Sendable {
 }
 
 /// Reads settings and only the selected configuration's availability. Never starts model work.
+/// Plain (non-Sendable) closures inherit the main actor where they are formed, like
+/// `CleanupAvailabilityCache`, so tests can count calls in captured locals.
 @MainActor
 struct HexPlusModelInfoReader {
-    let frameworkAvailable: @MainActor () -> Bool
-    let hexPlusOn: @MainActor () -> Bool
-    let upstreamOn: @MainActor () -> Bool
-    let hexPlusReason: @MainActor () -> String?
-    let upstreamReason: @MainActor () -> String?
-    let osVersion: @MainActor () -> String
+    let frameworkAvailable: () -> Bool
+    let hexPlusOn: () -> Bool
+    let upstreamOn: () -> Bool
+    let hexPlusReason: () -> String?
+    let upstreamReason: () -> String?
+    let osVersion: () -> String
 
     func read() -> HexPlusModelInfo {
         let path = HexPlusCleanupPath.resolve(
