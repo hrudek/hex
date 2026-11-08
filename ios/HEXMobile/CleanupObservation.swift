@@ -113,7 +113,7 @@ final class CleanupDiagnostics: CleanupObserving {
         case .cancelled: return "cancelled"
         case .failed(let reason):
             switch reason {
-            case .deadline: return "Apple Intelligence took longer than 4 s; plain transcript used"
+            case .deadline: return "Apple Intelligence took longer than \(CleanupCoordinator.deadline.components.seconds) s; plain transcript used"
             case .guardRejected: return "Apple Intelligence's change was rejected by the safety check (\(took))"
             case .rateLimited: return "iOS limited Apple Intelligence (often in the background); plain transcript used"
             case .refused: return "Apple Intelligence refused this text; plain transcript used"

@@ -1,6 +1,18 @@
 import XCTest
 @testable import HEX
 
+/// Like FoundationModels: a cancelled call throws CancellationError once it is resumed.
+@MainActor
+private final class CancellationHonouringSession: CleanupSession {
+    var gate: CheckedContinuation<Void, Never>?
+    func prewarm() async {}
+    func clean(_ text: String, style: DictationStyle) async throws -> String {
+        await withCheckedContinuation { gate = $0 }
+        try Task.checkCancellation()
+        return "Die Katze sitzt auf der Matte"
+    }
+}
+
 @MainActor
 final class CleanupDiagnosticsTests: XCTestCase {
     private func drain() async { for _ in 0..<30 { await Task.yield() } }
@@ -81,6 +93,30 @@ final class CleanupDiagnosticsTests: XCTestCase {
             XCTAssertTrue(diagnostics.lastSummary()!.contains("(it finished after"))
             XCTAssertNil(coordinator.reservedBy)
             c.finish(); await drain()
+        }
+    }
+
+    func testCancelledModelAfterDeadlineAddsNoDuration() async {
+        await withDefaults { defaults in
+            let diagnostics = CleanupDiagnostics(defaults: defaults)
+            let session = CancellationHonouringSession()
+            let bg = CleanupTestBackground(), sleeper = CleanupTestSleeper()
+            var deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: CleanupTestSession()),
+                language: CleanupTestLanguage(), background: bg, isEnabled: { true }, sleep: sleeper.sleep)
+            deps.observer = diagnostics
+            let coordinator = CleanupCoordinator()
+            let raw = "Die Katze sitzt auf der Mathe"
+            let job = CleanupJob(session: session, background: bg); job.begin()
+            let task = Task { await coordinator.clean(raw, style: .polished, job: job, dependencies: deps) }
+            await drain()
+            sleeper.fire()
+            let value = await task.value
+            XCTAssertEqual(value, raw)
+            session.gate?.resume(); await drain()
+            XCTAssertEqual(diagnostics.lastSummary(),
+                "Last dictation (just now): Apple Intelligence took longer than 4 s; plain transcript used")
+            XCTAssertNil(coordinator.reservedBy)
+            job.finish(); await drain()
         }
     }
 }

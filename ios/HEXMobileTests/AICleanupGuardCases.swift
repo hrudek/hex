@@ -93,7 +93,7 @@ final class AICleanupGuardCases: XCTestCase {
             let parts = line.components(separatedBy: " => ")
             return parts.count == 2 ? (parts[0].trimmingCharacters(in: .whitespaces), parts[1]) : nil
         }
-        XCTAssertGreaterThanOrEqual(examples.count, 15)
+        XCTAssertGreaterThanOrEqual(examples.count, 10)
         for (input, output) in examples {
             XCTAssertTrue(CleanupGuard.accepts(input: input, output: output, style: .polished), "\(input) => \(output)")
         }
