@@ -59,9 +59,13 @@ enum CleanupGuard {
         let listed = vocabulary.joined(separator: " \n ")
         if !values(output).isSubset(of: values(input).union(values(listed))) { return .newValue }
         // Mostly the speaker's own words: at most a few misheard-word fixes (30 %, at least one).
-        let spoken = Set(inputWords).union(words(listed))
-        let new = outputWords.filter { !spoken.contains($0) }.count
+        let spoken = Set(inputWords), listedWords = Set(words(listed))
+        let unspoken = outputWords.filter { !spoken.contains($0) }
+        let new = unspoken.filter { !listedWords.contains($0) }.count
         if new > max(1, outputWords.count * 3 / 10) { return .newWords }
+        // Listed spellings replace misheard words; they never make up most of the answer, so a
+        // vocabulary entry cannot turn the transcript into something else.
+        if unspoken.count > max(1, outputWords.count / 2) { return .newWords }
         if style == .notes, markerCounts(input) != markerCounts(output) { return .notesMarkers }
         return nil
     }
