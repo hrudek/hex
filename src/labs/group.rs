@@ -70,6 +70,7 @@ impl Feature {
             | Self::KeepOnClipboard
             | Self::CopyOnly
             | Self::GnomeClipboardRestore
+            | Self::TypedText
             | Self::TerminalPaste
             | Self::OutputFixes => Group::Output,
             Self::KeepRecordings | Self::HistoryStats | Self::RecentDictations => Group::History,
@@ -86,7 +87,7 @@ impl Feature {
             | Self::MeetingImport
             | Self::MeetingDescriptiveFilenames
             | Self::ExpireMeetingAudio => Group::Meetings,
-            Self::Screenshots | Self::AnnotateReplay => Group::Annotate,
+            Self::Screenshots | Self::AnnotateReplay | Self::GnomeAnnotate => Group::Annotate,
             Self::MouseShortcuts
             | Self::SecondDictationShortcut
             | Self::SidedChords
@@ -94,7 +95,8 @@ impl Feature {
             | Self::RestoreShortcutDefault
             | Self::StandaloneSpecialKeys
             | Self::SectionKeyAlone
-            | Self::ShareShortcut => Group::Shortcuts,
+            | Self::ShareShortcut
+            | Self::CapsLockDictation => Group::Shortcuts,
             Self::KeyboardModelSwitching
             | Self::UnloadIdle
             | Self::PickerSortFilter

@@ -277,6 +277,9 @@ pub(crate) enum HotkeyEvent {
     FinishPrinting(crate::control::PrintReply),
     Cancel,
     PasteLast,
+    /// Labs › Transform typed text: the focused field's text is processed
+    /// and replaced, while nothing records.
+    TypedText,
     /// The Annotate key went down: nothing recording, a capture starts;
     /// recording, the capture host waits to tell a tap from a hold.
     Capture,
@@ -294,6 +297,8 @@ pub(crate) enum ShortcutCommand {
     /// `hex dictation cancel`: discards whatever records, in any mode.
     DictationCancel,
     PasteLast,
+    /// `hex typed-text`: the typed-text shortcut's one job.
+    TypedText,
     /// `hex dictation start --raw` and `toggle --raw`.
     DictationStartRaw,
     DictationToggleRaw,
@@ -327,6 +332,8 @@ pub(crate) struct HotkeyOptions {
     pub(crate) paste_last: Option<LinuxHotkey>,
     /// Dictate without processing, while it is bound.
     pub(crate) raw_dictation: Option<LinuxHotkey>,
+    /// Labs › Transform typed text, while its lab is on and it is bound.
+    pub(crate) typed_text: Option<LinuxHotkey>,
     /// Annotate's one key, while Annotate is on: tap to start and stop,
     /// hold to draw.
     pub(crate) capture: Option<LinuxHotkey>,
@@ -554,14 +561,16 @@ fn project_grants(
 enum Shortcut {
     Dictation,
     PasteLast,
+    TypedText,
     Capture,
     RawDictation,
 }
 
 impl Shortcut {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Dictation,
         Self::PasteLast,
+        Self::TypedText,
         Self::Capture,
         Self::RawDictation,
     ];
@@ -575,6 +584,7 @@ impl Shortcut {
         match self {
             Self::Dictation => ("dictation", "Dictation"),
             Self::PasteLast => ("paste-last", "Paste last dictation"),
+            Self::TypedText => ("typed-text", "Transform typed text"),
             Self::Capture => ("capture", "Annotate"),
             Self::RawDictation => ("raw-dictation", "Dictate without processing"),
         }
@@ -838,6 +848,13 @@ impl ShortcutState {
                 self.idle().then_some(HotkeyEvent::PasteLast)
             }
             Input::Released(Shortcut::PasteLast) => None,
+            // The typed-text job owns no capture state: pressing its shortcut
+            // or sending `hex typed-text` while idle asks for one job, and
+            // while recording it does nothing at all.
+            Input::Pressed(Shortcut::TypedText) | Input::Command(ShortcutCommand::TypedText) => {
+                self.idle().then_some(HotkeyEvent::TypedText)
+            }
+            Input::Released(Shortcut::TypedText) => None,
             Input::Pressed(Shortcut::Capture) => Some(HotkeyEvent::Capture),
             Input::Released(Shortcut::Capture) => Some(HotkeyEvent::CaptureUp),
             Input::Command(command) => match command {
@@ -851,7 +868,9 @@ impl ShortcutState {
                     self.stop_dictation().or_else(|| self.start_dictation(true))
                 }
                 ShortcutCommand::DictationCancel => self.cancel(),
-                ShortcutCommand::PasteLast => unreachable!("handled above"),
+                ShortcutCommand::PasteLast | ShortcutCommand::TypedText => {
+                    unreachable!("handled above")
+                }
             },
         }
     }
@@ -860,11 +879,34 @@ impl ShortcutState {
 /// `hex` commands for whichever monitor runs now. The listener keeps one
 /// queue while it registers its shortcuts again after a settings change.
 #[derive(Clone)]
-pub(crate) struct CommandQueue(Arc<Mutex<Receiver<ListenerCommand>>>);
+pub(crate) struct CommandQueue {
+    commands: Arc<Mutex<Receiver<ListenerCommand>>>,
+    /// Whether `hex` commands reach this listener: they go to the service,
+    /// never to a foreground `hex dictate` process.
+    connected: bool,
+}
 
 impl From<Receiver<ListenerCommand>> for CommandQueue {
     fn from(receiver: Receiver<ListenerCommand>) -> Self {
-        Self(Arc::new(Mutex::new(receiver)))
+        Self {
+            commands: Arc::new(Mutex::new(receiver)),
+            connected: true,
+        }
+    }
+}
+
+impl CommandQueue {
+    /// A queue nothing sends to: the foreground `hex dictate` listener.
+    pub(crate) fn disconnected() -> Self {
+        Self {
+            commands: Arc::new(Mutex::new(mpsc::channel().1)),
+            connected: false,
+        }
+    }
+
+    /// Whether this listener's `hex` commands arrive through this queue.
+    pub(crate) fn connected(&self) -> bool {
+        self.connected
     }
 }
 
@@ -920,10 +962,13 @@ impl Dispatcher {
 
     /// Feeds every queued `hex` command.
     fn commands(&mut self) {
-        // Without a sender (`hex dictate`), only shortcuts remain.
+        // `hex dictate` has no queue anything sends to: only shortcuts remain.
+        if !self.commands.connected() {
+            return;
+        }
         let commands = self
             .commands
-            .0
+            .commands
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let queued: Vec<_> = commands.try_iter().collect();
@@ -939,7 +984,7 @@ impl Dispatcher {
     fn wait_for_commands(&mut self, timeout: Duration) {
         let waiting = self
             .commands
-            .0
+            .commands
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let first = waiting.recv_timeout(timeout);
@@ -1146,6 +1191,10 @@ impl Backend {
                 .raw_dictation
                 .as_ref()
                 .map(|key| (Shortcut::RawDictation, key)),
+            options
+                .typed_text
+                .as_ref()
+                .map(|key| (Shortcut::TypedText, key)),
         ];
         let desktop_assigns = crate::linux::portal::desktop_assigns_triggers();
         let mut shortcuts = Vec::new();
@@ -1195,7 +1244,7 @@ impl Backend {
                 tracing::warn!(
                     error = format!("{error:#}"),
                     desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
-                    "the shortcuts portal's backend could not bind Hex's shortcuts; dictation follows the hex commands"
+                    "the shortcuts portal's backend could not bind Hex's shortcuts; dictation follows the hex commands, which reach the service listener (`hex start`) but not a foreground `hex dictate`"
                 );
                 drop(portal);
                 self.wait_for_portal(&mut dispatcher, false)?;
@@ -1416,7 +1465,13 @@ mod tests {
     #[test]
     fn only_requested_shortcuts_are_shown() {
         let binding = LinuxHotkey::default();
-        let requested = [Some((Shortcut::Dictation, &binding)), None, None, None];
+        let requested = [
+            Some((Shortcut::Dictation, &binding)),
+            None,
+            None,
+            None,
+            None,
+        ];
         let mut ids: [Option<String>; Shortcut::ALL.len()] = Default::default();
         ids[Shortcut::Dictation.index()] = Some("dictation-ALT-space".into());
         let granted = std::collections::HashMap::from([
@@ -1442,7 +1497,13 @@ mod tests {
     #[test]
     fn a_missing_trigger_is_unconfirmed_where_the_desktop_assigns_keys() {
         let binding = LinuxHotkey::default();
-        let requested = [Some((Shortcut::Dictation, &binding)), None, None, None];
+        let requested = [
+            Some((Shortcut::Dictation, &binding)),
+            None,
+            None,
+            None,
+            None,
+        ];
         let mut ids: [Option<String>; Shortcut::ALL.len()] = Default::default();
         ids[Shortcut::Dictation.index()] = Some("dictation-ALT-space".into());
         let granted = std::collections::HashMap::from([("dictation-ALT-space".to_string(), None)]);
@@ -2257,6 +2318,32 @@ mod tests {
         test.press(Shortcut::PasteLast);
         test.command(Command::PasteLast);
         assert_eq!(test.events, [PasteLast, PasteLast, START]);
+    }
+
+    #[test]
+    fn typed_text_fires_only_while_idle_and_changes_no_capture_state() {
+        let mut test = Test::new(true);
+        test.press(Shortcut::TypedText);
+        test.release(Shortcut::TypedText);
+        test.command(Command::TypedText);
+        assert_eq!(
+            test.events,
+            [HotkeyEvent::TypedText, HotkeyEvent::TypedText]
+        );
+        assert_eq!(test.state.capture, Capture::Idle);
+        // Recording owns the shortcut and `hex typed-text`: no job and no
+        // state change.
+        test.press(Shortcut::Dictation);
+        test.events.clear();
+        test.press(Shortcut::TypedText);
+        test.release(Shortcut::TypedText);
+        test.command(Command::TypedText);
+        assert!(test.events.is_empty());
+        assert!(matches!(test.state.capture, Capture::Held { .. }));
+        assert_eq!(
+            Shortcut::TypedText.portal_id(),
+            ("typed-text", "Transform typed text")
+        );
     }
 
     #[test]

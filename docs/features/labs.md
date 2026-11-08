@@ -15,8 +15,9 @@ below is `Everyone` today unless marked `(Dev)`. Each feature also has a
 **group** (`labs::Feature::group` in `src/labs/group.rs`, one exhaustive
 `match`, so a new feature must choose): Dictation, Output (paste, formatting,
 spoken punctuation), History, Meetings, Annotate, Shortcuts, or Models. There
-is no master switch. **Labs** is always the last item in the sidebar and lists
-every Labs feature this OS has as a card (name, one-line description, toggle)
+is no master switch. **Labs** is always the last item in the sidebar (Up and
+Down reach it from the last pane; pressing it while it shows keeps it open) and
+lists every Labs feature this OS has as a card (name, one-line description, toggle)
 under its group's collapsible header, each **off by default**, plus Send
 feedback and Run setup again.
 
@@ -48,6 +49,7 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 ├── Subtitle export no    labs.subtitle_export         (macOS)   hex meetings show --srt|--vtt writes a meeting as timed subtitles (#633)
 ├── Second dictation shortcut no labs.second_dictation_shortcut + second_dictation_hotkey (macOS)
 │                                        another shortcut dictates like the main one (#627); General shows its recorder while on
+├── Caps Lock dictation no labs.caps_lock_dictation       (macOS)   a Caps Lock press starts and stops hands-free dictation; its light shows recording, processing, and off
 ├── Smart spacing   no    labs.smart_spacing           (macOS)   a dictation pasted right after a word gets one leading space (#632)
 ├── Sided modifier chords no labs.sided_modifier_chords (macOS) the recorder keeps each modifier's side in a modifier-only chord: R⌘ R⌥ (#710)
 ├── Tap or hold      no    labs.tap_or_hold             (macOS, Linux) in Toggle mode, a press held past 300 ms dictates until it lifts; a short tap still locks (#711, #1144)
@@ -93,12 +95,39 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 │                                        keeping transcript, notes, summary, and Markdown
 ├── Restore clipboard on GNOME no labs.gnome_clipboard_restore (Linux) on a Wayland desktop without data-control (GNOME), a paste snapshots and restores
 │                                        the clipboard through XWayland, only while this user's Xwayland already runs; never starts it (#1111)
+├── Transform typed text no labs.typed_text + typed_text_hotkey (Linux) Settings › Output shows a Typed text section whose shortcut is unbound by
+│                                        default; the shortcut or `hex typed-text` takes the clipboard (adopting a paste's pending restore), clears it,
+│                                        sends Ctrl+A then Ctrl+C, runs the focused app's Output steps on the copied text (skipping spoken
+│                                        formatting, spoken symbols, and filler words), clears and re-copies to confirm the selection still holds
+│                                        that text, then pastes the result over it and restores the clipboard 500 ms later unless a newer copy
+│                                        replaced it. A failed paste restores it too. Select-all replaces the whole field; on GNOME text is read
+│                                        through wl-paste and cleared through wl-copy --clear. A clear that leaves text behind aborts.
+│                                        It sends Ctrl+A/Ctrl+C, so it is not meant for terminals, and refuses before any key while
+│                                        Terminal paste shortcut is on, because its Ctrl+V would become Ctrl+Shift+V.
+│                                        // checks: typed_text_is_its_own_bit_and_off_by_default (labs.rs), the shortcut's rules
+│                                        // (app_settings.rs), typed_text_fires_only_while_idle_and_changes_no_capture_state (linux/input.rs),
+│                                        // typed_text_skips_the_dictation_only_labs (dictation/processor.rs),
+│                                        // typed_text_joins_the_commands_only_while_its_lab_is_on (linux/gnome_shortcuts.rs), the fake-backed
+│                                        // typed-text job tests and a_changed_second_copy_aborts_the_replacement (linux/typed_text.rs),
+│                                        // a_new_clipboard_job_adopts_the_pending_restore and
+│                                        // a_failed_dictation_paste_leaves_the_transcript_on_the_clipboard (linux/paste.rs),
+│                                        // the_gnome_shortcut_key_tracks_typed_text (linux/app.rs); not observed with a real shortcut
+│                                        // and target application
 ├── Floating meeting capsules on GNOME no labs.gnome_meeting_capsules (Linux) on a Wayland desktop without layer-shell (GNOME), the recording offer and
 │                                        recording capsule open on XWayland (Rune xwayland_input: override-redirect, clicks in the input shape, never keyboard
 │                                        focus), decided at each show, only while this user's Xwayland already runs; never starts it. Off, an offer opens
 │                                        the Meetings pane (#1271), whose note names the lab (#1274)
 │                                        // checks: floats_only_by_opt_in_*, looks_for_nothing_while_the_lab_is_off (linux/meeting_capsules.rs),
 │                                        // gnome_meeting_capsules_is_its_own_bit_*; Rune's xwayland pointer tests; not run on a GNOME session
+├── Annotate on GNOME no   labs.gnome_annotate          (Linux)   on a Wayland desktop without layer-shell (GNOME), Annotate's recording capsule,
+│                                        ink, and picker open on XWayland (xwayland_input: override-redirect, pointer in the input shape, never keyboard focus).
+│                                        The ink is made with pointer regions and no keys (Rune refuses KeyPolicy::OnDemand on XWayland) and keeps its
+│                                        regions while not drawing, since an XWayland window made click-through can't take the pointer later. Off, a
+│                                        capture records but shows no capsule or ink. Decided at each show, only while this user's Xwayland already runs;
+│                                        never starts it. Esc can't stop drawing there, so the capsule's pen button does, as does letting go of a
+│                                        held Annotate key (a tap of it stops the recording)
+│                                        // checks: gnome_annotate_is_its_own_bit_* (labs.rs), meeting capsule xwayland decision reused
+│                                        // (linux/meeting_capsules.rs); Rune's xwayland tests; not run on a GNOME session
 ├── Screenshots     no    labs.screenshots + screenshots.hotkey (default ⌘⇧4) + screenshots.folder (macOS)
 │                                        the shortcut picks an area (Space: a window); the PNG goes on the clipboard, into the folder (Desktop), and into a corner thumbnail
 ├── Annotate 15 s replay no labs.annotate_replay + capture.replay_hotkey (macOS 27+)
@@ -429,6 +458,92 @@ suppressed, or checked for it, and Hex is unchanged. Checks:
 [recognition.rs](../../src/recognition.rs) (macOS only). Not yet observed: a
 real Mac with an external keyboard, or the recorder row's rendering (macOS
 builds only; no golden).
+
+Caps Lock dictation (`caps-lock-dictation`, macOS): while on, a physical Caps
+Lock press toggles a hands-free dictation. From idle it starts a capture that
+stays recording without a hold; the next Caps Lock press finishes it and hands
+it to the normal transcription, processing, and paste flow. A hold capture,
+a pending double tap, or another shortcut's recording is left alone. Escape
+cancels the Caps Lock capture in every shortcut mode; Toggle mode's configured
+cancel shortcut does not, only Escape does for a Caps Lock capture. The normal
+dictation shortcut keeps working when nothing records (while a Caps Lock
+capture runs it stands down, as a second shortcut does). Turning the lab off
+mid-capture cancels that capture.
+
+Caps Lock never changes typing: every press also resets the system Caps Lock
+state off through `IOHIDSetModifierLockState`, so the next keys stay
+lowercase. The key's light follows Hex's dictation state through the
+keyboard's HID LED output element (usage page 0x08, usage 0x02). It is on
+while any capture records, including a normal-shortcut or Annotate capture,
+blinking while an accepted job transcribes or processes, and off when nothing
+is left or the capture is discarded, cancelled, or failed. Turning the lab off
+or quitting Hex clears the light and stops forcing the lock off, so Caps Lock
+behaves normally again.
+
+```ts
+Labs › Caps Lock dictation on                        // labs.caps_lock_dictation
+├── Caps Lock press, idle -> hands-free capture starts (no hold, no short-tap discard)
+├── Caps Lock press, that capture running -> finishes and pastes normally
+├── Hold capture / pending double tap / another shortcut recording -> ignored
+├── Escape while it records -> cancels (the tap keeps Escape from the app)
+├── Toggle mode's other cancel shortcut -> does not touch a Caps Lock capture
+├── software Caps Lock -> off after every press; typing is unchanged
+├── light -> solid recording, blink transcribing/processing, off done/cancelled/failed
+├── Labs off mid-capture -> cancels it, light off, normal Caps Lock returns
+└── Hex quits -> light off, lock released
+```
+
+The gate is `labs::caps_lock_dictation()` in the listener
+([recognition.rs](../../src/recognition.rs)), which starts and stops the
+feature's worker each pass. Detection needs both halves of a physical press:
+the raw HID tracker records Caps Lock usage 0x39 with its press timestamp
+([suppression/physical_keys.rs](../../src/suppression/physical_keys.rs)), and
+the event tap confirms it with an AlphaShift change edge within 300 ms
+([suppression.rs](../../src/suppression.rs)). A key remapped to Control or
+Escape never changes AlphaShift, so it never toggles dictation. Hex's own
+lock-reset edge is marked and dropped before the press gate. A Caps Lock activation
+delay configured above 300 ms would make those presses invisible; the default
+has no delay. Without Input Monitoring the HID tracker is inactive, so an AlphaShift on edge is the
+fallback press and off edges remain resets. Confirmed presses reach the
+listener with the HID timestamp, before any IOKit work. The light model stays
+on the listener and publishes its pattern through an atomic; the worker
+([caps_lock_dictation/macos.rs](../../src/caps_lock_dictation/macos.rs)) owns
+every IOKit call, re-enumerates keyboards on a bounded refresh, and runs the
+blink timer. No IOKit work runs on the event-tap or audio threads. The pure
+press gate, press decision, and light model live in
+[caps_lock_dictation.rs](../../src/caps_lock_dictation.rs). The LED needs
+Input Monitoring, which Hex already asks for; without it, dictation still
+works and the light stays under macOS's control. Some keyboards, built-in ones
+included, may not expose a Caps Lock LED output element, and macOS's own light
+update after a reset can race Hex's write; neither changes dictation or the
+lock reset. Checks:
+`an_older_jobs_stage_event_never_interrupts_a_newer_capture`,
+`a_stage_event_for_an_unknown_job_changes_nothing`,
+`the_light_is_solid_recording_blinking_working_and_off_after`,
+`the_light_waits_for_every_accepted_job`,
+`cancelling_or_failing_a_capture_turns_the_light_off`,
+`a_hid_press_matches_an_edge_timestamp_from_before_the_callback`,
+`an_edge_that_arrives_before_the_hid_press_still_matches`,
+`a_fast_double_press_yields_two_presses`,
+`a_hid_press_without_an_alpha_shift_edge_never_presses`,
+`without_the_hid_tracker_an_on_edge_is_the_fallback_press`, and
+`the_light_pattern_codes_round_trip` in
+[caps_lock_dictation.rs](../../src/caps_lock_dictation.rs);
+`escape_cancels_a_caps_lock_capture_in_hold_mode`,
+`caps_lock_does_not_start_over_an_annotate_recording`,
+`the_dictation_shortcut_stands_down_while_caps_lock_records`,
+`turning_the_caps_lock_lab_off_stops_its_capture`,
+`caps_lock_never_starts_over_a_pending_double_tap`, and
+`a_caps_lock_capture_keeps_escape_from_the_app_in_any_mode` in
+[recognition.rs](../../src/recognition.rs) and
+[suppression/tests.rs](../../src/suppression/tests.rs);
+`caps_lock_dictation_is_its_own_bit_and_macos_only` in
+[labs.rs](../../src/labs.rs);
+`contributed_options_are_labs_toggles_off_by_default` in
+[panes.rs](../../src/rune_ui/tests/panes.rs). Not yet observed: a real Mac
+with the lab on — no hardware run of the Caps Lock LED, the lock reset, the
+blink, Escape cancellation, or the off/quit cleanup. The `mac-labs` and
+`mac-labs-link` goldens were regenerated on Linux with the new row.
 
 Smart spacing (`smart-spacing`, issue 632, macOS): while on, a dictation
 pasted right after typed text gets one leading space, so words don't merge
