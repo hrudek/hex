@@ -61,6 +61,20 @@ def last_testflight(repo: str) -> str:
     return "none in the last 30 pushes"
 
 
+def red_runs(push: dict | None, sync: dict | None, sync_ci: dict | None) -> list[str]:
+    """Failed runs the owner fixes locally (no repair agent runs in CI)."""
+    items = []
+    if push and push["status"] == "completed" and push["conclusion"] == "failure":
+        items.append(f"- ❌ [hex-plus CI failed]({push['url']}) ({push['displayTitle']}): fix locally on a "
+                     "`fix/<name>` branch through a PR (`gh run view <id> --log-failed`)")
+    if sync and sync["status"] == "completed" and sync["conclusion"] == "failure":
+        items.append(f"- ❌ [Upstream sync failed]({sync['url']})")
+    if sync_ci and sync_ci["status"] == "completed" and sync_ci["conclusion"] == "failure":
+        items.append(f"- ❌ [sync/upstream CI failed]({sync_ci['url']}): fix locally on `sync/upstream` and push; "
+                     "the next sync leaves a branch with local fixes alone")
+    return items
+
+
 def main() -> None:
     repo = os.environ["GH_REPO"]
     issue = next((i for i in gh_json("issue", "list", "--state", "open", "--search", f'in:title "{TITLE}"',
@@ -94,12 +108,20 @@ def main() -> None:
         if days <= WARN_DAYS:
             attention.append(f"- 🔴 **{item['name']}** expires {item['expires']}: {item['renew']}")
 
-    lines += ["### Needs you", *(attention or ["Nothing. ✅"]), ""]
-
     ci = runs("hexplus-ci.yml", branch="hex-plus")
     push = next((r for r in ci if r["event"] == "push"), None)
     sync = (runs("hexplus-sync.yml") or [None])[0]
     gate = (runs("hexplus-gate.yml") or [None])[0]
+    sync_ci = next((r for r in runs("hexplus-ci.yml", branch="sync/upstream") if r["event"] == "push"), None)
+    attention += red_runs(push, sync, sync_ci)
+    sync_pr = (gh_json("pr", "list", "--head", "sync/upstream", "--base", "hex-plus", "--state", "open",
+                       "--json", "number,url,labels") or [None])[0]
+    if sync_pr and "conflict" in [label["name"] for label in sync_pr["labels"]]:
+        attention.append(f"- 🔀 [Sync PR #{sync_pr['number']}]({sync_pr['url']}) has merge conflicts: "
+                         "resolve them locally on `sync/upstream`, push, remove `conflict`, mark ready")
+
+    lines += ["### Needs you", *(attention or ["Nothing. ✅"]), ""]
+
     lines += ["### Pipeline", "| | Last | |", "|---|---|---|"]
     def row(name: str, run: dict | None) -> None:
         if run:
@@ -110,22 +132,6 @@ def main() -> None:
     row("Upstream sync", sync)
     row("Sync promotion (gate)", gate)
     lines.append(f"| TestFlight upload | {last_testflight(repo)} | |")
-    lines.append("")
-
-    incidents = gh_json("issue", "list", "--state", "open", "--label", "fix", "--json", "number,title,url,labels") or []
-    lines += ["### Automatic repairs"]
-    if incidents:
-        for item in incidents:
-            labels = [label["name"] for label in item["labels"]]
-            state = "🙋 needs you" if "needs-human" in labels else "🔧 in progress"
-            lines.append(f"- {state}: [#{item['number']} {item['title']}]({item['url']})")
-    else:
-        lines.append("None open. ✅")
-    closed = gh_json("issue", "list", "--state", "closed", "--label", "fix", "--limit", "5",
-                     "--json", "number,title,url,closedAt") or []
-    if closed:
-        lines.append("")
-        lines.append("Recently repaired: " + ", ".join(f"[#{c['number']}]({c['url']}) {ago(c['closedAt'])}" for c in closed))
     lines.append("")
 
     open_prs = gh_json("pr", "list", "--state", "open", "--json", "number,title,url,labels,isDraft") or []

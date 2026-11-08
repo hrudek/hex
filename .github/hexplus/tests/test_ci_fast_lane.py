@@ -51,7 +51,7 @@ class FastLaneContracts(unittest.TestCase):
         self.assertIn('needs: [decide, build]', job('sign'))
 
     def test_no_schedule_and_manual_preview_does_not_build_device_archive(self):
-        # Only the upstream sync runs on a schedule; CI, fix, conflicts and status are event-driven.
+        # Only the upstream sync runs on a schedule; CI, review and status are event-driven.
         workflows = ROOT / '.github/workflows'
         scheduled = sorted(p.name for p in workflows.glob('hexplus-*.yml')
                            if re.search(r'^  schedule:', p.read_text(), re.M))
@@ -73,7 +73,14 @@ class FastLaneContracts(unittest.TestCase):
         self.assertIn('name: hexplus-screenshots-${{ github.run_id }}', simulator)
         self.assertNotIn('\n  screenshots:\n', SOURCE)
         self.assertNotIn('contents: write', SOURCE)
-        self.assertIn("contains(needs.*.result, 'cancelled') && 'cancelled'", job('notify-fix'))
+
+    def test_tests_never_hold_up_testflight_and_no_repair_agent_runs(self):
+        # TestFlight follows the archive alone; red tests are fixed locally afterwards.
+        self.assertIn("if: needs.decide.outputs.sign != '' && needs.build.result == 'success'", job('sign'))
+        self.assertNotIn('hexplus-fix', SOURCE)
+        status = job('status')
+        self.assertIn("github.ref == 'refs/heads/hex-plus' || github.ref == 'refs/heads/sync/upstream'", status)
+        self.assertIn('gh workflow run hexplus-status.yml --ref hex-plus', status)
 
 
 if __name__ == '__main__':

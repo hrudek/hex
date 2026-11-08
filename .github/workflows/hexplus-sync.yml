@@ -3,8 +3,9 @@
 #   2. push it (SYNC_TOKEN, so Hex+ CI runs on it) and open/update the PR "Sync upstream"
 #   3. hexplus-gate fast-forwards hex-plus to it once Hex+ CI is green
 # On a conflict the merge is committed WITH conflict markers to sync/upstream and
-# the PR is a draft labelled "conflict"; the automatic Linux resolver takes over.
-# While that PR or a fix incident for it is open, syncs leave it alone.
+# the PR is a draft labelled "conflict", resolved locally by the owner (with Pi).
+# While that PR is labelled "conflict", or carries commits pushed on top of the sync's
+# own merge (a local fix), syncs leave it alone.
 # This job only runs git and gh; it never builds or runs repository code,
 # because it holds SYNC_TOKEN.
 name: Hex+ sync upstream
@@ -67,11 +68,13 @@ jobs:
             echo "Sync PR #$blocked still has conflicts to resolve; leaving it alone." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "status=blocked" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # hexplus-fix is repairing sync/upstream: rebuilding it would throw that work away.
-          fixing=$(gh issue list --label fix --state open --search 'in:title "CI broken: sync/upstream"' \
+          # A local fix was pushed onto the open sync PR: rebuilding it would throw that work away.
+          open_sync=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open \
             --json number --jq '.[0].number // empty')
-          if [[ -n "$fixing" ]]; then
-            echo "hexplus-fix is repairing sync/upstream (#$fixing); leaving it alone." | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$open_sync" ]] && git fetch -q origin "$SYNC_BRANCH" 2>/dev/null \
+             && [[ "$(git log -1 --format=%an FETCH_HEAD)" != hexplus-sync ]]; then
+            echo "Sync PR #$open_sync has local fixes on top; leaving it alone until it is promoted or closed." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
             echo "status=blocked" >> "$GITHUB_OUTPUT"; exit 0
           fi
           if git merge-base --is-ancestor "$target" HEAD; then
@@ -132,7 +135,7 @@ jobs:
             echo
             if [[ -n "$conflicts" ]]; then
               echo; echo '> [!WARNING]'
-              echo '> Merge conflicts are committed with markers. The automatic Linux resolver takes over; once tests and archive pass, the gate promotes the sync.'
+              echo '> Merge conflicts are committed with markers. Resolve them locally on `sync/upstream`, push, then remove the `conflict` label and mark the PR ready; once tests and archive pass, the gate promotes the sync.'
               echo; echo '```'; echo "$conflicts"; echo '```'
             fi
             if [[ -n "$carried" ]]; then
@@ -172,7 +175,7 @@ jobs:
           fi
           if [[ "$CONFLICT" == true ]]; then
             gh pr edit "$number" --add-label conflict
-            gh pr comment "$number" --body 'This sync has merge conflicts (markers are committed). The automatic Linux resolver takes over without a manual comment; once tests and archive pass, the gate promotes the sync.'
+            gh pr comment "$number" --body 'This sync has merge conflicts (markers are committed). Resolve them locally on `sync/upstream` and push, then `gh pr edit <n> --remove-label conflict && gh pr ready <n>`; once tests and archive pass, the gate promotes the sync.'
           fi
       - name: Keep only Hex+ workflows enabled
         if: always()
