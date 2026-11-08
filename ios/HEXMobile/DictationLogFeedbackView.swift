@@ -51,6 +51,7 @@ struct DictationJSONExportMenu: View {
             Button(ids == nil ? "Prepare JSON — entire archive" : "Prepare JSON — this entry") { store.prepareJSON(ids: ids) }
                 .disabled(store.exporting || store.isLoading)
             if store.exporting { Text("Preparing JSON…") }
+            if let problem = store.exportProblem { Text(problem) }
             if let url = store.exportURL {
                 Button { sharedURL = url; sharing = true } label: { Label("Share prepared JSON", systemImage: "square.and.arrow.up") }
             }

@@ -269,6 +269,8 @@ final class DictationLogStore {
     private(set) var storageProblem: String?
     private(set) var exporting = false
     private(set) var exportURL: URL?
+    private(set) var exportProblem: String?
+    private var lastLoadProblem = false
     private var active = Set<UUID>()
     private var pinned: UUID?
     private var deleted = Set<UUID>()
@@ -276,6 +278,9 @@ final class DictationLogStore {
     private var dirty: [UUID: DictationLogEntry] = [:]
     private let settings: HexPlusSettings
     let storage: DictationLogStorage
+    private func clearResolvedProblem() {
+        if !lastLoadProblem && dirty.isEmpty && failedDeletes.isEmpty { storageProblem = nil }
+    }
     private static let problem = "Some dictation log files could not be read, saved or deleted. Originals are preserved when possible. Retry; dictation still works."
 
     init(storage: DictationLogStorage, settings: HexPlusSettings = HexPlusSettings()) {
@@ -293,7 +298,9 @@ final class DictationLogStore {
                 self.metadata += result.metadata.filter { !local.contains($0.id) }
                 self.metadata.sort { $0.date > $1.date }
                 self.isLoading = false
+                self.lastLoadProblem = result.problem
                 if result.problem { self.storageProblem = Self.problem }
+                else { self.clearResolvedProblem() }
                 self.loadRecent()
             }
         }
@@ -352,6 +359,7 @@ final class DictationLogStore {
                     self.entries.removeAll { $0.id == id }; self.metadata.removeAll { $0.id == id }
                     self.dirty[id] = nil; self.active.remove(id)
                     self.failedDeletes.remove(id)
+                    self.clearResolvedProblem()
                 } else {
                     self.failedDeletes.insert(id); self.storageProblem = Self.problem
                 }
@@ -431,6 +439,7 @@ final class DictationLogStore {
                 guard let self, self.storageGeneration == generation else { return }
                 if success, self.dirty[entry.id]?.revision == entry.revision { self.dirty[entry.id] = nil }
                 if !success { self.storageProblem = Self.problem }
+                else { self.clearResolvedProblem() }
                 self.trimCache()
             }
         }
@@ -447,7 +456,7 @@ final class DictationLogStore {
     func prepareJSON(ids: [UUID]? = nil) {
         guard !exporting else { return }
         if let exportURL { storage.removeExport(exportURL) }
-        exporting = true; exportURL = nil; let generation = storageGeneration
+        exporting = true; exportURL = nil; exportProblem = nil; let generation = storageGeneration
         storage.export(ids: ids, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown") { [weak self] result in
             Task { @MainActor [weak self] in
                 guard let self, self.storageGeneration == generation else {
@@ -457,7 +466,7 @@ final class DictationLogStore {
                 self.exporting = false
                 switch result {
                 case .success(let url): self.exportURL = url
-                case .failure: self.storageProblem = "JSON could not be prepared. Retry. No file was shared."
+                case .failure: self.exportProblem = "JSON could not be prepared. Prepare again to retry. No file was shared."
                 }
             }
         }

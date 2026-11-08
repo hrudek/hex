@@ -19,6 +19,9 @@ final class DictationLogImprovementTests: XCTestCase {
         env.store.saveFeedback(for: id, expectedText: "Treffen wir uns um 16:00 Uhr.", note: "Self-correction and lost preposition")
         await env.storage.flush()
         let loaded = DictationLogStore(storage: env.storage, settings: env.settings)
+        for _ in 0..<100 where loaded.entries.isEmpty {
+            await env.storage.flush(); try await Task.sleep(for: .milliseconds(5))
+        }
         let entry = try XCTUnwrap(loaded.entries.first)
         XCTAssertEqual(entry.cleanupOutput?.text, answer)
         XCTAssertEqual(entry.formattedText?.text, formatted)

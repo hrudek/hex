@@ -240,6 +240,25 @@ final class DictationLogStoreTests: XCTestCase {
         await env.dispose()
     }
 
+    func testRetryWithoutClearResolvesSaveFailureBanner() async throws {
+        let env = LogTestEnvironment()
+        await env.storage.flush()
+        try FileManager.default.removeItem(at: env.directory)
+        try Data("parent is a file".utf8).write(to: env.directory)
+        let recording = env.begin()
+        recording.finish(text: "retained for retry", beforeSpelling: "retained for retry")
+        await env.storage.flush(); try await Task.sleep(for: .milliseconds(25))
+        XCTAssertNotNil(env.store.storageProblem)
+        try FileManager.default.removeItem(at: env.directory)
+        env.store.retry()
+        try await settle(env.store)
+        XCTAssertNil(env.store.storageProblem)
+        XCTAssertEqual(env.store.entry(recording.entryID)?.finalText?.text, "retained for retry")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: env.storage.root
+            .appendingPathComponent("entries/\(recording.entryID.uuidString).json").path))
+        await env.dispose()
+    }
+
     func testStorageProblemCanBeRecoveredWithoutAnOldCompletionReplacingIt() async throws {
         let env = LogTestEnvironment()
         try Data("parent is a file".utf8).write(to: env.directory)
