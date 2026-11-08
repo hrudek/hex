@@ -130,7 +130,7 @@ final class DictationLogCleanupTests: XCTestCase {
             }
             job.finish(); sleeper.fire(); await settle()
             await env.storage.flush()
-            if mode != 2 { XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.url.path)) }
+            XCTAssertEqual(env.persistedEntryCount, mode == 0 ? 0 : 1)
             await env.dispose()
         }
     }

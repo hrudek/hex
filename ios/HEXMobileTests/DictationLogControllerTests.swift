@@ -320,7 +320,7 @@ final class DictationLogControllerTests: XCTestCase {
                     XCTAssertEqual(f.env.store.entries.first?.status, .interrupted)
                     XCTAssertNil(f.env.store.entries.first?.finalText)
                 } else { XCTAssertTrue(f.env.store.entries.isEmpty) }
-                XCTAssertFalse(FileManager.default.fileExists(atPath: f.env.storage.url.path))
+                XCTAssertEqual(f.env.persistedEntryCount, duringASR && mode != 0 ? 1 : 0)
                 try await f.dispose()
             }
         }
@@ -332,7 +332,8 @@ final class DictationLogControllerTests: XCTestCase {
         noLog.controller.finishRecording(); try await noLog.settle()
         XCTAssertFalse(noLog.controller.transcript.isEmpty)
         XCTAssertTrue(noLog.env.store.entries.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: noLog.env.storage.url.path))
+        await noLog.env.storage.flush()
+        XCTAssertEqual(noLog.env.persistedEntryCount, 0)
         try await noLog.dispose()
         for short in [false, true] {
             let f = LogControllerFixture()

@@ -24,6 +24,20 @@ final class LogTestEnvironment {
         store.begin(token: store.token(), context: context, clock: clock)!
     }
 
+    static func waitUntilLoaded(_ store: DictationLogStore) async throws {
+        for _ in 0..<100 {
+            await store.storage.flush()
+            try await Task.sleep(for: .milliseconds(5))
+            if !store.isLoading && store.metadata.prefix(50).allSatisfy({ store.entry($0.id) != nil }) { return }
+        }
+        XCTFail("Archive did not load")
+    }
+
+    var persistedEntryCount: Int {
+        ((try? FileManager.default.contentsOfDirectory(at: storage.root.appendingPathComponent("entries"),
+            includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "json" }.count
+    }
+
     func dispose() async {
         await storage.flush()
         defaults.removePersistentDomain(forName: suite)
@@ -57,12 +71,7 @@ final class DictationLogStoreTests: XCTestCase {
     }
 
     private func settle(_ store: DictationLogStore) async throws {
-        for _ in 0..<100 {
-            await store.storage.flush()
-            try await Task.sleep(for: .milliseconds(5))
-            if !store.isLoading && store.metadata.prefix(50).allSatisfy({ store.entry($0.id) != nil }) { return }
-        }
-        XCTFail("Archive did not load")
+        try await LogTestEnvironment.waitUntilLoaded(store)
     }
     func testArchiveRetainsMoreThanTwentyAndStartupDoesNotOverwriteNewCapture() async throws {
         let env = LogTestEnvironment()
@@ -206,6 +215,23 @@ final class DictationLogStoreTests: XCTestCase {
         XCTAssertTrue(entries.allSatisfy { $0["schemaVersion"] as? Int == 2 })
         loaded.clear(); try await settle(loaded)
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        await env.dispose()
+    }
+
+    func testPreparedJSONIsOnlyExposedForItsExactScope() async throws {
+        let env = LogTestEnvironment()
+        let first = env.begin(); first.finish(text: "first", beforeSpelling: "first")
+        let second = env.begin(); second.finish(text: "second", beforeSpelling: "second")
+        try await settle(env.store)
+        env.store.prepareJSON(ids: [first.entryID])
+        for _ in 0..<200 where env.store.exporting { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotNil(env.store.preparedJSON(for: [first.entryID]))
+        XCTAssertNil(env.store.preparedJSON(for: nil))
+        XCTAssertNil(env.store.preparedJSON(for: [second.entryID]))
+        env.store.prepareJSON()
+        for _ in 0..<200 where env.store.exporting { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotNil(env.store.preparedJSON(for: nil))
+        XCTAssertNil(env.store.preparedJSON(for: [first.entryID]))
         await env.dispose()
     }
 

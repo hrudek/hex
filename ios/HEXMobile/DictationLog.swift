@@ -269,6 +269,7 @@ final class DictationLogStore {
     private(set) var storageProblem: String?
     private(set) var exporting = false
     private(set) var exportURL: URL?
+    private var exportIDs: [UUID]?
     private(set) var exportProblem: String?
     private var lastLoadProblem = false
     private var active = Set<UUID>()
@@ -449,6 +450,7 @@ final class DictationLogStore {
         for entry in dirty.values where !deleted.contains(entry.id) { put(entry) }
         reload()
     }
+    func preparedJSON(for ids: [UUID]?) -> URL? { exportIDs == ids ? exportURL : nil }
     func releaseJSON(_ url: URL) {
         storage.removeExport(url)
         if exportURL == url { exportURL = nil }
@@ -465,7 +467,7 @@ final class DictationLogStore {
                 }
                 self.exporting = false
                 switch result {
-                case .success(let url): self.exportURL = url
+                case .success(let url): self.exportIDs = ids; self.exportURL = url
                 case .failure: self.exportProblem = "JSON could not be prepared. Prepare again to retry. No file was shared."
                 }
             }
