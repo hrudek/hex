@@ -5,6 +5,7 @@ struct HexPlusCard: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var aiCleanup = HexPlusSettings().aiCleanup
     @State private var cleanupReason = TranscriptCleanupProduction.unavailableReason
+    @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
     @State private var germanAutocorrect = HexPlusSettings().germanAutocorrect
     @State private var keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
 
@@ -19,9 +20,17 @@ struct HexPlusCard: View {
                 row(
                     "AI cleanup",
                     detail: "Apple Intelligence tries to fix misheard words and keeps only your corrected version when you correct yourself. Not in Verbatim. Falls back to the plain transcript when unavailable."
-                        + (cleanupReason.map { "\n" + $0 } ?? ""),
+                        + (cleanupReason.map { "\n" + $0 } ?? "")
+                        + (cleanupLast.map { "\n" + $0 } ?? ""),
                     isOn: $aiCleanup
                 )
+                // The last outcome changes while the card is visible (dictating from this screen).
+                .task {
+                    while !Task.isCancelled {
+                        cleanupLast = TranscriptCleanupProduction.lastSummary
+                        try? await Task.sleep(for: .seconds(2))
+                    }
+                }
                 .onChange(of: aiCleanup) { _, enabled in
                     HexPlusSettings().aiCleanup = enabled
                 }
@@ -61,12 +70,14 @@ struct HexPlusCard: View {
                 TranscriptCleanupProduction.invalidateAvailability()
                 aiCleanup = HexPlusSettings().aiCleanup
                 cleanupReason = TranscriptCleanupProduction.unavailableReason
+                cleanupLast = TranscriptCleanupProduction.lastSummary
             }
         }
         .onAppear {
             TranscriptCleanupProduction.invalidateAvailability()
             aiCleanup = HexPlusSettings().aiCleanup
             cleanupReason = TranscriptCleanupProduction.unavailableReason
+            cleanupLast = TranscriptCleanupProduction.lastSummary
             germanAutocorrect = HexPlusSettings().germanAutocorrect
             keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
         }

@@ -179,8 +179,17 @@ final class CleanupCoordinator {
                 pending = Pending(id: job.id, continuation: continuation, raw: raw, started: started, dependencies: dependencies)
                 job.onExpiry = { [weak self] in self?.cancel(job.id, outcome: .failed(.expired)) }
                 modelTask = Task {
+                    // A model that returns after its job was resolved only reports how long it really took.
+                    func reportIfLate() -> Bool {
+                        guard pending?.id != job.id else { return false }
+                        let elapsed = started.duration(to: dependencies.clock()).components
+                        dependencies.observer.recordLate(
+                            latencyMilliseconds: max(0, elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000))
+                        return true
+                    }
                     do {
                         let revised = try await job.session.clean(raw, style: style)
+                        if reportIfLate() { release(job.id); return }
                         // Inspect RAW Notes line anchors before trimming or classifying empty output.
                         if style == .notes && raw.components(separatedBy: "\n").count != revised.components(separatedBy: "\n").count {
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(.notesLineAnchors)))
@@ -189,9 +198,12 @@ final class CleanupCoordinator {
                         } else if !CleanupGuard.accepts(input: raw, output: revised, style: style) {
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(.alignment)))
                         } else {
-                            resolve(job.id, value: revised.trimmingCharacters(in: .whitespacesAndNewlines), outcome: .completed)
+                            let cleaned = revised.trimmingCharacters(in: .whitespacesAndNewlines)
+                            dependencies.observer.recordChange(cleaned != raw.trimmingCharacters(in: .whitespacesAndNewlines))
+                            resolve(job.id, value: cleaned, outcome: .completed)
                         }
                     } catch {
+                        if reportIfLate() { release(job.id); return }
                         // Never inspect descriptions, associated contexts, prompts, or refusal explanations.
                         let reason = (error as? CleanupModelError)?.reason ?? .generationFailed
                         let outcome: CleanupOutcome = reason == .unavailable ? .skipped(.unavailable) : .failed(reason)
