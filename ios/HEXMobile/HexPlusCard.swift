@@ -2,6 +2,10 @@ import SwiftUI
 
 /// Hex+ switches. They live in the App Group so the keyboard reads them too.
 struct HexPlusCard: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var aiCleanup = HexPlusSettings().aiCleanup
+    @State private var cleanupReason = TranscriptCleanupProduction.unavailableReason
+    @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
     @State private var germanAutocorrect = HexPlusSettings().germanAutocorrect
     @State private var keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
 
@@ -13,6 +17,27 @@ struct HexPlusCard: View {
                 .padding(.leading, 16)
 
             VStack(spacing: 0) {
+                row(
+                    "AI cleanup",
+                    detail: "Apple Intelligence keeps only your final version when you correct yourself, removes ähm and stutters, and fixes misheard words. Not in Verbatim. Falls back to the plain transcript when unavailable."
+                        + (cleanupReason.map { "\n" + $0 } ?? "")
+                        + (cleanupLast.map { "\n" + $0 } ?? ""),
+                    isOn: $aiCleanup
+                )
+                // The last outcome changes while the card is visible (dictating from this screen).
+                .task {
+                    while !Task.isCancelled {
+                        cleanupLast = TranscriptCleanupProduction.lastSummary
+                        try? await Task.sleep(for: .seconds(2))
+                    }
+                }
+                .onChange(of: aiCleanup) { _, enabled in
+                    HexPlusSettings().aiCleanup = enabled
+                }
+                Divider()
+                    .overlay(HexTheme.borderWeak)
+                    .padding(.leading, 16)
+
                 row(
                     "German autocorrect",
                     detail: "Turns ae, oe, ue into ä, ö, ü and fixes German typos (full keyboard)",
@@ -40,7 +65,19 @@ struct HexPlusCard: View {
                 in: RoundedRectangle(cornerRadius: HexTheme.cardRadius, style: .continuous)
             )
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                TranscriptCleanupProduction.invalidateAvailability()
+                aiCleanup = HexPlusSettings().aiCleanup
+                cleanupReason = TranscriptCleanupProduction.unavailableReason
+                cleanupLast = TranscriptCleanupProduction.lastSummary
+            }
+        }
         .onAppear {
+            TranscriptCleanupProduction.invalidateAvailability()
+            aiCleanup = HexPlusSettings().aiCleanup
+            cleanupReason = TranscriptCleanupProduction.unavailableReason
+            cleanupLast = TranscriptCleanupProduction.lastSummary
             germanAutocorrect = HexPlusSettings().germanAutocorrect
             keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
         }
