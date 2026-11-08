@@ -6,6 +6,7 @@ import Foundation
 struct HexPlusSettings {
     private enum Key {
         static let aiCleanup = "hexplus.aiCleanup"
+        static let showCleanupModel = "hexplus.showCleanupModel"
         static let germanAutocorrect = "hexplus.germanAutocorrect"
         static let keyboardSwitchKey = "hexplus.keyboardSwitchKey"
     }
@@ -20,6 +21,12 @@ struct HexPlusSettings {
     var aiCleanup: Bool {
         get { defaults?.object(forKey: Key.aiCleanup) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.aiCleanup) }
+    }
+
+    /// Show the configured cleanup model in the Hex+ card, without changing cleanup itself.
+    var showCleanupModel: Bool {
+        get { defaults?.object(forKey: Key.showCleanupModel) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.showCleanupModel) }
     }
 
     /// German autocorrect on the full keyboard (ae/oe/ue/ss to umlauts, German typo fixes). On by default.
