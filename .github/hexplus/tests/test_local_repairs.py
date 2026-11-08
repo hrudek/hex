@@ -53,7 +53,8 @@ class NoRepairAgents(unittest.TestCase):
     def test_sync_keeps_a_locally_fixed_branch(self):
         sync = (WORKFLOWS / 'hexplus-sync.yml').read_text()
         self.assertIn("git config user.name 'hexplus-sync'", sync)
-        self.assertIn('"$(git log -1 --format=%an FETCH_HEAD)" != hexplus-sync', sync)
+        self.assertIn(""""$(git log -1 --format='%an|%s' FETCH_HEAD)" != 'hexplus-sync|Sync upstream '*""", sync)
+        self.assertIn('title="Sync upstream anomalyco/hex dev @', sync)
         self.assertIn('--label conflict', sync)
 
 

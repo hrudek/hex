@@ -71,8 +71,9 @@ jobs:
           # A local fix was pushed onto the open sync PR: rebuilding it would throw that work away.
           open_sync=$(gh pr list --head "$SYNC_BRANCH" --base hex-plus --state open \
             --json number --jq '.[0].number // empty')
+          # The sync's own tip is its merge commit: author hexplus-sync, subject "Sync upstream …".
           if [[ -n "$open_sync" ]] && git fetch -q origin "$SYNC_BRANCH" 2>/dev/null \
-             && [[ "$(git log -1 --format=%an FETCH_HEAD)" != hexplus-sync ]]; then
+             && [[ "$(git log -1 --format='%an|%s' FETCH_HEAD)" != 'hexplus-sync|Sync upstream '* ]]; then
             echo "Sync PR #$open_sync has local fixes on top; leaving it alone until it is promoted or closed." \
               | tee -a "$GITHUB_STEP_SUMMARY"
             echo "status=blocked" >> "$GITHUB_OUTPUT"; exit 0

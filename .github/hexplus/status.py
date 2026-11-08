@@ -62,7 +62,9 @@ def last_testflight(repo: str) -> str:
 
 
 def red_runs(push: dict | None, sync: dict | None, sync_ci: dict | None) -> list[str]:
-    """Failed runs the owner fixes locally (no repair agent runs in CI)."""
+    """Failed runs the owner fixes locally (no repair agent runs in CI).
+
+    Pass sync_ci only while a sync PR is open: a red run of a closed or promoted sync is history."""
     items = []
     if push and push["status"] == "completed" and push["conclusion"] == "failure":
         items.append(f"- ❌ [hex-plus CI failed]({push['url']}) ({push['displayTitle']}): fix locally on a "
@@ -112,10 +114,11 @@ def main() -> None:
     push = next((r for r in ci if r["event"] == "push"), None)
     sync = (runs("hexplus-sync.yml") or [None])[0]
     gate = (runs("hexplus-gate.yml") or [None])[0]
-    sync_ci = next((r for r in runs("hexplus-ci.yml", branch="sync/upstream") if r["event"] == "push"), None)
-    attention += red_runs(push, sync, sync_ci)
     sync_pr = (gh_json("pr", "list", "--head", "sync/upstream", "--base", "hex-plus", "--state", "open",
                        "--json", "number,url,labels") or [None])[0]
+    sync_ci = sync_pr and next((r for r in runs("hexplus-ci.yml", branch="sync/upstream")
+                                if r["event"] == "push"), None)
+    attention += red_runs(push, sync, sync_ci or None)
     if sync_pr and "conflict" in [label["name"] for label in sync_pr["labels"]]:
         attention.append(f"- 🔀 [Sync PR #{sync_pr['number']}]({sync_pr['url']}) has merge conflicts: "
                          "resolve them locally on `sync/upstream`, push, remove `conflict`, mark ready")
