@@ -84,6 +84,9 @@ final class CleanupJob {
 /// Unstructured tasks are intentional: structured task groups would await an uncooperative model.
 @MainActor
 final class CleanupCoordinator {
+    /// How long a dictation waits for Apple Intelligence before the plain transcript is used.
+    static let deadline: Duration = .seconds(4)
+
     private struct Pending {
         let id: UUID
         let continuation: CheckedContinuation<String, Never>
@@ -181,6 +184,15 @@ final class CleanupCoordinator {
                 modelTask = Task {
                     do {
                         let revised = try await job.session.clean(raw, style: style)
+                        // A model that ignored cancellation and returned after its job was resolved
+                        // (deadline, expiry, cancel) only reports how long it really took.
+                        if pending?.id != job.id {
+                            let elapsed = started.duration(to: dependencies.clock()).components
+                            dependencies.observer.recordLate(
+                                latencyMilliseconds: max(0, elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000))
+                            release(job.id)
+                            return
+                        }
                         // Inspect RAW Notes line anchors before trimming or classifying empty output.
                         if style == .notes && raw.components(separatedBy: "\n").count != revised.components(separatedBy: "\n").count {
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(.notesLineAnchors)))
@@ -189,9 +201,14 @@ final class CleanupCoordinator {
                         } else if !CleanupGuard.accepts(input: raw, output: revised, style: style) {
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(.alignment)))
                         } else {
-                            resolve(job.id, value: revised.trimmingCharacters(in: .whitespacesAndNewlines), outcome: .completed)
+                            let cleaned = revised.trimmingCharacters(in: .whitespacesAndNewlines)
+                            dependencies.observer.recordChange(cleaned != raw.trimmingCharacters(in: .whitespacesAndNewlines))
+                            resolve(job.id, value: cleaned, outcome: .completed)
                         }
                     } catch {
+                        // Thrown after resolution (usually the cancellation sent at the deadline): its time
+                        // is the cancellation's, not the model's, so it reports nothing.
+                        if pending?.id != job.id { release(job.id); return }
                         // Never inspect descriptions, associated contexts, prompts, or refusal explanations.
                         let reason = (error as? CleanupModelError)?.reason ?? .generationFailed
                         let outcome: CleanupOutcome = reason == .unavailable ? .skipped(.unavailable) : .failed(reason)
@@ -200,7 +217,7 @@ final class CleanupCoordinator {
                     release(job.id)
                 }
                 deadlineTask = Task {
-                    do { try await dependencies.sleep(.seconds(4)) } catch { return }
+                    do { try await dependencies.sleep(CleanupCoordinator.deadline) } catch { return }
                     guard !Task.isCancelled, pending?.id == job.id else { return }
                     cancel(job.id, outcome: .failed(.deadline))
                 }

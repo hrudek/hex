@@ -47,6 +47,104 @@ struct CleanupObservation: Equatable, Sendable {
 @MainActor
 protocol CleanupObserving {
     func record(_ observation: CleanupObservation)
+    /// Whether an accepted result differs from the transcript (never the text itself). Sent before `record`.
+    func recordChange(_ changed: Bool)
+    /// A model call that returned after its job was already resolved (deadline, expiry, cancel).
+    func recordLate(latencyMilliseconds: Int64)
+}
+
+extension CleanupObserving {
+    func recordChange(_ changed: Bool) {}
+    func recordLate(latencyMilliseconds: Int64) {}
+}
+
+/// The last dictation's outcome for the Hex+ card: a fixed English summary, latency and time, never text.
+@MainActor
+final class CleanupDiagnostics: CleanupObserving {
+    static let key = "hexplus.aiCleanup.last"
+    private let defaults: UserDefaults?
+    private var changed: Bool?
+
+    init(defaults: UserDefaults? = UserDefaults(suiteName: KeyboardBridge.appGroup)) {
+        self.defaults = defaults
+    }
+
+    func recordChange(_ changed: Bool) { self.changed = changed }
+
+    func record(_ observation: CleanupObservation) {
+        let summary = Self.summary(observation.outcome, latencyMilliseconds: observation.latencyMilliseconds, changed: changed)
+        changed = nil
+        // Off is the user's own choice; keep the previous result visible instead.
+        if case .skipped(.off) = observation.outcome { return }
+        let entry: [String: Any] = [
+            "summary": summary,
+            "at": Date().timeIntervalSince1970,
+            "deadline": observation.outcome == .failed(.deadline)
+        ]
+        defaults?.set(entry, forKey: Self.key)
+    }
+
+    func recordLate(latencyMilliseconds: Int64) {
+        guard var last = defaults?.dictionary(forKey: Self.key), last["deadline"] as? Bool == true,
+              let summary = last["summary"] as? String else { return }
+        last["summary"] = summary + " (it finished after \(Self.seconds(latencyMilliseconds)))"
+        last["deadline"] = false
+        defaults?.set(last, forKey: Self.key)
+    }
+
+    /// "Last dictation: …" with how long ago, or nil before the first dictation.
+    func lastSummary(now: Date = Date()) -> String? {
+        guard let last = defaults?.dictionary(forKey: Self.key), let summary = last["summary"] as? String,
+              let at = last["at"] as? TimeInterval else { return nil }
+        let minutes = Int(max(0, now.timeIntervalSince1970 - at) / 60)
+        let ago = minutes < 1 ? "just now" : minutes < 60 ? "\(minutes) min ago" : "\(minutes / 60) h ago"
+        return "Last dictation (\(ago)): \(summary)"
+    }
+
+    static func seconds(_ milliseconds: Int64) -> String {
+        String(format: "%.1f s", Double(milliseconds) / 1000)
+    }
+
+    static func summary(_ outcome: CleanupOutcome, latencyMilliseconds: Int64, changed: Bool?) -> String {
+        let took = seconds(latencyMilliseconds)
+        switch outcome {
+        case .completed:
+            return changed == false ? "Apple Intelligence changed nothing (\(took))" : "cleaned up by Apple Intelligence (\(took))"
+        case .cancelled: return "cancelled"
+        case .failed(let reason):
+            switch reason {
+            case .deadline: return "Apple Intelligence took longer than \(CleanupCoordinator.deadline.components.seconds) s; plain transcript used"
+            case .guardRejected: return "Apple Intelligence's change was rejected by the safety check (\(took))"
+            case .rateLimited: return "iOS limited Apple Intelligence (often in the background); plain transcript used"
+            case .refused: return "Apple Intelligence refused this text; plain transcript used"
+            case .contextWindow: return "too long for Apple Intelligence; plain transcript used"
+            case .emptyOutput: return "Apple Intelligence returned nothing; plain transcript used"
+            case .expired: return "iOS ended the background time; plain transcript used"
+            case .unavailable: return "Apple Intelligence was unavailable"
+            case .generationFailed: return "Apple Intelligence failed; plain transcript used"
+            }
+        case .skipped(let reason):
+            switch reason {
+            case .off: return "AI cleanup is off"
+            case .verbatim: return "skipped in Verbatim style"
+            case .language: return "skipped: language not clearly recognised or not supported (needs at least 3 words)"
+            case .budget: return "skipped: dictation too long"
+            case .busy: return "skipped: the previous cleanup was still running"
+            case .unavailable: return "skipped: Apple Intelligence unavailable"
+            case .numbersOnly: return "skipped: numbers only"
+            case .noBackgroundLease: return "skipped: iOS gave no background time"
+            }
+        }
+    }
+}
+
+/// Logs and keeps the last outcome for the Hex+ card.
+@MainActor
+struct CleanupObservers: CleanupObserving {
+    let observers: [any CleanupObserving]
+    func record(_ observation: CleanupObservation) { observers.forEach { $0.record(observation) } }
+    func recordChange(_ changed: Bool) { observers.forEach { $0.recordChange(changed) } }
+    func recordLate(latencyMilliseconds: Int64) { observers.forEach { $0.recordLate(latencyMilliseconds: latencyMilliseconds) } }
 }
 
 @MainActor
@@ -66,6 +164,10 @@ struct CleanupLogger: CleanupObserving {
         case .cancelled:
             Self.logger.info("dictation post-processing cancelled latency_ms=\(latency)")
         }
+    }
+
+    func recordLate(latencyMilliseconds: Int64) {
+        Self.logger.info("dictation post-processing model returned after its deadline latency_ms=\(latencyMilliseconds)")
     }
 }
 

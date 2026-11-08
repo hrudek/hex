@@ -11,11 +11,17 @@ enum TranscriptCleanupProduction {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
             return TranscriptCleanupDependencies(cleaner: AppleIntelligenceCleaner(), language: CleanupLanguageDetector(),
-                                                 background: CleanupBackgroundTasks(), isEnabled: { HexPlusSettings().aiCleanup })
+                                                 background: CleanupBackgroundTasks(), isEnabled: { HexPlusSettings().aiCleanup },
+                                                 observer: CleanupObservers(observers: [CleanupLogger(), diagnostics]))
         }
         #endif
         return nil
     }
+
+    static let diagnostics = CleanupDiagnostics()
+
+    /// The last dictation's cleanup outcome for the Hex+ card (no dictated text).
+    static var lastSummary: String? { diagnostics.lastSummary() }
 
     private static let availabilityCache = CleanupAvailabilityCache { TranscriptCleanupProduction.freshUnavailableReason }
 
