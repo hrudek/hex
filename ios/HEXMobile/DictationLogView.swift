@@ -1,11 +1,9 @@
 import Foundation
 import SwiftUI
-import UIKit
-import UniformTypeIdentifiers
 
 extension DictationLogEntry {
-    /// The UI and conscious exports use the same facts. No export includes prompts, vocabulary
-    /// lists, audio, device names or error descriptions. Text fields may contain private speech.
+    /// The UI and conscious exports use the same facts. No export includes prompts,
+    /// audio, device names or error descriptions. Text and vocabulary may be private.
     var aiPathLabel: String {
         switch context.cleanupPath {
         case .hexPlus: "AI: Hex+"
@@ -92,13 +90,18 @@ extension DictationLogEntry {
     var plainText: String {
         var sections = ["Hex+ dictation log", detailLines.joined(separator: "\n")]
         for (title, field) in [("Recognized", recognized), ("AI input (after spelling)", aiInput),
-                               ("AI answer — \(answerLabel)", aiAnswer), ("Final text provided", finalText)] {
+                               ("AI answer — \(answerLabel)", aiAnswer),
+                               ("Cleanup output actually used", cleanupOutput),
+                               ("After style formatting", formattedText), ("Final text provided", finalText),
+                               ("Desired final text (human reference)", expectedText), ("Human feedback", feedbackNote),
+                               ("Active vocabulary", context.vocabularySnapshot)] {
             guard let field else { continue }
             sections.append("\(title) (\(field.wordCount) words; \(field.originalUTF8Bytes) original UTF-8 bytes\(field.truncated ? "; truncated" : "")):\n\(field.text)")
         }
         if aiInput == nil, recognized != nil {
             sections.append("AI input is the recognized text (first spelling pass unchanged).")
         }
+        if let upstreamReason { sections.append("Upstream detail: \(upstreamReason)") }
         sections.append("Vocabulary replacements before AI:\n" + spellingLines(firstSpellingPass).joined(separator: "\n"))
         sections.append("Vocabulary replacements after formatting:\n" + spellingLines(secondSpellingPass).joined(separator: "\n"))
         sections.append("Vocabulary hints during speech recognition are best effort; individual word changes cannot be attributed to them. Replacement counts are not quality scores.")
@@ -116,7 +119,7 @@ struct DictationLogView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Private text history on this iPhone only. No time-based expiry. Turning off Dictation log deletes it. Sharing exports dictated and model text.")
+                    Text("Private text history on this iPhone only. No time-based expiry. Turning off Dictation log deletes it. Exports can include dictated text, model answers, active vocabulary and human feedback.")
                         .font(.footnote)
                     Text("Provided to keyboard is not proof of insertion; the keyboard may adjust spacing.")
                         .font(.footnote)
@@ -136,7 +139,6 @@ struct DictationLogView: View {
                                 .font(.subheadline.weight(.semibold))
                             Text(entry.vocabularyLabel).font(.caption)
                             Text(entry.processingResultLabel).font(.caption).foregroundStyle(HexTheme.textMuted)
-                            if let outcome = entry.cleanupSummary { Text(outcome).font(.caption).foregroundStyle(HexTheme.textMuted) }
                             Text(entry.finalText?.text.components(separatedBy: .newlines).first ?? entry.status.label)
                                 .lineLimit(1)
                         }
@@ -150,10 +152,8 @@ struct DictationLogView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItemGroup(placement: .primaryAction) {
-                    ShareLink(item: store.entries.map(\.plainText).joined(separator: "\n\n────────\n\n")) {
-                        Label("Share all \(store.entries.count) dictations", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(store.entries.isEmpty)
+                    DictationLogExportMenu(entries: store.entries)
+                        .disabled(store.entries.isEmpty)
                     Button("Clear", role: .destructive) { confirmingClear = true }
                         .disabled(store.entries.isEmpty && store.storageProblem == nil)
                 }
@@ -168,6 +168,7 @@ struct DictationLogView: View {
 private struct DictationLogDetail: View {
     let store: DictationLogStore
     let entryID: UUID
+    @State private var editingFeedback = false
 
     private var entry: DictationLogEntry? { store.entries.first { $0.id == entryID } }
 
@@ -175,48 +176,52 @@ private struct DictationLogDetail: View {
         Group {
             if let entry {
                 List {
-                    Section("Settings at recording start") {
-                        ForEach(entry.settingsLines, id: \.self) { Text($0).font(.subheadline) }
-                        Text(entry.processingResultLabel).font(.caption)
-                    }
-                    Section("Vocabulary replacements — before AI") {
-                        ForEach(Array(entry.spellingLines(entry.firstSpellingPass).enumerated()), id: \.offset) { _, line in
-                            Text(line).textSelection(.enabled)
-                        }
-                    }
-                    Section("Vocabulary replacements — after formatting") {
-                        ForEach(Array(entry.spellingLines(entry.secondSpellingPass).enumerated()), id: \.offset) { _, line in
-                            Text(line).textSelection(.enabled)
-                        }
-                        Text("Recognition hints cannot be attributed to individual words. Counts show activity, not correctness.")
-                            .font(.footnote).foregroundStyle(HexTheme.textMuted)
+                    Section("Recognition & cleanup") {
+                        ForEach(entry.improvementLines, id: \.self) { Text($0).font(.subheadline).textSelection(.enabled) }
                     }
                     textSection("Recognized (raw speech recognition)", field: entry.recognized)
-                    textSection("AI input (after spelling)", field: entry.aiInput ?? entry.recognized)
-                    textSection("AI answer — \(entry.answerLabel)", field: entry.aiAnswer)
-                    textSection("Final text provided", field: entry.finalText)
+                    textSection("Cleanup input (after vocabulary)", field: entry.aiInput ?? entry.recognized,
+                        comparedTo: entry.recognized)
+                    textSection("AI answer — \(entry.answerLabel)", field: entry.aiAnswer,
+                        comparedTo: entry.aiInput ?? entry.recognized)
+                    textSection("Cleanup output actually used", field: entry.cleanupOutput,
+                        comparedTo: entry.aiAnswer ?? entry.aiInput ?? entry.recognized)
+                    textSection("After style formatting", field: entry.formattedText, comparedTo: entry.cleanupOutput)
+                    textSection("Final text provided", field: entry.finalText, comparedTo: entry.formattedText)
+                    Section("Human reference") {
+                        Text(entry.expectedText?.text ?? "No desired text supplied yet. Without a reference, this is diagnostic evidence, not a labelled training example.")
+                            .textSelection(.enabled)
+                        if let note = entry.feedbackNote { Text(note.text).textSelection(.enabled) }
+                        if entry.expectedText?.truncated == true || entry.feedbackNote?.truncated == true {
+                            Text("Human reference or feedback is TRUNCATED. Do not use as a complete training label.")
+                                .font(.footnote).foregroundStyle(.red)
+                        }
+                        Button("Edit desired text & feedback") { editingFeedback = true }
+                        Text("Enter the intended final text, including intended names and self-corrections. Optional note: what was wrong? Saving does not train or change a model.")
+                            .font(.footnote).foregroundStyle(HexTheme.textMuted)
+                    }
+                    vocabularySection("Vocabulary before cleanup", entry: entry, pass: entry.firstSpellingPass)
+                    vocabularySection("Vocabulary after formatting", entry: entry, pass: entry.secondSpellingPass)
                     if let input = entry.aiInput ?? entry.recognized, let answer = entry.aiAnswer {
                         DictationLogDiff(title: "AI input → AI answer", before: input, after: answer)
                     }
                     if let input = entry.recognized, let final = entry.finalText {
                         DictationLogDiff(title: "Recognized → Final", before: input, after: final)
                     }
-                    Section("Details") {
-                        ForEach(Array(entry.detailLines.enumerated()), id: \.offset) { _, line in
-                            Text(line).font(.footnote).textSelection(.enabled)
+                    Section {
+                        DisclosureGroup("Technical diagnostics") {
+                            ForEach(Array(entry.detailLines.enumerated()), id: \.offset) { _, line in
+                                Text(line).font(.footnote).textSelection(.enabled)
+                            }
                         }
                     }
                     Section {
-                        Text("Provided to keyboard is not proof of insertion. The keyboard may adjust spacing. A late or rejected answer was not used.")
-                            .font(.footnote)
+                        Text(DictationLogExport.limitations).font(.footnote)
                     }
                 }
-                .toolbar {
-                    Button("Copy", systemImage: "doc.on.doc") {
-                        // A conscious export; Universal Clipboard is intentionally allowed.
-                        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: entry.plainText]],
-                            options: [.expirationDate: Date().addingTimeInterval(5 * 60)])
-                    }
+                .toolbar { DictationLogExportMenu(entries: [entry]) }
+                .sheet(isPresented: $editingFeedback) {
+                    DictationLogFeedbackEditor(store: store, entry: entry)
                 }
             } else {
                 ContentUnavailableView("Entry no longer available", systemImage: "text.badge.minus",
@@ -226,12 +231,31 @@ private struct DictationLogDetail: View {
         .navigationTitle("Dictation details")
     }
 
-    private func textSection(_ title: String, field: DictationLogText?) -> some View {
+    @ViewBuilder
+    private func vocabularySection(_ title: String, entry: DictationLogEntry, pass: DictationLogSpellingPass?) -> some View {
+        if pass?.totalChanges != 0 {
+            Section(title) {
+                ForEach(Array(entry.spellingLines(pass).enumerated()), id: \.offset) { _, line in
+                    Text(line).textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    private func textSection(_ title: String, field: DictationLogText?, comparedTo previous: DictationLogText? = nil) -> some View {
         Section(title) {
             if let field {
-                Text(field.text.isEmpty ? "(empty)" : field.text).textSelection(.enabled)
-                Text("\(field.wordCount) words · \(field.originalUTF8Bytes) original UTF-8 bytes\(field.truncated ? " · truncated" : "")")
-                    .font(.caption).foregroundStyle(HexTheme.textMuted)
+                if let previous, !field.truncated, !previous.truncated, field.text == previous.text {
+                    DisclosureGroup("Unchanged (show text)") {
+                        Text(field.text.isEmpty ? "(empty)" : field.text).textSelection(.enabled)
+                    }
+                } else {
+                    Text(field.text.isEmpty ? "(empty)" : field.text).textSelection(.enabled)
+                }
+                if field.truncated {
+                    Text("TRUNCATED · original \(field.originalUTF8Bytes) UTF-8 bytes")
+                        .font(.caption).foregroundStyle(HexTheme.textMuted)
+                }
             } else {
                 Text("Not recorded").foregroundStyle(HexTheme.textMuted)
             }

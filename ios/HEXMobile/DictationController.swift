@@ -879,7 +879,8 @@ final class DictationController {
                 cleanupPath: session.logCleanupPath, vocabularyCount: session.vocabularyTerms.count,
                 vocabularyEnabled: session.vocabularyEnabled,
                 upstreamCleanupEnabled: session.usesCleanup,
-                hexPlusCleanupEnabled: session.hexPlusCleanupEnabled),
+                hexPlusCleanupEnabled: session.hexPlusCleanupEnabled,
+                vocabularyTerms: session.vocabularyTerms),
                 stoppedAt: stoppedAt)
         }
         transcribingLog = recording
@@ -954,6 +955,7 @@ final class DictationController {
                     }
                 }
                 let beforeSpelling = TranscriptFormatter.format(text, style: session.style)
+                recording?.processingStages(cleanupOutput: text, formattedText: beforeSpelling)
                 var secondPass = DictationLogSpellingPass()
                 let observeSecond: ((String, String, String) -> Void)? = recording == nil ? nil : { before, after, term in
                     secondPass.record(before: before, after: after, term: term)
@@ -1006,11 +1008,22 @@ final class DictationController {
               !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let cleaner,
               cleaner.isAvailable else {
-            if session.logCleanupPath == .upstream { recording?.upstreamResult(nil, input: rawText) }
+            if session.logCleanupPath == .upstream {
+                let reason: String
+                if !session.usesCleanup { reason = "disabled" }
+                else if session.style == .verbatim { reason = "verbatim" }
+                else if rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { reason = "empty input" }
+                else if cleaner == nil { reason = "cleaner not configured" }
+                else { reason = "cleaner unavailable" }
+                recording?.upstreamResult(nil, input: rawText, reason: reason)
+            }
             return rawText
         }
         let result = await cleaner.clean(rawText)
-        if !Task.isCancelled { recording?.upstreamResult(result, input: rawText) }
+        if !Task.isCancelled {
+            recording?.upstreamResult(result, input: rawText,
+                reason: result == nil ? "cleaner returned nil; API exposes no failure reason" : nil)
+        }
         return result ?? rawText
     }
 

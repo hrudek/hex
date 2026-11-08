@@ -2,257 +2,186 @@
 
 The **Dictation log** switch in the app's **Hex+** card is **on by default**
 (`hexplus.dictationLog`, App Group settings). **Show dictation log (n)** opens a
-live list, newest first. Tap a row for text, comparisons and diagnostic facts.
-This is Hex+-owned iOS behavior, not upstream's desktop History.
+live list, newest first. This is Hex+-owned iOS behavior, not desktop History.
 
-## What it keeps
+## Two audiences, two exports
 
-One entry for each capture that passes the existing 300 ms minimum and reaches
-transcription. Entries start as **Transcribing…** and end exactly once:
+Tap a dictation for a compact **Recognition & cleanup** view. It shows the
+recognition engine/language, style, selected cleanup path, actual outcome and
+answer use, app/iOS versions, prompt/guard revisions and active vocabulary.
+A selected path does not prove a model call; an accepted answer only passed the
+guard, not a correctness test. Model identity is limited to the known on-device
+Apple FoundationModels backend; no exact system model version is available.
 
-- **Finished:** final formatted text was provided to the app and, when requested,
-  the keyboard and/or clipboard.
-- **Speech recognition failed:** fixed category `modelNotReady`, `cancelled`,
-  `noSpeech`, or `other`. Unknown failures retain only the error's type name,
-  never its description or associated payload.
-- **Cancelled:** Cancel or a replacement recording invalidated accepted work.
-  This is visible immediately, even if ASR ignores task cancellation.
-- **Interrupted:** the saved entry was still transcribing when the app ended.
-  Reopening the app converts it to Interrupted; it cannot resume that capture.
+**Technical diagnostics** is collapsed by default. It retains creation time,
+storage schema, both AI switch states, source/output/copy flags, route port types,
+Bluetooth flag, loudest sampled average dBFS, ASR/cleanup/model/stop-to-final
+timings, redundant changed flags and diagnostic summaries. Route metadata never
+contains device names or UIDs. Unknown ASR failures keep their type name, not
+error descriptions or associated payloads. Timing is monotonic in-process
+measurement, not a guarantee across iOS suspension.
 
-Cancellation **during recording**, short taps, permission/open failures and
-recording-stage interruptions that discard the capture have no entry. This is a
-known scope limit: no text exists yet, and logging those would require hooks
-through additional upstream paths. An interruption that finalizes an accepted
-capture follows the normal transcription path. Ending a warm session during
-accepted transcription/cleanup does **not** cancel it; it still delivers and
-finishes as before.
+The **Export** menu on both list and detail offers:
 
-### At-a-glance configuration and replacement evidence
+- **Recognition & cleanup improvement** → **Copy** or **Share**: text and
+  configuration/outcome evidence relevant to result quality, without technical
+  noise, duplicate complete text, or zero-replacement sections.
+- **Complete diagnostic log** → **Copy** or **Share**: all retained text and
+  technical facts, regardless of which UI disclosures are open.
 
-Each row now shows **AI: Hex+ / Upstream / None**, style, **Vocabulary: On / Off**
-and active term count, the actual cleanup outcome, and the total number of
-vocabulary replacements across both passes. The detail opens with the settings
-frozen at recording start, including both AI switches. Hex+ overrides upstream;
-Verbatim selects no AI even when a switch is on. A selected path is not proof of
-a model call: skips, unavailable models, rejected answers and deadlines still
-need to be read alongside it. An enabled vocabulary with zero terms is distinct
-from a disabled vocabulary.
+The list exports **all retained entries**; detail exports just that entry.
+Both clipboard formats expire after five minutes and intentionally allow
+Universal Clipboard. Share uses the system share sheet. Both are plain text,
+with a versioned export header (**v2**, independent of schema-1 storage).
+A batch has one shared explanation of evidence limits.
 
-Two always-visible detail sections and the plain-text export list the actual
-**original span → replacement**, plus the vocabulary term that matched:
+Exports may contain private dictated text, unused model answers, active
+vocabulary spellings and human feedback. The app cannot retract copies already
+exported. Exporting is explicit; there is no upload, training service or sync.
 
-- **Before AI:** exact spelling changes after ASR, before optional cleanup.
-- **After formatting:** exact spelling changes after cleanup and style formatting.
+## Text evidence and human reference
 
-The matcher reports these at the point of replacement, not by guessing from the
-final text or re-running a mutable vocabulary list. Unchanged matches are not
-counted. Repeated occurrences are listed separately in encounter order. Counts
-measure operations, not unique words or correctness: a term can change in both
-passes. Exports escape quotes and line breaks in replacement spans.
-
-Each pass retains the first **20 replacements** and a full change count; omitted
-items and truncated span/term text are explicitly labelled. A pass that did not
-run (or an old entry) says **not recorded**, not **no replacements**. New fields
-are optional additions to schema 1, so existing history is retained and absent
-switch values are shown as **Not recorded**, never inferred as Off.
-
-Apple Speech can also receive the vocabulary as a best-effort recognition hint.
-There is no counterfactual ASR output, so the log cannot attribute individual
-recognition changes to that hint. The replacement sections cover only the two
-deterministic spelling passes. They are useful analysis evidence, not automatic
-quality ratings or proof that one configuration is better; intended speech and
-human corrections are still needed to judge accuracy.
-
-### Text and processing evidence
-
-- **Recognized:** raw ASR output.
-- **AI input:** the first vocabulary spelling pass's output. Stored separately
-  only when it differs from Recognized; otherwise the detail uses Recognized.
-- **AI answer:** raw Hex+ model output, including whitespace, with **accepted**,
-  **rejected(reason); not used**, or a late-answer label. Rejected answers are
-  diagnostic evidence, **not** the text the app delivered. A thrown model error
-  has no answer to store.
-- **Final text provided:** output after the existing single style-formatting pass
-  and second vocabulary spelling pass.
-
-Word counts, original UTF-8 sizes and changed flags are measured before text
-truncation. The model's changed flag compares the accepted, trimmed answer to
-trimmed cleanup input, just as the existing cleanup diagnostics do; the pipeline
-flag compares the exact raw ASR and final strings.
-
-Two expandable, on-demand comparisons show **AI input → AI answer** and
-**Recognized → Final**. Removed tokens are struck out, added tokens bold and
-underlined; line breaks are visible as `↵`. These are textual differences, not
-judgments of meaning, model quality or correctness. A rejected/late answer may
-have a diff even though it was never used. A comparison of truncated fields says
-so. Above 400 tokens on either side the view says **Too long to compare** and
-keeps both text sections available. Tokens preserve words, whitespace and line
-breaks; the LCS has at most 400 × 400 comparisons plus its sentinel row/column.
-
-### Facts and timing
-
-Details (also included in exports) contain:
-
-- Entry ID, schema, created time, status, app version/build and iOS version.
-- Keyboard job and copy-request flags; outputs **shown in app**, **provided to
-  keyboard**, **copied to clipboard** as applicable. **Provided is not proof of
-  insertion**: the keyboard can adjust spacing, and the host app may not consume
-  a result. Empty text is not claimed to have been copied.
-- Frozen style and cleanup path (`hexPlus`, `upstream`, `none`), speech engine's
-  display name and **speech language** (the engine's ASR language label, not an
-  Apple Intelligence language inference).
-- Recording duration; audio input **port types only** and Bluetooth yes/no,
-  sampled at finish before restoring capture audio. No device names or UIDs.
-- **Loudest average level, dBFS**: maximum of sampled `averagePowerDB` values,
-  not a signal peak. If no finite meter sample arrived, it says not sampled.
-- Monotonic ASR, Hex+ cleanup-resolution and model-return milliseconds, and stop
-  → final-text-provided time. Model time is measured from the actual model call,
-  independently of cleanup resolution. A thrown call that wins resolution records
-  duration without an answer (a defaulted `modelFailed` diagnostic callback);
-  an error thrown after resolution is usually cancellation and reports neither.
-  A returned answer records its time even when late. These are in-process measurements,
-  not guarantees of elapsed wall time while iOS suspends the app.
-- Stable Hex+ outcome and the same fixed sentence as `CleanupDiagnostics`,
-  accepted-result changed flag, prompt/guard revisions (`2026-11-08a`).
-- Upstream cleanup reports **changed / unchanged / no result** only; its optional
-  string API exposes neither a raw model answer nor a detailed failure reason.
-  Verbatim's path is `none`. No upstream internals were added or changed.
-- Frozen vocabulary switch, active term **count**, both AI switches, and whether
-  the first and second spelling passes changed text. Bounded actual replacement
-  records include matched terms only; the whole vocabulary is never retained.
-
-## Late answers and capture isolation
-
-Each capture freezes a permission token (enabled + epoch) at recording start.
-It creates its own recorder only after passing the minimum duration. Each recorder
-holds an immutable entry ID and store epoch; there is no global current draft.
-Every update checks epoch and entry existence. Eviction or deletion never
-re-inserts an entry. Default-created/injected test controllers do not implicitly
-open a log: only `DictationController.shared` explicitly supplies the shared store.
-
-The optional `CleanupTextDiagnostics` sink is separate from `CleanupObserving`.
-A cleanup operation captures only its own recorder. If A reaches its deadline,
-B skips busy, and A answers later, only A gains the late answer. A's final text,
-status and resolution outcome stay unchanged. Labels use A's stored outcome:
-
-- Deadline: **arrived after the 4 s deadline; not used**.
-- Background expiry: **arrived after iOS ended the background time; not used**.
-- Otherwise: **arrived after cleanup had resolved; not used**.
-
-Finished (and ASR-failed) recorders accept only this late-answer update after
-termination. Cancelled/interrupted recorders accept nothing. Cleanup delivery,
-background leases, reservations, the four-second deadline and exactly-once
-resolution are unchanged. Existing `CleanupLogger` and App Group
-`CleanupDiagnostics` remain **text-free**; the new sink never sends text to them.
-See [AI_CLEANUP.md](AI_CLEANUP.md) for cleanup's contract and residual risks.
-
-## Storage, limits, Off and Clear
-
-This introduces a **persistent diagnostic text history** in the app container:
-
-`Application Support/HexPlus/dictation-log.json`
-
-It stores **no audio**, makes no network requests and has no sync service. The
-file and containing HexPlus directory are excluded from device backups. Atomic
-writes use `completeUntilFirstUserAuthentication` protection and explicitly
-re-apply protection and backup exclusion after replacement. This allows background
-writes after first unlock; it is **not** encryption with a separate app password.
-Data in the existing App Group keyboard snapshot or ordinary dictation clipboard
-is unrelated and unchanged.
-
-- **20 entries**, newest first; **no time-based expiry**. Old entries remain until
-  replaced by newer ones, Clear or Off. There is no archive.
-- Each of four text fields is capped at **4,000 UTF-8 bytes**, on a Swift Character
-  boundary, with an ellipsis inside the budget. Typically entries are a few kB;
-  the four transcript fields alone are at most 20 × 4 × 4,000 = 320 kB. Each
-  spelling pass additionally retains at most 20 records, each with three capped
-  text fields (before, after, term). The total encoded-size limit below applies
-  to all evidence, so replacement-heavy entries can evict older entries sooner.
-- The encoded JSON must be **≤ 1,000,000 bytes**. JSON escaping can expand control
-  characters, quotes and backslashes; oldest entries are additionally evicted
-  until the encoded snapshot fits. Thus there may be fewer than 20 entries.
-- The store synchronously loads once on the main actor at initialization (app
-  launch in production), never through a later async merge. Reads are bounded to
-  1,000,001 bytes. Oversized, corrupt or unknown-schema files are ignored and
-  deleted. Decoded entries are re-capped and deduplicated.
-- Encoding is on the main actor before submission. A utility serial I/O queue
-  has one coalesced pending snapshot; latest wins. Writes/deletes carry epochs;
-  stale queued writes are discarded. A write already in progress completes
-  **before** the newer delete/snapshot. Dictation does not await disk I/O.
-- **Clear** invalidates the epoch, removes all entries immediately and queues
-  deletion. **Off** does the same and changes the saved switch. Off → On also
-  invalidates permission: a capture from before Clear/Off/On cannot reappear.
-  When launch settings are Off, deletion happens before any load.
-- A storage failure never fails dictation. A fixed **could not be saved or
-  deleted** notice is shown; no filesystem error description is retained. Off or
-  Clear is not a secure overwrite and cannot promise deletion when iOS refuses
-  I/O; retry Clear/Off when storage is available. A successful latest storage
-  operation clears the notice; Clear remains available to retry a failed deletion. System storage snapshots and
-  exports already made are outside the store's control.
-
-## Conscious exports
-
-**Copy** exports the selected entry's text and facts as plain text, using a
-five-minute pasteboard expiration. Universal Clipboard is intentionally allowed
-(no `localOnly` flag), so the owner can copy to a Mac. **Share all n dictations**
-exports every retained entry, not just the visible row, via the system share
-sheet. Treat either as private speech: recognized words, unused AI answers,
-spellings present in the text and diagnostic facts can leave the iPhone when
-explicitly exported. The app cannot retract a receiving app's copy.
-
-## Verification and handover
-
-Additional analysis coverage: `DictationLogAnalysisTests` exercises actual matcher
-spans, repeated/possessive/no-op matches, bounded evidence/full counts, schema-1
-compatibility, storage/export round trips and explicit path/switch labels.
-`DictationLogControllerTests` also checks settings frozen across mid-recording
-toggle changes and upstream-path replacement evidence. These additions have not
-been run locally: Linux has no Swift/Xcode. Native compilation, simulator tests
-and visual verification remain required.
-
-New simulator test classes (automatically included by `ios/project.yml`'s
-`HEXMobileTests` folder source):
-
-- `DictationLogStoreTests`: default-on isolated settings, UTF-8/Character caps and
-  original word counts, newest-20 eviction, round trip, interrupted recovery,
-  corrupt/oversized/unknown schema deletion, decoded re-capping, Clear/Off/On
-  token invalidation with pending writes, terminal late-answer rules and labels,
-  backup-exclusion metadata, storage-error recovery, and encoded-size eviction
-  with escape-heavy text.
-- `DictationLogCleanupTests`: accepted/unchanged/rejected/empty/raw Notes answers,
-  deadline/expiry → finished → late answer, A/B busy isolation and exact outcome
-  count, thrown-call timing without an invented answer, cleanup-time deletion/
-  cancellation, and the unchanged text-free App Group
-  summary shape. Uses existing cleanup fakes and continuation-driven sleepers.
-- `DictationLogControllerTests`: delivery and diagnostic facts/timings,
-  categorized ASR failure, immediate cancellation and replacement while ASR is
-  held, warm-session end during accepted cleanup, finished deadline/expiry entries
-  receiving their own late answer without changing delivery, Clear/Off/On during
-  recording and ASR, nil-injected log behavior, short/cancelled captures, failed
-  storage that does not affect delivery, explicit-export evidence, vocabulary
-  evidence and upstream outcomes.
-- `WordDiffTests`: empty/identical/added/removed cases, reconstruction of both
-  strings, DE/emoji/whitespace/Notes lines and the bounded worst-case matrix.
-
-**Not run locally:** this Linux worktree has neither Swift nor Xcode. Static
-inspection, tree-sitter Swift syntax parsing and `git diff --check` are not
-compilation or simulator proof. No new
-native build, simulator pass, visual screenshot, file-protection/backup behavior
-on a device, model-quality, background-survival or physical-keyboard insertion
-result is claimed. The analysis enhancement passed tree-sitter syntax parsing
-for all six changed/new Swift files and `git diff --check`; its feature PR hands
-native compilation and simulator verification over to the repository workflow.
-
-Optional manual CI target list (run only when requested):
+The stages are recorded at their actual production boundaries:
 
 ```text
-HEXMobileTests/DictationLogAnalysisTests,HEXMobileTests/DictationLogStoreTests,HEXMobileTests/DictationLogCleanupTests,HEXMobileTests/DictationLogControllerTests,HEXMobileTests/WordDiffTests,HEXMobileTests/AICleanupControllerTests,HEXMobileTests/HexPlusCleanupTests
+Recognized (raw ASR)
+└── Cleanup input (after first vocabulary pass)
+    ├── Raw Hex+ model answer, with accepted/rejected/late label
+    └── Cleanup output actually used (including fallback)
+        └── After style formatting
+            └── Final text provided (after second vocabulary pass)
 ```
 
-Before shipping, compile production and test Swift with Xcode 26 / Swift 6 and
-run those simulator tests. On an iPhone check both appearances, list/detail live
-updates, rejected and late answers, Clear/Off across app restarts, background
-writing after first unlock, backup exclusion and file protection, Share all,
-five-minute Copy/Universal Clipboard, and that the original dictation/keyboard
-and warm-session behavior is unchanged with logging Off.
+An unused model answer is never presented as the cleanup output. The new cleanup
+output also records upstream returned/fallback text, without claiming the
+upstream API exposes a raw model answer. Formatter damage can now be distinguished
+from model damage and vocabulary replacements. Logging does not re-run or change
+these transformations.
+
+The improvement export prints each distinct complete stage once; exact repeats
+reference an earlier named stage. Matching truncated prefixes are **never**
+deduplicated. The UI collapses unchanged stages with a show-text disclosure.
+Missing evidence, including new stages absent in older entries, says **not
+recorded**, not unchanged. AI input still falls back to Recognized under the
+existing storage convention (nil means the first spelling pass was unchanged).
+
+**Human reference** lets the user enter **Desired final text** and an optional
+error note. The editor starts empty, never prefills model output as ground truth,
+and refuses fields above 4,000 UTF-8 bytes rather than silently truncating labels.
+Empty fields remove feedback. Feedback persists with that entry and appears in
+both exports. It does not change delivered text, train or modify a model.
+A missing reference is explicitly labelled **not a labelled training example**.
+Imported/truncated feedback is marked as incomplete.
+
+There is **no retained audio**, so logs alone cannot establish what was spoken or
+provide reliable ASR WER. A desired final text is a reference for the intended
+finished result, not necessarily a verbatim transcript. Human-reviewed examples
+can guide prompts, guard rules, vocabulary and formatter regression tests; they
+are not automatic model training. The final provided text does not prove actual
+keyboard insertion or host-app spacing.
+
+Two on-demand word comparisons remain: **AI input → AI answer** and
+**Recognized → Final**. Removed tokens are struck out; additions are bold and
+underlined; `↵` marks line breaks. Diffs are not semantic quality judgments.
+Truncation is disclosed; above 400 tokens per side the comparison is skipped.
+The LCS is bounded to 400 × 400 plus its sentinel row/column.
+
+## Vocabulary and upstream evidence
+
+Each pass retains the first **20 actual replacements** (span → replacement and
+matched term), with the full operation count. Repeated occurrences are separate;
+no-op matches do not count. Missing evidence is distinct from zero replacements.
+Counts measure operations, not correctness. Strings are quoted and truncated
+replacement records/omitted counts are labelled.
+
+New captures additionally freeze the **active vocabulary spellings**: up to 100
+quoted terms in one capped 4,000-byte snapshot, explicitly marked if truncated.
+Disabled vocabulary records an empty active list. This intentionally expands
+private retained evidence beyond just matched terms, allowing diagnosis against
+the actual configured spellings rather than today's mutable list. Older entries
+with active terms but no snapshot say the spellings were not recorded.
+Apple Speech hints are best effort; no individual recognition change can be
+attributed to them. Parakeet's batch path has no recognition hints.
+
+Upstream preserves **changed / unchanged / no result**, with a new supplementary
+reason for known pre-call skips (missing/unavailable cleaner, disabled, Verbatim,
+empty input). An actual nil return is identified as such; its API exposes no
+underlying failure reason, so timeout versus model error must not be guessed.
+No upstream cleaner internals were modified. Hex+ overrides upstream when on;
+Verbatim selects no AI. Frozen AI switches remain in full diagnostics.
+
+## Lifecycle, privacy and storage
+
+One entry is created after a capture passes the existing 300 ms minimum and
+reaches transcription. It terminates exactly once as **Finished**, **Speech
+recognition failed**, **Cancelled**, or **Interrupted**. Reopening converts
+unfinished saved entries to Interrupted. Recording-stage cancellations, short
+taps, permission/open failures and discarded captures have no entries. Ending a
+warm session does not cancel already-accepted transcription.
+
+Each capture owns an immutable entry ID, enabled/epoch token and recorder.
+Clear/Off/On invalidate old tokens. Updates require the matching epoch and an
+existing entry: deletion/eviction never resurrects one, including from an open
+feedback editor. Only `DictationController.shared` injects the shared store;
+default test controllers do not implicitly open it.
+
+Finished/ASR-failed recorders accept only a late model answer update, never a
+replacement final text or intermediate stage. Cancelled/interrupted recorders
+accept nothing. Late labels distinguish deadline (4 s), background expiry and
+other resolution. Capture A's late answer cannot attach to capture B.
+Background leases, cancellation, exactly-once cleanup resolution and text-free
+`CleanupLogger`/App Group `CleanupDiagnostics` remain unchanged.
+
+Storage: `Application Support/HexPlus/dictation-log.json`, app container only.
+
+- **20 entries**, newest first, **no time-based expiry**. Feedback shares that
+  retention: export reviewed examples before newer dictations evict them.
+- Every text field is capped at **4,000 UTF-8 bytes**, on Swift Character
+  boundaries, with an ellipsis inside the budget. Original byte/word counts and
+  truncation flags survive. Up to nine fields per entry (four original fields,
+  two new stages, two feedback fields and one vocabulary snapshot) allow up to
+  720 kB across 20 entries before replacement records and JSON overhead.
+- Encoded JSON must be **≤ 1,000,000 bytes**. Oldest entries are additionally
+  evicted to fit; there may be fewer than 20. Replacement-heavy entries can
+  evict older entries sooner.
+- One synchronous bounded load at initialization; reads stop at 1,000,001 bytes.
+  Oversized/corrupt/unknown-schema files are ignored and deleted. Loaded text
+  fields are re-capped, IDs deduplicated. Optional additions preserve schema 1.
+- Atomic writes on a utility serial queue; one coalesced pending snapshot,
+  latest wins. Epochs prevent stale queued writes; an in-progress write completes
+  before the newer deletion. Dictation never awaits disk I/O.
+- The directory/file are backup-excluded, with
+  `completeUntilFirstUserAuthentication` protection reapplied after replacement.
+  This permits background writes after first unlock; it is not a separate app
+  password or secure erasure. No audio, prompts, device names, error descriptions
+  or network requests are retained by this log.
+- **Clear** removes entries and invalidates the epoch; **Off** also saves the
+  disabled switch. Off at launch deletes before load. Storage failures never
+  fail dictation; a fixed notice permits retrying Clear/Off. Deletion cannot
+  promise secure overwrite or removal while iOS refuses I/O. Existing App Group
+  keyboard results and ordinary dictation clipboard are unrelated and unchanged.
+
+## Verification
+
+`DictationLogImprovementTests` covers compact/full exports, named exact-stage
+references, truncation and old-entry gaps, separate model/fallback/formatting
+stages, feedback round-trip/deletion, no resurrection and late-answer isolation.
+Controller tests also assert actual production stage hooks and frozen vocabulary.
+Existing `DictationLogAnalysisTests`, `DictationLogStoreTests`,
+`DictationLogCleanupTests`, `DictationLogControllerTests` and `WordDiffTests`
+cover matching, storage limits, capture isolation, cleanup and bounded diffs.
+
+Local verification: Swift 6.1.2 frontend parsing passed for changed Swift files
+and the existing dictation-log tests; `git diff --check` passed. A temporary Linux
+harness typechecked and ran the actual model/export presentation code with
+platform-only methods removed and word-count/prompt constants stubbed. It passed
+schema round-trip, compact/full selection, stage references, human labels,
+truncation, old-entry gaps and batch caveats. This is not an iOS build or XCTest
+run. Linux has no Xcode/iOS SDK; native compilation, simulator, visual and device
+proof remain open. Before shipping, build production/test Swift
+with Xcode 26 / Swift 6 and run these simulator classes plus
+`AICleanupControllerTests` and `HexPlusCleanupTests`. Manually verify collapsed
+technical details, unchanged-stage disclosures, feedback save/remove, both export
+formats and both Copy/Share paths for one/all entries, retention/deletion,
+background writing, file protection/backup exclusion, and unchanged original
+keyboard/cleanup delivery with logging Off. See [AI_CLEANUP.md](AI_CLEANUP.md).
