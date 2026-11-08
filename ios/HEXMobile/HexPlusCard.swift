@@ -2,6 +2,9 @@ import SwiftUI
 
 /// Hex+ switches. They live in the App Group so the keyboard reads them too.
 struct HexPlusCard: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var aiCleanup = HexPlusSettings().aiCleanup
+    @State private var cleanupReason = TranscriptCleanupProduction.unavailableReason
     @State private var germanAutocorrect = HexPlusSettings().germanAutocorrect
     @State private var keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
 
@@ -13,6 +16,19 @@ struct HexPlusCard: View {
                 .padding(.leading, 16)
 
             VStack(spacing: 0) {
+                row(
+                    "AI cleanup",
+                    detail: "Apple Intelligence tries to fix misheard words and keeps only your corrected version when you correct yourself. Not in Verbatim. Falls back to the plain transcript when unavailable."
+                        + (cleanupReason.map { "\n" + $0 } ?? ""),
+                    isOn: $aiCleanup
+                )
+                .onChange(of: aiCleanup) { _, enabled in
+                    HexPlusSettings().aiCleanup = enabled
+                }
+                Divider()
+                    .overlay(HexTheme.borderWeak)
+                    .padding(.leading, 16)
+
                 row(
                     "German autocorrect",
                     detail: "Turns ae, oe, ue into ä, ö, ü and fixes German typos (full keyboard)",
@@ -40,7 +56,17 @@ struct HexPlusCard: View {
                 in: RoundedRectangle(cornerRadius: HexTheme.cardRadius, style: .continuous)
             )
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                TranscriptCleanupProduction.invalidateAvailability()
+                aiCleanup = HexPlusSettings().aiCleanup
+                cleanupReason = TranscriptCleanupProduction.unavailableReason
+            }
+        }
         .onAppear {
+            TranscriptCleanupProduction.invalidateAvailability()
+            aiCleanup = HexPlusSettings().aiCleanup
+            cleanupReason = TranscriptCleanupProduction.unavailableReason
             germanAutocorrect = HexPlusSettings().germanAutocorrect
             keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
         }
