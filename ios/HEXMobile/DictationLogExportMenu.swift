@@ -19,7 +19,7 @@ struct DictationLogExportMenu: View {
                 }
             }
         } label: {
-            Label("Export \(entries.count) dictations", systemImage: "square.and.arrow.up")
+            Label("Text — \(entries.count) loaded entries (up to 50)", systemImage: "square.and.arrow.up")
         }
     }
 }

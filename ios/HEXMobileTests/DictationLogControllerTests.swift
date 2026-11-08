@@ -314,8 +314,12 @@ final class DictationLogControllerTests: XCTestCase {
                 if duringASR { await f.asr.resume() } else { f.controller.finishRecording() }
                 try await f.settle()
                 XCTAssertFalse(f.controller.transcript.isEmpty)
-                XCTAssertTrue(f.env.store.entries.isEmpty)
                 await f.env.storage.flush()
+                try await f.settle()
+                if duringASR && mode != 0 {
+                    XCTAssertEqual(f.env.store.entries.first?.status, .interrupted)
+                    XCTAssertNil(f.env.store.entries.first?.finalText)
+                } else { XCTAssertTrue(f.env.store.entries.isEmpty) }
                 XCTAssertFalse(FileManager.default.fileExists(atPath: f.env.storage.url.path))
                 try await f.dispose()
             }

@@ -114,52 +114,62 @@ struct DictationLogView: View {
     let store: DictationLogStore
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingClear = false
+    @State private var filter = "All"
 
+    private var rows: [DictationLogMetadata] {
+        store.metadata.filter { filter == "All" || (filter == "Unrated" ? $0.rating == "unrated" : $0.rating == "bad") }
+    }
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    Text("Private text history on this iPhone only. No time-based expiry. Turning off Dictation log deletes it. Exports can include dictated text, model answers, active vocabulary and human feedback.")
+                    Text("Retained on this iPhone until you delete it. Off stops collection and keeps saved logs. App removal or device loss is not covered. Export JSON to keep a copy.")
                         .font(.footnote)
-                    Text("Provided to keyboard is not proof of insertion; the keyboard may adjust spacing.")
+                    Text("\(store.metadata.count) dictations · estimated \(String(format: "%.2f", Double(store.metadata.reduce(0) { $0 + $1.bytes }) / 1_000_000)) MB")
                         .font(.footnote)
-                    if let problem = store.storageProblem { Text(problem).foregroundStyle(HexTheme.textMuted) }
+                    Text("Private dictated text, model answers, vocabulary and feedback. Provided to keyboard does not prove insertion.")
+                        .font(.footnote)
+                    if let problem = store.storageProblem {
+                        Text(problem).font(.footnote)
+                        Button("Retry storage") { store.retry() }
+                    }
+                    if store.isLoading { ProgressView("Loading archive…") }
+                    Picker("Filter", selection: $filter) {
+                        ForEach(["All", "Unrated", "Problems"], id: \.self) { Text($0) }
+                    }.pickerStyle(.segmented)
                 }
-                if store.entries.isEmpty { Text("No dictations logged yet") }
-                ForEach(store.entries) { entry in
-                    NavigationLink(value: entry.id) {
+                if rows.isEmpty && !store.isLoading { Text("No matching dictations") }
+                ForEach(rows) { row in
+                    NavigationLink(value: row.id) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("\(entry.context.createdAt.formatted(date: .omitted, time: .shortened)) · \(String(format: "%.1f s", entry.context.recordingDuration)) · \(entry.sourceLabel)")
+                            Text("\(row.date.formatted(date: .abbreviated, time: .shortened)) · \(row.source)")
                                 .font(.subheadline)
-                            Text(entry.status.label)
-                                .font(.caption)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(HexTheme.bgBase, in: Capsule())
-                            Text(entry.aiPathLabel + " · " + entry.context.style)
-                                .font(.subheadline.weight(.semibold))
-                            Text(entry.vocabularyLabel).font(.caption)
-                            Text(entry.processingResultLabel).font(.caption).foregroundStyle(HexTheme.textMuted)
-                            Text(entry.finalText?.text.components(separatedBy: .newlines).first ?? entry.status.label)
-                                .lineLimit(1)
+                            Text("\(row.rating) · \(row.status.label)").font(.caption)
+                            Text(row.preview).lineLimit(1)
                         }
                     }
+                    .swipeActions(edge: .leading) {
+                        Button("Good") { store.rate(row.id, rating: "good") }.tint(.green)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("Problem") { store.rate(row.id, rating: "bad") }.tint(.orange)
+                    }
+                    .accessibilityAction(named: "Good") { store.rate(row.id, rating: "good") }
+                    .accessibilityAction(named: "Problem") { store.rate(row.id, rating: "bad") }
                 }
             }
             .navigationTitle("Dictation log")
-            .navigationDestination(for: UUID.self) { id in
-                DictationLogDetail(store: store, entryID: id)
-            }
+            .navigationDestination(for: UUID.self) { id in DictationLogDetail(store: store, entryID: id) }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItemGroup(placement: .primaryAction) {
-                    DictationLogExportMenu(entries: store.entries)
-                        .disabled(store.entries.isEmpty)
+                    DictationJSONExportMenu(store: store)
+                    DictationLogExportMenu(entries: Array(store.entries.filter { entry in rows.contains { $0.id == entry.id } }.prefix(50)))
                     Button("Clear", role: .destructive) { confirmingClear = true }
-                        .disabled(store.entries.isEmpty && store.storageProblem == nil)
                 }
             }
-            .confirmationDialog("Delete all dictation log text?", isPresented: $confirmingClear, titleVisibility: .visible) {
-                Button("Delete log", role: .destructive) { store.clear() }
+            .confirmationDialog("Delete all saved dictations and owned JSON exports? Copies already shared cannot be retracted.", isPresented: $confirmingClear, titleVisibility: .visible) {
+                Button("Delete entire archive", role: .destructive) { store.clear() }
             }
         }
     }
@@ -170,12 +180,13 @@ private struct DictationLogDetail: View {
     let entryID: UUID
     @State private var editingFeedback = false
 
-    private var entry: DictationLogEntry? { store.entries.first { $0.id == entryID } }
+    private var entry: DictationLogEntry? { store.entry(entryID) }
 
     var body: some View {
         Group {
             if let entry {
                 List {
+                    Section("Quick feedback") { DictationRatingButtons(store: store, entry: entry) }
                     Section("Recognition & cleanup") {
                         ForEach(entry.improvementLines, id: \.self) { Text($0).font(.subheadline).textSelection(.enabled) }
                     }
@@ -219,16 +230,23 @@ private struct DictationLogDetail: View {
                         Text(DictationLogExport.limitations).font(.footnote)
                     }
                 }
-                .toolbar { DictationLogExportMenu(entries: [entry]) }
+                .toolbar {
+                    DictationJSONExportMenu(store: store, ids: [entryID])
+                    DictationLogExportMenu(entries: [entry])
+                    Menu {
+                        Button("Delete this dictation", role: .destructive) { store.delete(entryID) }
+                    } label: { Label("Entry actions", systemImage: "ellipsis.circle") }
+                }
                 .sheet(isPresented: $editingFeedback) {
                     DictationLogFeedbackEditor(store: store, entry: entry)
                 }
             } else {
                 ContentUnavailableView("Entry no longer available", systemImage: "text.badge.minus",
-                    description: Text("It was cleared, logging was turned off, or newer dictations replaced it."))
+                    description: Text("It may still be loading, could not be read, or was explicitly deleted."))
             }
         }
         .navigationTitle("Dictation details")
+        .task { store.loadEntry(entryID, pin: true) }
     }
 
     @ViewBuilder
