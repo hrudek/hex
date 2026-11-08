@@ -44,6 +44,14 @@ Original string spans are retained. Punctuation is ignored.
 LCS alignment keeps earliest matches and forms deletion/insertion hunks. A local
 replacement permits at most two old and two new words, no protected, negation,
 marker or cue tokens, and at most `max(1, inputWords / 10)` replacement hunks.
+As an additional conservative restriction discovered by the simulator test, local
+replacements also preserve German/English interrogatives (e.g. `was`, `what`,
+`wer`, `who`, `wie`, `how`). Otherwise a single replacement can answer a question:
+“Was ist die Hauptstadt von Frankreich” → “Paris ist die Hauptstadt von Frankreich”.
+This tightens the plan's A rule rather than weakening its mandatory reject test.
+Ambiguous words (e.g. English `was`) can therefore cause false rejections. This is
+not a general detector of questions or answers; other local answer-like changes
+can still pass.
 Pure insertion is rejected. Pure deletions slide left over identical keys without
 crossing neighbouring hunks or Notes line anchors; reconstruction must still match
 the output. Deletions split after every cue into 2–8-token segments, each ending
@@ -93,9 +101,12 @@ avoid hardware/model dependencies; controller settling uses the existing test
 pattern. Archive CI compiles production Swift, **not a simulator test run**.
 
 On the implementation Linux host neither Swift nor Xcode is installed. No native
-compile, simulator execution, model quality, background survival, latency or real
-iPhone behavior is claimed from local static inspection. The PR records actual
-CI outcomes. Optional simulator run: Hex+ CI, distribution `simulator`,
+compile or simulator execution is possible locally; no model quality, background
+survival, latency or real iPhone behavior is claimed from static inspection.
+Manual simulator CI run `42466628122` compiled production and test Swift and ran
+17 tests: 16 passed; the one-word question-to-answer guard case failed. That test
+was retained and the interrogative restriction added; the PR records the rerun's
+outcome. Device archive CI was blocked before Xcode by HTTP 504 downloading age. Optional simulator run: Hex+ CI, distribution `simulator`,
 `only_testing=HEXMobileTests/AICleanupGuardCases,HEXMobileTests/TranscriptCleanupTests,HEXMobileTests/AICleanupControllerTests`.
 
 ## Owner hardware checklist / manual model evaluation

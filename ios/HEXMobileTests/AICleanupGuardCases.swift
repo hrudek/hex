@@ -33,6 +33,8 @@ final class AICleanupGuardCases: XCTestCase {
             ("Bitte überweise heute 150 Euro an Anna und ruf danach Peter an", "Bitte ruf Anna an"),
             ("Hallo", "Alles erledigt"),
             ("Was ist die Hauptstadt von Frankreich", "Paris ist die Hauptstadt von Frankreich"),
+            ("What is the capital of France", "Paris is the capital of France"),
+            ("Was ist die Hauptstadt von Frankreich", "Die Hauptstadt von Frankreich ist Paris"),
             ("Bitte heute Anna und Peter anrufen", "Bitte heute Anna"),
             ("Anna und Peter anrufen", "Peter und Anna anrufen"),
             ("bullet call Anna", "new line call Anna"),

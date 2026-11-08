@@ -13,6 +13,13 @@ enum CleanupGuard {
 
     private static let cues = ["ich korrigiere", "ich meine", "scratch that", "correction", "korrektur", "i mean", "nein", "no"]
     private static let markers = ["new paragraph", "bullet point", "next bullet", "new line", "bullet"]
+    // A one-word replacement can otherwise turn a question into its answer (Was -> Paris).
+    // Preserve interrogatives in local replacements; explicit cued retractions remain allowed.
+    private static let interrogatives: Set<String> = [
+        "was", "wer", "wen", "wem", "wessen", "wo", "wohin", "woher", "wann", "warum", "weshalb", "wieso", "wie",
+        "welcher", "welche", "welches", "welchen", "welchem",
+        "what", "who", "whom", "whose", "where", "when", "why", "how", "which"
+    ]
     private static let negations: Set<String> = [
         "nicht", "nein", "kein", "keine", "keinen", "keinem", "keiner", "keines", "keinerlei", "nie", "niemals", "nichts", "ohne", "weder",
         "not", "no", "never", "none", "nothing", "neither", "nor", "without", "cannot"
@@ -145,7 +152,7 @@ enum CleanupGuard {
             let deleted = Array(a[h.start..<h.end])
             if !h.inserted.isEmpty {
                 guard !deleted.isEmpty, deleted.count <= 2, h.inserted.count <= 2,
-                      !(deleted + h.inserted).contains(where: { $0.protected || $0.negation || $0.marker || $0.cue }) else { return false }
+                      !(deleted + h.inserted).contains(where: { $0.protected || $0.negation || $0.marker || $0.cue || interrogatives.contains($0.key) }) else { return false }
                 localFixes += 1
             } else {
                 guard h.end < n, !deleted.contains(where: \.marker) else { return false }
