@@ -63,7 +63,7 @@ struct HexPlusCard: View {
 
                 row(
                     "Dictation log",
-                    detail: "Keeps up to 20 dictations on this iPhone: recognition, cleanup and formatting stages, active vocabulary, optional human feedback and technical diagnostics. No audio. Turning it off deletes the log.",
+                    detail: "Keeps dictations until you delete them: text stages, vocabulary and feedback, no audio. Off stops collection and keeps saved logs. Export JSON for a copy; app removal and device loss are not covered.",
                     isOn: Binding(get: { log.isEnabled }, set: { log.setEnabled($0) })
                 )
                 if let problem = log.storageProblem {
@@ -72,8 +72,8 @@ struct HexPlusCard: View {
                         .foregroundStyle(HexTheme.textMuted)
                         .padding(.horizontal, 16).padding(.vertical, 4)
                 }
-                if log.isEnabled {
-                    Button("Show dictation log (\(log.entries.count))") { showingLog = true }
+                Group {
+                    Button("Show dictation log (\(log.metadata.count))") { showingLog = true }
                         .font(.system(size: 15))
                         .foregroundStyle(HexTheme.textBase)
                         .frame(maxWidth: .infinity, alignment: .leading)

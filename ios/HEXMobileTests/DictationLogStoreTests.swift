@@ -24,6 +24,20 @@ final class LogTestEnvironment {
         store.begin(token: store.token(), context: context, clock: clock)!
     }
 
+    static func waitUntilLoaded(_ store: DictationLogStore) async throws {
+        for _ in 0..<100 {
+            await store.storage.flush()
+            try await Task.sleep(for: .milliseconds(5))
+            if !store.isLoading && store.metadata.prefix(50).allSatisfy({ store.entry($0.id) != nil }) { return }
+        }
+        XCTFail("Archive did not load")
+    }
+
+    var persistedEntryCount: Int {
+        ((try? FileManager.default.contentsOfDirectory(at: storage.root.appendingPathComponent("entries"),
+            includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "json" }.count
+    }
+
     func dispose() async {
         await storage.flush()
         defaults.removePersistentDomain(forName: suite)
@@ -56,127 +70,248 @@ final class DictationLogStoreTests: XCTestCase {
         XCTAssertEqual(wordField.wordCount, 1_000) // Computed before the cap.
     }
 
-    func testNewestTwentyEvictionAndRoundTripWithInterruptedRecovery() async throws {
+    private func settle(_ store: DictationLogStore) async throws {
+        try await LogTestEnvironment.waitUntilLoaded(store)
+    }
+    func testArchiveRetainsMoreThanTwentyAndStartupDoesNotOverwriteNewCapture() async throws {
         let env = LogTestEnvironment()
-        let evicted = env.begin()
-        for index in 0..<22 {
-            var context = DictationLogContext()
-            context.createdAt = Date(timeIntervalSince1970: Double(index + 1))
-            let recording = env.begin(context: context)
-            recording.recognized("raw \(index)", spelled: "raw \(index)", asrMilliseconds: 12)
-            if index != 21 { recording.finish(text: "final \(index)", beforeSpelling: "final \(index)") }
-        }
-        evicted.modelAnswer("must not return", use: .late, modelMilliseconds: 999)
-        XCTAssertEqual(env.store.entries.count, 20)
-        XCTAssertFalse(env.store.entries.contains { $0.id == evicted.entryID })
-        await env.storage.flush()
-        let values = try env.storage.url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        for index in 0..<75 { env.begin().finish(text: "synthetic \(index)", beforeSpelling: "synthetic \(index)") }
+        try await settle(env.store)
+        XCTAssertEqual(env.store.metadata.count, 75)
+        XCTAssertLessThanOrEqual(env.store.entries.count, 50)
+        let disk = DictationLogStorage(url: env.storage.url)
+        let loaded = DictationLogStore(storage: disk, settings: env.settings)
+        let fresh = loaded.begin(token: loaded.token(), context: .init())!
+        fresh.finish(text: "fresh", beforeSpelling: "fresh")
+        try await settle(loaded)
+        XCTAssertEqual(loaded.metadata.count, 76)
+        XCTAssertEqual(loaded.entry(fresh.entryID)?.finalText?.text, "fresh")
+        let values = try disk.root.resourceValues(forKeys: [.isExcludedFromBackupKey])
         XCTAssertEqual(values.isExcludedFromBackup, true)
-        let reloaded = DictationLogStore(storage: env.storage, settings: env.settings)
-        XCTAssertEqual(reloaded.entries.count, 20)
-        XCTAssertEqual(reloaded.entries.first?.status, .interrupted)
-        XCTAssertEqual(reloaded.entries.first?.recognized?.text, "raw 21")
-        XCTAssertEqual(reloaded.entries.last?.finalText?.text, "final 2")
-        XCTAssertTrue(reloaded.entries.allSatisfy { $0.status != .transcribing })
         await env.dispose()
     }
-
-    func testClearOffAndOffOnInvalidateCaptureTokensAndPendingWrites() async throws {
-        for mode in 0..<3 {
-            let env = LogTestEnvironment()
-            let token = env.store.token() // Permission was frozen while recording.
-            let recording = env.begin()
-            for _ in 0..<10 { recording.recognized("private speech", spelled: "private speech", asrMilliseconds: 5) }
-            if mode == 0 { env.store.clear() }
-            else {
-                env.store.setEnabled(false)
-                if mode == 2 { env.store.setEnabled(true) }
-            }
-            XCTAssertNil(env.store.begin(token: token, context: DictationLogContext()))
-            recording.finish(text: "must not reappear", beforeSpelling: "must not reappear")
-            recording.modelAnswer("secret", use: .late, modelMilliseconds: 8)
-            // Even a stale request submitted directly to the writer cannot replace the delete.
-            env.storage.submit(Data("stale snapshot".utf8), epoch: token.epoch) { _, _ in }
-            await env.storage.flush()
-            XCTAssertTrue(env.store.entries.isEmpty)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.url.path))
-            let reloaded = DictationLogStore(storage: env.storage, settings: env.settings)
-            XCTAssertTrue(reloaded.entries.isEmpty)
-            await env.dispose()
-        }
+    func testOffFinalizesThenFencesButKeepsReadRateAndExport() async throws {
+        let env = LogTestEnvironment(); let recording = env.begin(); let token = env.store.token()
+        recording.recognized("synthetic", spelled: "synthetic", asrMilliseconds: 1)
+        env.store.setEnabled(false)
+        recording.finish(text: "stale", beforeSpelling: "stale")
+        XCTAssertEqual(env.store.entry(recording.entryID)?.status, .interrupted)
+        XCTAssertNil(env.store.entry(recording.entryID)?.finalText)
+        XCTAssertNil(env.store.begin(token: token, context: .init()))
+        env.store.rate(recording.entryID, rating: "good")
+        env.store.saveFeedback(for: recording.entryID, expectedText: "reference", note: "note")
+        try await settle(env.store)
+        let loaded = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(loaded)
+        XCTAssertFalse(loaded.isEnabled)
+        XCTAssertEqual(loaded.metadata.count, 1)
+        XCTAssertEqual(loaded.entries.first?.rating, "good")
+        XCTAssertEqual(loaded.entries.first?.expectedText?.text, "reference")
+        await env.dispose()
     }
-
-    func testDisabledInitDeletesBeforeLoadAndRejectsNewRecordings() async throws {
-        let env = LogTestEnvironment()
-        env.begin().finish(text: "saved", beforeSpelling: "saved")
+    func testClearDuringLoadAndWritesDoesNotRemoveFreshCaptureOrReviveEditor() async throws {
+        let env = LogTestEnvironment(); let old = env.begin()
+        env.store.clear()
+        env.store.saveFeedback(for: old.entryID, expectedText: "stale editor", note: "")
+        let fresh = env.begin(); fresh.finish(text: "fresh", beforeSpelling: "fresh")
+        old.finish(text: "stale capture", beforeSpelling: "stale capture")
+        try await settle(env.store)
+        XCTAssertEqual(env.store.metadata.map(\.id), [fresh.entryID])
+        let loaded = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(loaded)
+        XCTAssertEqual(loaded.metadata.map(\.id), [fresh.entryID])
+        await env.dispose()
+    }
+    func testMigrationPreservesFeedbackAndDowngradeCannotReplaceNewerEntry() async throws {
+        let env = LogTestEnvironment(enabled: false)
         await env.storage.flush()
-        env.settings.dictationLog = false
-        let off = DictationLogStore(storage: env.storage, settings: env.settings)
-        XCTAssertFalse(off.isEnabled)
-        XCTAssertTrue(off.entries.isEmpty)
-        XCTAssertNil(off.begin(token: off.token(), context: DictationLogContext()))
+        var entry = DictationLogEntry(context: .init())
+        entry.expectedText = DictationLogText("reference"); entry.feedbackNote = DictationLogText("note")
+        entry.revision = nil // Real schema-1 data predates this optional field.
+        try JSONEncoder().encode(DictationLogDocument(entries: [entry])).write(to: env.storage.url)
+        let migrated = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(migrated)
+        XCTAssertEqual(migrated.entries.first?.expectedText?.text, "reference")
+        XCTAssertEqual(migrated.entries.first?.status, .interrupted)
+        XCTAssertNil(migrated.entries.first?.rating)
+        XCTAssertEqual(migrated.entries.first?.revision, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.url.path))
+        migrated.rate(entry.id, rating: "bad", issues: ["future_issue"])
+        await migrated.storage.flush()
+        try JSONEncoder().encode(DictationLogDocument(entries: [entry])).write(to: env.storage.url)
+        let again = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(again)
+        XCTAssertEqual(again.entries.first?.rating, "bad")
+        XCTAssertEqual(again.entries.first?.issues, ["future_issue"])
+        await env.dispose()
+    }
+    func testDeleteDuringUnfinishedMigrationCannotReappearAfterReloadOrDowngrade() async throws {
+        let env = LogTestEnvironment(); await env.storage.flush()
+        var good = DictationLogEntry(context: .init()); good.status = .finished; good.revision = nil
+        let unresolved = DictationLogEntry(context: .init())
+        let broken = env.storage.root.appendingPathComponent("entries/\(unresolved.id.uuidString).json")
+        try Data("unreadable newer copy".utf8).write(to: broken)
+        let legacy = try JSONEncoder().encode(DictationLogDocument(entries: [good, unresolved]))
+        try legacy.write(to: env.storage.url)
+        let migrated = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(migrated)
+        XCTAssertNotNil(migrated.entry(good.id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: env.storage.url.path))
+        migrated.delete(good.id); await migrated.storage.flush()
+        try await Task.sleep(for: .milliseconds(25))
+        let reloaded = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(reloaded)
+        XCTAssertFalse(reloaded.metadata.contains { $0.id == good.id })
+        XCTAssertNil(reloaded.entry(good.id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: env.storage.root
+            .appendingPathComponent("deleted/\(good.id.uuidString).deleted").path))
+        // Even after a downgrade reintroduces exactly the original schema-1 document.
+        try legacy.write(to: env.storage.url)
+        let downgraded = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(downgraded)
+        XCTAssertFalse(downgraded.metadata.contains { $0.id == good.id })
         await env.dispose()
     }
 
-    func testInvalidOversizedAndUnknownSchemasAreDeleted() async throws {
+    func testCorruptAndUnknownLegacyIsPreservedAndDoesNotBlockNewCaptures() async throws {
         for data in [Data("not JSON".utf8), Data(repeating: 32, count: 1_000_001),
                      Data(#"{"schemaVersion":999,"entries":[]}"#.utf8)] {
-            let env = LogTestEnvironment()
-            try FileManager.default.createDirectory(at: env.directory, withIntermediateDirectories: true)
+            let env = LogTestEnvironment(); await env.storage.flush()
             try data.write(to: env.storage.url)
-            let reloaded = DictationLogStore(storage: env.storage, settings: env.settings)
-            XCTAssertTrue(reloaded.entries.isEmpty)
+            let loaded = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+            try await settle(loaded)
+            XCTAssertNotNil(loaded.storageProblem)
+            XCTAssertEqual(try Data(contentsOf: env.storage.url), data)
+            loaded.begin(token: loaded.token(), context: .init())?.finish(text: "fresh", beforeSpelling: "fresh")
+            await loaded.storage.flush()
+            XCTAssertEqual(loaded.metadata.count, 1)
+            loaded.clear(); try await settle(loaded)
             XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.url.path))
             await env.dispose()
         }
     }
-
-    func testLoadRecapsFieldsAndUnknownEntrySchemaIsDeleted() async throws {
+    func testDeleteThenOffAndRetryCannotRewriteDirtyEntry() async throws {
         let env = LogTestEnvironment()
-        var entry = DictationLogEntry(context: DictationLogContext())
-        entry.recognized = DictationLogText("abc")
-        // Inject an uncapped text into the encoded representation (not through production init).
-        let document = DictationLogDocument(entries: [entry])
-        let encoded = try JSONEncoder().encode(document)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        var entries = try XCTUnwrap(object["entries"] as? [[String: Any]])
-        var field = try XCTUnwrap(entries[0]["recognized"] as? [String: Any])
-        field["text"] = String(repeating: "ü", count: 5_000)
-        entries[0]["recognized"] = field
-        object["entries"] = entries
-        try FileManager.default.createDirectory(at: env.directory, withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: object).write(to: env.storage.url)
-        let loaded = DictationLogStore(storage: env.storage, settings: env.settings)
-        XCTAssertLessThanOrEqual(try XCTUnwrap(loaded.entries.first?.recognized).text.utf8.count, 4_000)
+        let recording = env.begin() // Source completion has not reached the main actor yet: dirty.
+        let id = recording.entryID
+        env.store.delete(id)
+        env.store.setEnabled(false)
+        env.store.retry()
+        recording.finish(text: "stale", beforeSpelling: "stale")
         await env.storage.flush()
-        entries[0]["schemaVersion"] = 999
-        object["entries"] = entries
-        try JSONSerialization.data(withJSONObject: object).write(to: env.storage.url)
-        let unknown = DictationLogStore(storage: env.storage, settings: env.settings)
-        XCTAssertTrue(unknown.entries.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.url.path))
+        try await Task.sleep(for: .milliseconds(25))
+        XCTAssertNil(env.store.entry(id))
+        XCTAssertFalse(env.store.metadata.contains { $0.id == id })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.root
+            .appendingPathComponent("entries/\(id.uuidString).json").path))
         await env.dispose()
     }
 
-    func testEncodedSizeCapWithEscapeHeavyTextIsAlwaysLoadable() async throws {
+    func testFeedbackOrderAndEditorFieldOwnership() async throws {
+        let env = LogTestEnvironment(); let recording = env.begin(); let id = recording.entryID
+        let time = Date()
+        let first = DictationFeedbackOrder(modifiedAt: time, origin: "keyboard", eventID: "a")
+        let next = DictationFeedbackOrder(modifiedAt: time, origin: "keyboard", eventID: "b")
+        env.store.rate(id, rating: "bad", issues: ["misheard"], order: next)
+        let revision = env.store.entry(id)?.revision
+        env.store.rate(id, rating: "good", order: first)
+        env.store.rate(id, rating: "good", order: next)
+        XCTAssertEqual(env.store.entry(id)?.revision, revision)
+        env.store.saveFeedback(for: id, expectedText: "reference", note: "note")
+        XCTAssertEqual(env.store.entry(id)?.rating, "bad")
+        env.store.rate(id, rating: "unrated")
+        XCTAssertEqual(env.store.entry(id)?.expectedText?.text, "reference")
+        XCTAssertEqual(env.store.entry(id)?.issues, ["misheard"])
+        await env.dispose()
+    }
+    func testWholeArchiveJSONAndIndexRebuild() async throws {
         let env = LogTestEnvironment()
-        let source = String(repeating: "\u{1}", count: 3_900) + "\"\\👩🏽‍💻"
-        for _ in 0..<25 {
-            let recording = env.begin()
-            recording.recognized(source, spelled: "changed " + source, asrMilliseconds: 1)
-            recording.modelAnswer(source, use: .accepted, modelMilliseconds: 1)
-            recording.finish(text: source, beforeSpelling: source)
+        for index in 0..<65 { env.begin().finish(text: "synthetic \(index)", beforeSpelling: "synthetic \(index)") }
+        try await settle(env.store)
+        try Data("stale index".utf8).write(to: env.storage.root.appendingPathComponent("index.json"))
+        let disk = DictationLogStorage(url: env.storage.url)
+        let loaded = DictationLogStore(storage: disk, settings: env.settings)
+        try await settle(loaded)
+        XCTAssertEqual(loaded.metadata.count, 65)
+        let result: Result<URL, any Error> = await withCheckedContinuation { continuation in
+            disk.export(ids: nil, build: "synthetic-test") { continuation.resume(returning: $0) }
         }
+        let file = try result.get()
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual(object["format"] as? String, "hexplus.dictation-log")
+        XCTAssertEqual(object["exportVersion"] as? Int, 1)
+        XCTAssertEqual((object["entries"] as? [Any])?.count, 65)
+        let entries = try XCTUnwrap(object["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries.allSatisfy { $0["schemaVersion"] as? Int == 2 })
+        loaded.clear(); try await settle(loaded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        await env.dispose()
+    }
+
+    func testPreparedJSONIsOnlyExposedForItsExactScope() async throws {
+        let env = LogTestEnvironment()
+        let first = env.begin(); first.finish(text: "first", beforeSpelling: "first")
+        let second = env.begin(); second.finish(text: "second", beforeSpelling: "second")
+        try await settle(env.store)
+        env.store.prepareJSON(ids: [first.entryID])
+        for _ in 0..<200 where env.store.exporting { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotNil(env.store.preparedJSON(for: [first.entryID]))
+        XCTAssertNil(env.store.preparedJSON(for: nil))
+        XCTAssertNil(env.store.preparedJSON(for: [second.entryID]))
+        env.store.prepareJSON()
+        for _ in 0..<200 where env.store.exporting { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotNil(env.store.preparedJSON(for: nil))
+        XCTAssertNil(env.store.preparedJSON(for: [first.entryID]))
+        await env.dispose()
+    }
+
+    func testBlockedStreamDoesNotBlockWritesAndClearCancelsWithoutResurrection() async throws {
+        let env = LogTestEnvironment()
+        env.begin().finish(text: "before snapshot", beforeSpelling: "before snapshot")
         await env.storage.flush()
-        let data = try Data(contentsOf: env.storage.url)
-        XCTAssertLessThanOrEqual(data.count, DictationLogStorage.maximumBytes)
-        let document = try JSONDecoder().decode(DictationLogDocument.self, from: data)
-        XCTAssertEqual(document.entries.count, env.store.entries.count)
-        XCTAssertFalse(document.entries.isEmpty)
-        XCTAssertLessThan(document.entries.count, 20) // JSON escaping, not the raw-field cap, evicted entries.
-        let loaded = DictationLogStore(storage: env.storage, settings: env.settings)
-        XCTAssertEqual(loaded.entries, env.store.entries)
+        let started = expectation(description: "stream started")
+        let gate = DispatchSemaphore(value: 0)
+        let disk = DictationLogStorage(url: env.storage.url, beforeExportStream: {
+            started.fulfill(); gate.wait()
+        })
+        let loaded = DictationLogStore(storage: disk, settings: env.settings)
+        try await settle(loaded)
+        let completed = expectation(description: "cancelled export completed")
+        disk.export(ids: nil, build: "synthetic") { result in
+            if case .success = result { XCTFail("Clear must cancel the export") }
+            completed.fulfill()
+        }
+        await fulfillment(of: [started], timeout: 5)
+        let fresh = loaded.begin(token: loaded.token(), context: .init())!
+        fresh.finish(text: "during blocked export", beforeSpelling: "during blocked export")
+        await disk.flush() // Would deadlock if streaming occupied the source queue.
+        XCTAssertEqual(loaded.metadata.count, 2)
+        loaded.clear(); await disk.flush()
+        gate.signal()
+        await fulfillment(of: [completed], timeout: 5)
+        try await settle(loaded)
+        XCTAssertTrue(loaded.metadata.isEmpty)
+        let exports = disk.root.appendingPathComponent("exports")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: exports.path))
+        await env.dispose()
+    }
+
+    func testRetryWithoutClearResolvesSaveFailureBanner() async throws {
+        let env = LogTestEnvironment()
+        await env.storage.flush()
+        try FileManager.default.removeItem(at: env.directory)
+        try Data("parent is a file".utf8).write(to: env.directory)
+        let recording = env.begin()
+        recording.finish(text: "retained for retry", beforeSpelling: "retained for retry")
+        await env.storage.flush(); try await Task.sleep(for: .milliseconds(25))
+        XCTAssertNotNil(env.store.storageProblem)
+        try FileManager.default.removeItem(at: env.directory)
+        env.store.retry()
+        try await settle(env.store)
+        XCTAssertNil(env.store.storageProblem)
+        XCTAssertEqual(env.store.entry(recording.entryID)?.finalText?.text, "retained for retry")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: env.storage.root
+            .appendingPathComponent("entries/\(recording.entryID.uuidString).json").path))
         await env.dispose()
     }
 

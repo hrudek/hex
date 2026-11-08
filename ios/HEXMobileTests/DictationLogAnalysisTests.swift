@@ -71,6 +71,7 @@ final class DictationLogAnalysisTests: XCTestCase {
         recording.finish(text: "iPhone.", beforeSpelling: "IPhone.", spellingPass: second)
         await env.storage.flush()
         let loaded = DictationLogStore(storage: env.storage, settings: env.settings)
+        try await LogTestEnvironment.waitUntilLoaded(loaded)
         let entry = try XCTUnwrap(loaded.entries.first)
         XCTAssertEqual(entry.firstSpellingPass, first)
         XCTAssertEqual(entry.secondSpellingPass, second)

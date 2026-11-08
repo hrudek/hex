@@ -1,7 +1,8 @@
 import Foundation
 
 /// Hex+ switches, stored in the App Group so the keyboard reads them too.
-/// Every switch is on by default; off keeps upstream's behaviour exactly.
+/// Switches default on. Dictation log deliberately retains saved history while off;
+/// other switches keep upstream's behavior when off.
 @MainActor
 struct HexPlusSettings {
     private enum Key {
@@ -30,7 +31,7 @@ struct HexPlusSettings {
         nonmutating set { defaults?.set(newValue, forKey: Key.showCleanupModel) }
     }
 
-    /// Local diagnostic text history. Turning it off also deletes the log through its store.
+    /// Collection only. Off interrupts pending log entries but deliberately keeps saved history.
     var dictationLog: Bool {
         get { defaults?.object(forKey: Key.dictationLog) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.dictationLog) }

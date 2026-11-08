@@ -176,6 +176,11 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
     var id = UUID()
     var schemaVersion = DictationLogDocument.version
     var context: DictationLogContext
+    var revision: Int? = 1
+    var rating: String?
+    var issues: [String]?
+    var ratingOrder: DictationFeedbackOrder?
+    var referenceOrder: DictationFeedbackOrder?
     var status: DictationLogStatus = .transcribing
     var asrFailure: DictationLogASRFailure?
     var asrErrorType: String?
@@ -251,95 +256,220 @@ struct DictationLogToken: Equatable, Sendable {
 @MainActor
 @Observable
 final class DictationLogStore {
-    static let shared = DictationLogStore(
-        storage: DictationLogStorage(url: URL.applicationSupportDirectory
-            .appendingPathComponent("HexPlus", isDirectory: true).appendingPathComponent("dictation-log.json")))
-    static let maximumEntries = 20
-    private(set) var entries: [DictationLogEntry] = [] // newest first
+    static let shared = DictationLogStore(storage: DictationLogStorage(url: URL.applicationSupportDirectory
+        .appendingPathComponent("HexPlus", isDirectory: true).appendingPathComponent("dictation-log.json")))
+    static let maximumEntries = 50 // full-entry cache, NOT archive retention
+    private(set) var entries: [DictationLogEntry] = []
+    private(set) var metadata: [DictationLogMetadata] = []
     private(set) var epoch: UInt64 = 0
+    private var storageGeneration: UInt64 = 0
+    private(set) var archiveID = UUID()
     private(set) var isEnabled: Bool
+    private(set) var isLoading = true
     private(set) var storageProblem: String?
+    private(set) var exporting = false
+    private(set) var exportURL: URL?
+    private var exportIDs: [UUID]?
+    private(set) var exportProblem: String?
+    private var lastLoadProblem = false
+    private var active = Set<UUID>()
+    private var pinned: UUID?
+    private var deleted = Set<UUID>()
+    private var failedDeletes = Set<UUID>()
+    private var dirty: [UUID: DictationLogEntry] = [:]
     private let settings: HexPlusSettings
-    private var storageRequest: UInt64 = 0
     let storage: DictationLogStorage
+    private func clearResolvedProblem() {
+        if !lastLoadProblem && dirty.isEmpty && failedDeletes.isEmpty { storageProblem = nil }
+    }
+    private static let problem = "Some dictation log files could not be read, saved or deleted. Originals are preserved when possible. Retry; dictation still works."
 
     init(storage: DictationLogStorage, settings: HexPlusSettings = HexPlusSettings()) {
-        self.storage = storage
-        self.settings = settings
-        isEnabled = settings.dictationLog
-        let loaded = storage.load(enabled: isEnabled)
-        storageProblem = loaded.problem ? Self.problem : nil
-        var seen = Set<UUID>()
-        entries = Array(loaded.entries.sorted { $0.context.createdAt > $1.context.createdAt }
-            .filter { seen.insert($0.id).inserted }.prefix(Self.maximumEntries))
-        for index in entries.indices {
-            entries[index].recap()
-            if entries[index].status == .transcribing { entries[index].status = .interrupted }
-        }
-        if isEnabled, !entries.isEmpty { persist() }
+        self.storage = storage; self.settings = settings; isEnabled = settings.dictationLog
+        reload()
     }
-
-    private static let problem = "The dictation log could not be saved or deleted. Dictation still works."
-
+    func reload() {
+        let generation = storageGeneration
+        isLoading = true
+        storage.load { [weak self] result in
+            Task { @MainActor [weak self] in
+                guard let self, self.storageGeneration == generation else { return }
+                self.archiveID = result.archiveID
+                let local = Set(self.metadata.map(\.id)).union(self.deleted)
+                self.metadata += result.metadata.filter { !local.contains($0.id) }
+                self.metadata.sort { $0.date > $1.date }
+                self.isLoading = false
+                self.lastLoadProblem = result.problem
+                if result.problem { self.storageProblem = Self.problem }
+                else { self.clearResolvedProblem() }
+                self.loadRecent()
+            }
+        }
+    }
     func token() -> DictationLogToken { DictationLogToken(enabled: isEnabled, epoch: epoch) }
-
     func begin(token: DictationLogToken, context: DictationLogContext,
                stoppedAt: ContinuousClock.Instant? = nil,
                clock: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) -> DictationLogRecording? {
         guard token.enabled, isEnabled, token.epoch == epoch else { return nil }
         let entry = DictationLogEntry(context: context)
-        entries.insert(entry, at: 0)
-        entries = Array(entries.prefix(Self.maximumEntries))
-        persist()
+        active.insert(entry.id); put(entry)
         return DictationLogRecording(entryID: entry.id, epoch: epoch, store: self, stoppedAt: stoppedAt, clock: clock)
     }
-
     func setEnabled(_ enabled: Bool) {
         settings.dictationLog = enabled
         guard isEnabled != enabled else { return }
-        isEnabled = enabled
-        // Both edges invalidate every old capture's permission, even before it reached ASR.
-        clear()
+        // Deliberate retention exception: OFF stops collection, it does not delete history.
+        // Finalize before fencing callbacks so a persisted capture never stays transcribing.
+        for var entry in entries where entry.status == .transcribing {
+            entry.status = .interrupted; entry.revision = (entry.revision ?? 1) + 1; put(entry)
+        }
+        isEnabled = enabled; epoch &+= 1; active = []
     }
-
     func clear() {
-        epoch &+= 1
-        entries = []
-        submit(nil)
-    }
-
-    func saveFeedback(for id: UUID, expectedText: String, note: String) {
-        update(id, epoch: epoch) {
-            $0.expectedText = expectedText.isEmpty ? nil : DictationLogText(expectedText)
-            $0.feedbackNote = note.isEmpty ? nil : DictationLogText(note)
+        epoch &+= 1; storageGeneration &+= 1
+        let generation = storageGeneration; let identity = UUID()
+        exportURL = nil; exporting = false; active = []; pinned = nil
+        // Keep visible evidence on failure. Fresh post-clear captures are separate and survive.
+        let oldIDs = Set(metadata.map(\.id))
+        deleted.formUnion(oldIDs)
+        storage.clear(archiveID: identity) { [weak self] success in
+            Task { @MainActor [weak self] in
+                guard let self, self.storageGeneration == generation else { return }
+                if success {
+                    self.archiveID = identity
+                    self.entries.removeAll { oldIDs.contains($0.id) }
+                    self.metadata.removeAll { oldIDs.contains($0.id) }
+                    for id in oldIDs { self.dirty[id] = nil }
+                    self.isLoading = false; self.storageProblem = nil
+                } else {
+                    self.deleted.subtract(oldIDs)
+                    self.storageProblem = Self.problem
+                    self.reload()
+                }
+            }
         }
     }
-
-    fileprivate func update(_ id: UUID, epoch: UInt64, _ mutate: (inout DictationLogEntry) -> Void) {
-        guard isEnabled, self.epoch == epoch, let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        mutate(&entries[index])
-        persist()
-    }
-
-    private func persist() {
-        do {
-            let encoder = JSONEncoder()
-            var data = try encoder.encode(DictationLogDocument(entries: entries))
-            while data.count > DictationLogStorage.maximumBytes, !entries.isEmpty {
-                entries.removeLast()
-                data = try encoder.encode(DictationLogDocument(entries: entries))
-            }
-            submit(data)
-        } catch { storageProblem = Self.problem }
-    }
-
-    private func submit(_ data: Data?) {
-        storageRequest &+= 1
-        let request = storageRequest
-        storage.submit(data, epoch: epoch) { [weak self] epoch, success in
+    func delete(_ id: UUID) {
+        deleted.insert(id); exportURL = nil
+        dirty[id] = nil; active.remove(id)
+        let generation = storageGeneration
+        storage.delete(id) { [weak self] success in
             Task { @MainActor [weak self] in
-                guard let self, self.epoch == epoch, self.storageRequest == request else { return }
-                self.storageProblem = success ? nil : Self.problem
+                guard let self, self.storageGeneration == generation else { return }
+                if success {
+                    self.entries.removeAll { $0.id == id }; self.metadata.removeAll { $0.id == id }
+                    self.dirty[id] = nil; self.active.remove(id)
+                    self.failedDeletes.remove(id)
+                    self.clearResolvedProblem()
+                } else {
+                    self.failedDeletes.insert(id); self.storageProblem = Self.problem
+                }
+            }
+        }
+    }
+    func entry(_ id: UUID) -> DictationLogEntry? { entries.first { $0.id == id } }
+    func loadEntry(_ id: UUID, pin: Bool = false, then: (@MainActor (DictationLogEntry) -> Void)? = nil) {
+        if pin { pinned = id }
+        guard !deleted.contains(id) else { return }
+        if let entry = entry(id) { then?(entry); return }
+        let generation = storageGeneration
+        storage.read(id) { [weak self] loaded in
+            Task { @MainActor [weak self] in
+                guard let self, self.storageGeneration == generation, !self.deleted.contains(id), let loaded else { return }
+                // New mutations always win over old asynchronous reads.
+                let value = self.entry(id) ?? loaded
+                if self.entry(id) == nil { self.entries.append(value); self.trimCache() }
+                then?(value)
+            }
+        }
+    }
+    func loadRecent() { for row in metadata.prefix(Self.maximumEntries) { loadEntry(row.id) } }
+    func saveFeedback(for id: UUID, expectedText: String, note: String) {
+        guard expectedText.utf8.count <= 4_000, note.utf8.count <= 4_000 else { return }
+        let order = DictationFeedbackOrder.app()
+        loadEntry(id) { [weak self] source in
+            guard let self else { return }; var entry = source
+            if let previous = entry.referenceOrder, order <= previous { return }
+            entry.expectedText = expectedText.isEmpty ? nil : DictationLogText(expectedText)
+            entry.feedbackNote = note.isEmpty ? nil : DictationLogText(note)
+            entry.referenceOrder = order; entry.revision = (entry.revision ?? 1) + 1; self.put(entry)
+        }
+    }
+    func rate(_ id: UUID, rating: String, issues: [String]? = nil,
+              order: DictationFeedbackOrder = .app()) {
+        loadEntry(id) { [weak self] source in
+            guard let self else { return }; var entry = source
+            if let previous = entry.ratingOrder, order <= previous { return }
+            entry.rating = rating
+            // Rating changes never silently erase categories, notes or reference.
+            if let issues { entry.issues = issues }
+            entry.ratingOrder = order; entry.revision = (entry.revision ?? 1) + 1; self.put(entry)
+        }
+    }
+    fileprivate func update(_ id: UUID, epoch: UInt64, _ mutate: (inout DictationLogEntry) -> Void) {
+        guard isEnabled, self.epoch == epoch, !deleted.contains(id), var entry = entry(id) else { return }
+        mutate(&entry); entry.revision = (entry.revision ?? 1) + 1
+        put(entry)
+    }
+    fileprivate func releaseRecording(_ id: UUID) { active.remove(id); trimCache() }
+    private func trimCache() {
+        let protected = active.union(dirty.keys).union(pinned.map { [$0] } ?? [])
+        var count = 0
+        entries = entries.sorted { $0.context.createdAt > $1.context.createdAt }.filter {
+            if protected.contains($0.id) { return true }
+            count += 1; return count <= Self.maximumEntries
+        }
+    }
+    private func put(_ entry: DictationLogEntry) {
+        guard !deleted.contains(entry.id) else { return }
+        entries.removeAll { $0.id == entry.id }; entries.insert(entry, at: 0)
+        let fields = [entry.recognized, entry.aiInput, entry.aiAnswer, entry.cleanupOutput,
+                      entry.formattedText, entry.finalText, entry.expectedText, entry.feedbackNote,
+                      entry.context.vocabularySnapshot]
+        let estimate = fields.reduce(2_048) { $0 + ($1?.text.utf8.count ?? 0) }
+        if let index = metadata.firstIndex(where: { $0.id == entry.id }) {
+            metadata[index] = DictationLogMetadata(entry, bytes: max(metadata[index].bytes, estimate))
+        } else {
+            let index = metadata.firstIndex { $0.date < entry.context.createdAt } ?? metadata.endIndex
+            metadata.insert(DictationLogMetadata(entry, bytes: estimate), at: index)
+        }
+        dirty[entry.id] = entry; trimCache()
+        let generation = storageGeneration
+        storage.save(entry) { [weak self] success in
+            Task { @MainActor [weak self] in
+                guard let self, self.storageGeneration == generation else { return }
+                if success, self.dirty[entry.id]?.revision == entry.revision { self.dirty[entry.id] = nil }
+                if !success { self.storageProblem = Self.problem }
+                else { self.clearResolvedProblem() }
+                self.trimCache()
+            }
+        }
+    }
+    func retry() {
+        for id in failedDeletes { delete(id) }
+        for entry in dirty.values where !deleted.contains(entry.id) { put(entry) }
+        reload()
+    }
+    func preparedJSON(for ids: [UUID]?) -> URL? { exportIDs == ids ? exportURL : nil }
+    func releaseJSON(_ url: URL) {
+        storage.removeExport(url)
+        if exportURL == url { exportURL = nil }
+    }
+    func prepareJSON(ids: [UUID]? = nil) {
+        guard !exporting else { return }
+        if let exportURL { storage.removeExport(exportURL) }
+        exporting = true; exportURL = nil; exportProblem = nil; let generation = storageGeneration
+        storage.export(ids: ids, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown") { [weak self] result in
+            Task { @MainActor [weak self] in
+                guard let self, self.storageGeneration == generation else {
+                    if case .success(let url) = result { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+                    return
+                }
+                self.exporting = false
+                switch result {
+                case .success(let url): self.exportIDs = ids; self.exportURL = url
+                case .failure: self.exportProblem = "JSON could not be prepared. Prepare again to retry. No file was shared."
+                }
             }
         }
     }
@@ -363,6 +493,12 @@ final class DictationLogRecording: CleanupTextDiagnostics {
         self.store = store
         self.clock = clock
         stopped = stoppedAt ?? clock()
+    }
+
+    deinit {
+        let id = entryID
+        let owner = store
+        Task { @MainActor [weak owner] in owner?.releaseRecording(id) }
     }
 
     private func update(_ mutate: (inout DictationLogEntry) -> Void) {

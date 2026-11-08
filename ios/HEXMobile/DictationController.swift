@@ -120,6 +120,7 @@ final class DictationController {
     private(set) var phase = Phase.modelRequired
     private(set) var isModelReady = false
     private(set) var transcript = ""
+    private(set) var lastLoggedTranscriptID: UUID?
     @ObservationIgnored private(set) var audioLevel: Float = 0
     @ObservationIgnored private(set) var loudnessDB: Float = -120
     @ObservationIgnored private var rawRecordingDuration: TimeInterval = 0
@@ -964,6 +965,12 @@ final class DictationController {
                 recording?.finish(text: formatted, beforeSpelling: beforeSpelling, spellingPass: secondPass)
                 self.recordingDuration = 0
                 self.transcript = formatted
+                // Exact recording correlation, never whichever archive row happens to be latest.
+                self.lastLoggedTranscriptID = recording.flatMap { recording in
+                    guard let entry = self.dictationLog?.entry(recording.entryID),
+                          entry.status == .finished, entry.finalText?.text == DictationLogText(formatted).text else { return nil }
+                    return recording.entryID
+                }
                 if session.copyToPasteboard && !formatted.isEmpty {
                     UIPasteboard.general.string = formatted
                     self.copied = true

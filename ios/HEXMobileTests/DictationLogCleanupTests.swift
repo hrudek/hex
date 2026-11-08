@@ -121,10 +121,16 @@ final class DictationLogCleanupTests: XCTestCase {
                 XCTAssertEqual(env.store.entries.first?.status, .cancelled)
                 XCTAssertNil(env.store.entries.first?.aiAnswer)
                 XCTAssertNil(env.store.entries.first?.cleanupOutcome)
-            } else { XCTAssertTrue(env.store.entries.isEmpty) }
+            } else if mode == 1 {
+                XCTAssertEqual(env.store.entries.first?.status, .interrupted)
+                XCTAssertNil(env.store.entries.first?.aiAnswer)
+            } else {
+                await env.storage.flush(); await settle()
+                XCTAssertTrue(env.store.entries.isEmpty)
+            }
             job.finish(); sleeper.fire(); await settle()
             await env.storage.flush()
-            if mode != 2 { XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.url.path)) }
+            XCTAssertEqual(env.persistedEntryCount, mode == 0 ? 0 : 1)
             await env.dispose()
         }
     }
