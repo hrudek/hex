@@ -1,5 +1,11 @@
 # Hex+ AI cleanup
 
+For per-dictation recognized/input/model/final text, diffs and timing diagnostics,
+see [Dictation log](DICTATION_LOG.md). Its separate Hex+ switch is on by default;
+Off/Clear deletes that persistent app-container history. Its opt-in per-operation
+text sink is separate from the text-free logger and App Group outcome below,
+and never changes cleanup delivery or accepts a late answer as a new result.
+
 ## Relation to upstream's cleanup and Custom vocabulary
 
 Upstream added its own *Clean up with Apple Intelligence* experiment (anomalyco/hex#1538,
