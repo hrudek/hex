@@ -5,7 +5,7 @@ run-name: "Hex+ runner retry · ${{ github.event.workflow_run.head_branch }} · 
 
 on:
   workflow_run:
-    workflows: ["Hex* CI", "Hex* PR to iPhone", "Hex* fix"]
+    workflows: ["Hex* CI", "Hex* PR to iPhone"]
     types: [completed]
 
 permissions:
@@ -22,8 +22,7 @@ jobs:
       && github.event.workflow_run.repository.full_name == github.repository
       && github.event.workflow_run.head_repository.full_name == github.repository
       && (github.event.workflow_run.path == '.github/workflows/hexplus-ci.yml'
-          || github.event.workflow_run.path == '.github/workflows/hexplus-ad-hoc.yml'
-          || github.event.workflow_run.path == '.github/workflows/hexplus-fix.yml')
+          || github.event.workflow_run.path == '.github/workflows/hexplus-ad-hoc.yml')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:

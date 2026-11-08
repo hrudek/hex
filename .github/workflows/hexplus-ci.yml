@@ -114,14 +114,11 @@ jobs:
       PR: ${{ github.event.number }}
       HEAD_REF: ${{ github.head_ref }}
     steps:
-      - name: Label by branch and author
+      - name: Label by branch
         run: |
           case "$HEAD_REF" in
             feature/*) gh pr edit "$PR" --add-label feature ;;
           esac
-          if gh api "repos/$GH_REPO/pulls/$PR/commits" --jq '.[].author.login // empty' | grep -qx 'claude\[bot\]'; then
-            gh pr edit "$PR" --add-label agent
-          fi
 
   decide:
     name: Decide
@@ -354,7 +351,8 @@ jobs:
 
   sign:
     name: Sign (${{ needs.decide.outputs.sign }})
-    # Ships as soon as the archive compiled; the tests run in parallel and hexplus-fix repairs them.
+    # Ships as soon as the archive compiled; the tests run in parallel. Red tests are fixed
+    # locally afterwards through a normal PR (the status issue shows them).
     needs: [decide, build]
     if: needs.decide.outputs.sign != '' && needs.build.result == 'success'
     runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
@@ -454,14 +452,13 @@ jobs:
       - name: Invoke the canonical gate on hex-plus
         run: gh workflow run hexplus-gate.yml --ref hex-plus -f run_id="$GITHUB_RUN_ID"
 
-  notify-fix:
-    name: Tell Hex+ fix
+  status:
+    name: Refresh status
     needs: [linux, decide, test, build, sign]
-    # Red → hexplus-fix repairs; green → it closes the branch's incident. Not for fork PRs.
+    # The status issue reports hex-plus and the upstream sync; red runs there are fixed locally.
     if: >-
-      always() && !cancelled() && github.event_name != 'workflow_dispatch'
-      && (github.event_name != 'pull_request'
-          || (github.event.pull_request.head.repo.full_name == github.repository && needs.linux.result != 'skipped'))
+      always() && !cancelled() && github.event_name == 'push'
+      && (github.ref == 'refs/heads/hex-plus' || github.ref == 'refs/heads/sync/upstream')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -469,13 +466,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      # A job GitHub could not give a runner ends "cancelled": neither red nor green.
-      RESULT: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
-      BRANCH: ${{ github.head_ref || github.ref_name }}
     steps:
-      - name: Dispatch hexplus-fix with this run
-        run: gh workflow run hexplus-fix.yml --ref hex-plus -f run_id="$GITHUB_RUN_ID" -f result="$RESULT" -f branch="$BRANCH"
-      # No status schedule: a hex-plus run is what the status issue reports.
       - name: Refresh the status issue
-        if: github.event_name == 'push' && github.ref == 'refs/heads/hex-plus'
         run: gh workflow run hexplus-status.yml --ref hex-plus

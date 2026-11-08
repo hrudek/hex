@@ -1,6 +1,6 @@
 # Hex+ (fork-only): keep the pinned issue "Hex+ status" current, so the owner only watches.
-# No schedule: dispatched after each fix attempt (hexplus-fix), each hex-plus CI run
-# (hexplus-ci) and the daily sync (hexplus-sync), which also checks SYNC_TOKEN.
+# No schedule: dispatched after each hex-plus and sync/upstream CI run (hexplus-ci)
+# and the daily sync (hexplus-sync), which also checks SYNC_TOKEN.
 # gh only; runs Hex+'s status.py from hex-plus, never branch code.
 name: Hex+ status
 run-name: "Hex+ status · ${{ github.event_name }}"

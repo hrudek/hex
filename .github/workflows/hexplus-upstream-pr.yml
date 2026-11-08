@@ -3,8 +3,8 @@
 # Merges the PR's head into upstream-pr/<n> (from hex-plus) and opens a PR to
 # hex-plus, labelled upstream-pr. Merge that PR with a merge commit, not squash.
 # Rerun to pick up a newer version of the upstream PR. On a conflict the merge is
-# committed with markers and the PR is a draft labelled "conflict"; the automatic
-# Linux conflict resolver takes over. This workflow runs only git and gh.
+# committed with markers and the PR is a draft labelled "conflict", resolved locally
+# by the owner (with Pi). This workflow runs only git and gh.
 name: Hex+ upstream PR
 run-name: "Hex+ upstream PR · anomalyco/hex#${{ inputs.pr }}"
 
@@ -91,7 +91,7 @@ jobs:
             echo "- Newer upstream version: \`gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=$PR\`"
             if [[ -n "$conflicts" ]]; then
               echo; echo '> [!WARNING]'
-              echo '> Merge conflicts are committed with markers. The automatic Linux resolver takes over; CI must compile the resolution before merging.'
+              echo '> Merge conflicts are committed with markers. Resolve them locally on this branch and push, then remove the `conflict` label, mark the PR ready and merge it with a merge commit once CI compiles.'
               echo; echo '```'; echo "$conflicts"; echo '```'
             fi
           } > "$RUNNER_TEMP/body.md"
