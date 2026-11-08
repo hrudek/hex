@@ -103,6 +103,7 @@ final class CleanupCoordinator {
         let raw: String
         let started: ContinuousClock.Instant
         let dependencies: TranscriptCleanupDependencies
+        let diagnostics: (any CleanupTextDiagnostics)?
     }
 
     private(set) var reservedBy: UUID?
@@ -136,36 +137,41 @@ final class CleanupCoordinator {
     }
 
     private func observe(_ outcome: CleanupOutcome, started: ContinuousClock.Instant,
-                         dependencies: TranscriptCleanupDependencies) {
+                         dependencies: TranscriptCleanupDependencies,
+                         diagnostics: (any CleanupTextDiagnostics)? = nil, changed: Bool? = nil) {
         let elapsed = started.duration(to: dependencies.clock()).components
         let milliseconds = max(0, elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000)
-        dependencies.observer.record(CleanupObservation(outcome: outcome, latencyMilliseconds: milliseconds))
+        let observation = CleanupObservation(outcome: outcome, latencyMilliseconds: milliseconds)
+        dependencies.observer.record(observation)
+        diagnostics?.cleanupResolved(observation, changed: changed)
     }
 
-    func recordSkip(_ reason: CleanupSkipReason, dependencies: TranscriptCleanupDependencies) {
-        observe(.skipped(reason), started: dependencies.clock(), dependencies: dependencies)
+    func recordSkip(_ reason: CleanupSkipReason, dependencies: TranscriptCleanupDependencies,
+                    diagnostics: (any CleanupTextDiagnostics)? = nil) {
+        observe(.skipped(reason), started: dependencies.clock(), dependencies: dependencies, diagnostics: diagnostics)
     }
 
-    private func resolve(_ id: UUID, value: String, outcome: CleanupOutcome) {
+    private func resolve(_ id: UUID, value: String, outcome: CleanupOutcome, changed: Bool? = nil) {
         guard let pending, pending.id == id else { return }
         self.pending = nil
         deadlineTask?.cancel()
         deadlineTask = nil
         // Only the resolution winner observes; late model/deadline/cancellation paths are no-ops.
-        observe(outcome, started: pending.started, dependencies: pending.dependencies)
+        observe(outcome, started: pending.started, dependencies: pending.dependencies,
+                diagnostics: pending.diagnostics, changed: changed)
         pending.continuation.resume(returning: value)
     }
 
     func clean(_ raw: String, style: DictationStyle, job: CleanupJob?,
                dependencies: TranscriptCleanupDependencies, skipReason: CleanupSkipReason? = nil,
-               vocabulary: [String] = []) async -> String {
+               vocabulary: [String] = [], diagnostics: (any CleanupTextDiagnostics)? = nil) async -> String {
         let started = dependencies.clock()
         func skip(_ reason: CleanupSkipReason) -> String {
-            observe(.skipped(reason), started: started, dependencies: dependencies)
+            observe(.skipped(reason), started: started, dependencies: dependencies, diagnostics: diagnostics)
             return raw
         }
         guard !Task.isCancelled else {
-            observe(.cancelled, started: started, dependencies: dependencies)
+            observe(.cancelled, started: started, dependencies: dependencies, diagnostics: diagnostics)
             return raw
         }
         if skipReason == .off || skipReason == .verbatim { return skip(skipReason!) }
@@ -174,7 +180,7 @@ final class CleanupCoordinator {
         if let skipReason { return skip(skipReason) }
         guard let job else { return skip(.busy) }
         if job.expired {
-            observe(.failed(.expired), started: started, dependencies: dependencies)
+            observe(.failed(.expired), started: started, dependencies: dependencies, diagnostics: diagnostics)
             return raw
         }
         guard job.permitted else { return skip(.noBackgroundLease) }
@@ -186,18 +192,22 @@ final class CleanupCoordinator {
             // No suspension between cancellation check and continuation registration on MainActor.
             guard !Task.isCancelled else {
                 release(job.id)
-                observe(.cancelled, started: started, dependencies: dependencies)
+                observe(.cancelled, started: started, dependencies: dependencies, diagnostics: diagnostics)
                 return raw
             }
             return await withCheckedContinuation { continuation in
-                pending = Pending(id: job.id, continuation: continuation, raw: raw, started: started, dependencies: dependencies)
+                pending = Pending(id: job.id, continuation: continuation, raw: raw, started: started,
+                                  dependencies: dependencies, diagnostics: diagnostics)
                 job.onExpiry = { [weak self] in self?.cancel(job.id, outcome: .failed(.expired)) }
                 modelTask = Task {
+                    let modelStarted = dependencies.clock()
                     do {
                         let revised = try await job.session.clean(raw, style: style, vocabulary: vocabulary)
+                        let modelMilliseconds = dictationLogMilliseconds(from: modelStarted, to: dependencies.clock())
                         // A model that ignored cancellation and returned after its job was resolved
                         // (deadline, expiry, cancel) only reports how long it really took.
                         if pending?.id != job.id {
+                            diagnostics?.modelAnswer(revised, use: .late, modelMilliseconds: modelMilliseconds)
                             let elapsed = started.duration(to: dependencies.clock()).components
                             dependencies.observer.recordLate(
                                 latencyMilliseconds: max(0, elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000))
@@ -206,20 +216,26 @@ final class CleanupCoordinator {
                         }
                         // Inspect RAW Notes line anchors before trimming or classifying empty output.
                         if style == .notes && raw.components(separatedBy: "\n").count != revised.components(separatedBy: "\n").count {
+                            diagnostics?.modelAnswer(revised, use: .rejected(.guardRejected(.notesLineAnchors)), modelMilliseconds: modelMilliseconds)
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(.notesLineAnchors)))
                         } else if revised.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            diagnostics?.modelAnswer(revised, use: .rejected(.emptyOutput), modelMilliseconds: modelMilliseconds)
                             resolve(job.id, value: raw, outcome: .failed(.emptyOutput))
                         } else if let rule = CleanupGuard.rejection(input: raw, output: revised, style: style, vocabulary: vocabulary) {
+                            diagnostics?.modelAnswer(revised, use: .rejected(.guardRejected(rule)), modelMilliseconds: modelMilliseconds)
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(rule)))
                         } else {
                             let cleaned = revised.trimmingCharacters(in: .whitespacesAndNewlines)
-                            dependencies.observer.recordChange(cleaned != raw.trimmingCharacters(in: .whitespacesAndNewlines))
-                            resolve(job.id, value: cleaned, outcome: .completed)
+                            let changed = cleaned != raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                            dependencies.observer.recordChange(changed)
+                            diagnostics?.modelAnswer(revised, use: .accepted, modelMilliseconds: modelMilliseconds)
+                            resolve(job.id, value: cleaned, outcome: .completed, changed: changed)
                         }
                     } catch {
                         // Thrown after resolution (usually the cancellation sent at the deadline): its time
                         // is the cancellation's, not the model's, so it reports nothing.
                         if pending?.id != job.id { release(job.id); return }
+                        diagnostics?.modelFailed(modelMilliseconds: dictationLogMilliseconds(from: modelStarted, to: dependencies.clock()))
                         // Never inspect descriptions, associated contexts, prompts, or refusal explanations.
                         let reason = (error as? CleanupModelError)?.reason ?? .generationFailed
                         let outcome: CleanupOutcome = reason == .unavailable ? .skipped(.unavailable) : .failed(reason)

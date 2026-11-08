@@ -10,7 +10,8 @@ final class DictationController {
     static let shared = DictationController(
         autoPrepareOnInit: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
         cleaner: AppleIntelligenceCleaner(),
-        cleanup: TranscriptCleanupProduction.dependencies()
+        cleanup: TranscriptCleanupProduction.dependencies(),
+        dictationLog: .shared
     )
 
     private static let minCaptureDuration: TimeInterval = 0.30
@@ -54,6 +55,8 @@ final class DictationController {
         let copyToPasteboard: Bool
         let cleanupJob: CleanupJob?
         let cleanupSkipReason: CleanupSkipReason?
+        let logToken: DictationLogToken?
+        let logCleanupPath: DictationLogCleanupPath
     }
 
     private struct PendingKeyboardHandoff {
@@ -79,6 +82,9 @@ final class DictationController {
     private let cleanupCoordinator = CleanupCoordinator()
     private var pendingCleanupJob: CleanupJob?
     private var cleanupHeartbeat: Task<Void, Never>?
+    private let dictationLog: DictationLogStore?
+    private var transcribingLog: DictationLogRecording?
+    @ObservationIgnored private var loudestAverageDBFS: Float?
 
     private func endCleanupJob() {
         if let job = pendingCleanupJob {
@@ -168,13 +174,15 @@ final class DictationController {
         cleaner: (any TranscriptCleaning)? = nil,
         cleanupSettings: AppleIntelligenceCleanupSettings = AppleIntelligenceCleanupSettings(),
         customVocabularySettings: CustomVocabularySettings = CustomVocabularySettings(),
-        cleanup: TranscriptCleanupDependencies? = nil
+        cleanup: TranscriptCleanupDependencies? = nil,
+        dictationLog: DictationLogStore? = nil
     ) {
         let resolvedBridge = keyboardBridge ?? KeyboardBridge()
         let resolvedAudio = audio ?? SystemAudioManager()
         let initialTranscriber = transcriber ?? ParakeetTranscriber()
 
         self.cleanup = cleanup
+        self.dictationLog = dictationLog
         self.audio = resolvedAudio
         self.keyboardBridge = resolvedBridge
         self.transcriber = initialTranscriber
@@ -321,6 +329,8 @@ final class DictationController {
     }
 
     func cancelCurrentJob() {
+        transcribingLog?.finishIfOpen(.cancelled)
+        transcribingLog = nil
         endCleanupJob()
         jobGeneration &+= 1
         transcriptionTask?.cancel()
@@ -729,6 +739,8 @@ final class DictationController {
         // overwrite our new capture's phase, job state, or temporary WAV file.
         jobGeneration &+= 1
         let captureGeneration = jobGeneration
+        transcribingLog?.finishIfOpen(.cancelled)
+        transcribingLog = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
         endCleanupJob()
@@ -736,6 +748,9 @@ final class DictationController {
         let usesCleanup = cleanupSettings.isEnabled
         let vocabularyTerms = customVocabularySettings.activeTerms
         let enabled = cleanup?.isEnabled() == true
+        let logToken = dictationLog?.token()
+        let logCleanupPath: DictationLogCleanupPath = effectiveStyle == .verbatim ? .none
+            : (enabled ? .hexPlus : (usesCleanup && cleaner != nil ? .upstream : .none))
         let cleanupEnabled = enabled && effectiveStyle != .verbatim
         let disabledCleanupReason: CleanupSkipReason? = !enabled ? .off : (effectiveStyle == .verbatim ? .verbatim : nil)
 
@@ -795,11 +810,14 @@ final class DictationController {
                     vocabularyTerms: vocabularyTerms,
                     copyToPasteboard: copyToPasteboard,
                     cleanupJob: cleanupJob,
-                    cleanupSkipReason: cleanupSkipReason
+                    cleanupSkipReason: cleanupSkipReason,
+                    logToken: logToken,
+                    logCleanupPath: logCleanupPath
                 )
                 refreshWarmExpiry()
                 audioLevel = 0
                 loudnessDB = -120
+                loudestAverageDBFS = nil
                 recordingDuration = 0
                 phase = .recording
                 liveActivity.startRecording(startedAt: Date(timeIntervalSince1970: startedAt))
@@ -822,6 +840,7 @@ final class DictationController {
 
     func finishRecording() {
         guard let session = activeCapture else { return }
+        let stoppedAt = ContinuousClock.now
         activeCapture = nil
 
         stopMetering()
@@ -847,6 +866,15 @@ final class DictationController {
             return
         }
 
+        let recording = session.logToken.flatMap { token in
+            dictationLog?.begin(token: token, context: .capture(
+                keyboardJob: keyboardJobID != nil, copyToPasteboard: session.copyToPasteboard,
+                style: session.style, engine: transcriber.displayName, language: transcriptionLanguage,
+                duration: finalDuration, loudestAverage: loudestAverageDBFS,
+                cleanupPath: session.logCleanupPath, vocabularyCount: session.vocabularyTerms.count),
+                stoppedAt: stoppedAt)
+        }
+        transcribingLog = recording
         phase = .transcribing
         if let job = session.cleanupJob {
             job.begin()
@@ -866,10 +894,15 @@ final class DictationController {
 
         transcriptionTask?.cancel()
         transcriptionTask = Task { [weak self] in
+            let asrStarted = ContinuousClock.now
             defer {
+                recording?.finishIfOpen(.cancelled) // Also outside the generation fence: stale tasks terminate their own entry.
                 try? FileManager.default.removeItem(at: captureURL)
                 session.cleanupJob?.finish()
-                if let self, self.jobGeneration == captureGeneration { self.endCleanupJob() }
+                if let self, self.jobGeneration == captureGeneration {
+                    self.transcribingLog = nil
+                    self.endCleanupJob()
+                }
             }
 
             do {
@@ -883,33 +916,34 @@ final class DictationController {
                 // Spelling runs before optional cleanup so cleanup sees the preferred
                 // words, then again after formatting because a style can lowercase a
                 // term or capitalize a sentence start ("iPhone" -> "IPhone").
+                let asrMilliseconds = dictationLogMilliseconds(from: asrStarted)
                 let spelled = VocabularySpelling.apply(session.vocabularyTerms, to: rawText)
+                recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds)
                 var text = spelled
                 if let cleanup = self.cleanup, session.cleanupSkipReason != .off {
                     // Hex+ AI cleanup is on: it replaces upstream's cleanup experiment.
                     if session.cleanupSkipReason == .verbatim {
                         // Verbatim remains synchronous: no prepare, model call, lease or await.
-                        self.cleanupCoordinator.recordSkip(.verbatim, dependencies: cleanup)
+                        self.cleanupCoordinator.recordSkip(.verbatim, dependencies: cleanup, diagnostics: recording)
                     } else {
                         text = await self.cleanupCoordinator.clean(spelled, style: session.style, job: session.cleanupJob,
                             dependencies: cleanup, skipReason: session.cleanupSkipReason,
-                            vocabulary: session.vocabularyTerms)
+                            vocabulary: session.vocabularyTerms, diagnostics: recording)
                         guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
                     }
                 } else {
                     if let cleanup = self.cleanup {
                         // Off remains synchronous: no prepare, model call, lease or await.
-                        self.cleanupCoordinator.recordSkip(.off, dependencies: cleanup)
+                        self.cleanupCoordinator.recordSkip(.off, dependencies: cleanup, diagnostics: recording)
                     }
-                    text = await self.cleanedTranscriptIfEnabled(spelled, session: session)
+                    text = await self.cleanedTranscriptIfEnabled(spelled, session: session, recording: recording)
                     guard self.jobGeneration == captureGeneration, !Task.isCancelled else {
                         return
                     }
                 }
-                let formatted = VocabularySpelling.apply(
-                    session.vocabularyTerms,
-                    to: TranscriptFormatter.format(text, style: session.style)
-                )
+                let beforeSpelling = TranscriptFormatter.format(text, style: session.style)
+                let formatted = VocabularySpelling.apply(session.vocabularyTerms, to: beforeSpelling)
+                recording?.finish(text: formatted, beforeSpelling: beforeSpelling)
                 self.recordingDuration = 0
                 self.transcript = formatted
                 if session.copyToPasteboard && !formatted.isEmpty {
@@ -934,6 +968,7 @@ final class DictationController {
                 guard !Task.isCancelled, let self, self.jobGeneration == captureGeneration else {
                     return
                 }
+                recording?.failASR(error, milliseconds: dictationLogMilliseconds(from: asrStarted))
                 self.recordingDuration = 0
                 self.activeKeyboardJobID = nil
                 self.liveActivity.endImmediately()
@@ -947,16 +982,20 @@ final class DictationController {
     /// The cleanup experiment's one pass, before formatting. Any failure keeps the raw text.
     private func cleanedTranscriptIfEnabled(
         _ rawText: String,
-        session: ActiveCaptureSession
+        session: ActiveCaptureSession,
+        recording: DictationLogRecording?
     ) async -> String {
         guard session.usesCleanup,
               session.style != .verbatim,
               !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let cleaner,
               cleaner.isAvailable else {
+            if session.logCleanupPath == .upstream { recording?.upstreamResult(nil, input: rawText) }
             return rawText
         }
-        return await cleaner.clean(rawText) ?? rawText
+        let result = await cleaner.clean(rawText)
+        if !Task.isCancelled { recording?.upstreamResult(result, input: rawText) }
+        return result ?? rawText
     }
 
     private func restoreAudioAfterCapture() {
@@ -1010,6 +1049,7 @@ final class DictationController {
 
                 let db = session.capture.averagePowerDB()
                 self.loudnessDB = db
+                if db.isFinite { self.loudestAverageDBFS = max(self.loudestAverageDBFS ?? db, db) }
                 self.audioLevel = max(0, min(1, (db + 48) / 48))
                 self.recordingDuration = session.capture.currentTime
                 self.publishKeyboardSnapshot(minInterval: 0.10)

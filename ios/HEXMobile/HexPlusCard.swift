@@ -12,6 +12,8 @@ struct HexPlusCard: View {
     @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
     @State private var germanAutocorrect = HexPlusSettings().germanAutocorrect
     @State private var keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
+    @State private var log = DictationLogStore.shared
+    @State private var showingLog = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -60,6 +62,26 @@ struct HexPlusCard: View {
                     .padding(.leading, 16)
 
                 row(
+                    "Dictation log",
+                    detail: "Keeps your last 20 dictations on this iPhone only: what was recognized, what AI cleanup made of it, and timings. Turning it off deletes the log.",
+                    isOn: Binding(get: { log.isEnabled }, set: { log.setEnabled($0) })
+                )
+                if let problem = log.storageProblem {
+                    Text(problem)
+                        .font(.system(size: 12))
+                        .foregroundStyle(HexTheme.textMuted)
+                        .padding(.horizontal, 16).padding(.vertical, 4)
+                }
+                if log.isEnabled {
+                    Button("Show dictation log (\(log.entries.count))") { showingLog = true }
+                        .font(.system(size: 15))
+                        .foregroundStyle(HexTheme.textBase)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                }
+                Divider().overlay(HexTheme.borderWeak).padding(.leading, 16)
+
+                row(
                     "German autocorrect",
                     detail: "Turns ae, oe, ue into ä, ö, ü and fixes German typos (full keyboard)",
                     isOn: $germanAutocorrect
@@ -86,9 +108,11 @@ struct HexPlusCard: View {
                 in: RoundedRectangle(cornerRadius: HexTheme.cardRadius, style: .continuous)
             )
         }
+        .sheet(isPresented: $showingLog) { DictationLogView(store: log) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 TranscriptCleanupProduction.invalidateAvailability()
+                log.setEnabled(HexPlusSettings().dictationLog)
                 aiCleanup = HexPlusSettings().aiCleanup
                 showCleanupModel = HexPlusSettings().showCleanupModel
                 cleanupReason = TranscriptCleanupProduction.unavailableReason
@@ -107,6 +131,7 @@ struct HexPlusCard: View {
             }
         }
         .onAppear {
+            log.setEnabled(HexPlusSettings().dictationLog)
             TranscriptCleanupProduction.invalidateAvailability()
             aiCleanup = HexPlusSettings().aiCleanup
             showCleanupModel = HexPlusSettings().showCleanupModel

@@ -6,6 +6,7 @@ import Foundation
 struct HexPlusSettings {
     private enum Key {
         static let aiCleanup = "hexplus.aiCleanup"
+        static let dictationLog = "hexplus.dictationLog"
         static let showCleanupModel = "hexplus.showCleanupModel"
         static let germanAutocorrect = "hexplus.germanAutocorrect"
         static let keyboardSwitchKey = "hexplus.keyboardSwitchKey"
@@ -27,6 +28,12 @@ struct HexPlusSettings {
     var showCleanupModel: Bool {
         get { defaults?.object(forKey: Key.showCleanupModel) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.showCleanupModel) }
+    }
+
+    /// Local diagnostic text history. Turning it off also deletes the log through its store.
+    var dictationLog: Bool {
+        get { defaults?.object(forKey: Key.dictationLog) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.dictationLog) }
     }
 
     /// German autocorrect on the full keyboard (ae/oe/ue/ss to umlauts, German typo fixes). On by default.

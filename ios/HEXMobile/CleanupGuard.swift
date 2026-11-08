@@ -6,6 +6,8 @@ import Foundation
 /// mostly new words is the model answering or inventing; the plain transcript is pasted instead.
 /// Not a semantic guarantee: a wrong word swap or a dropped clause can still pass.
 enum CleanupGuard {
+    static let revision = "2026-11-08a"
+
     static func wordCount(_ text: String) -> Int {
         words(text).count
     }
