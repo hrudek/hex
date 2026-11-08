@@ -1,4 +1,3 @@
 # Hex+ (fork-only): replaces upstream's config (listed in .github/hexplus/ours.txt).
-# Blank issues stay possible for notes the agent should not pick up.
 blank_issues_enabled: true
 contact_links: []
