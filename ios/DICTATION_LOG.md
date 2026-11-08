@@ -28,6 +28,42 @@ capture follows the normal transcription path. Ending a warm session during
 accepted transcription/cleanup does **not** cancel it; it still delivers and
 finishes as before.
 
+### At-a-glance configuration and replacement evidence
+
+Each row now shows **AI: Hex+ / Upstream / None**, style, **Vocabulary: On / Off**
+and active term count, the actual cleanup outcome, and the total number of
+vocabulary replacements across both passes. The detail opens with the settings
+frozen at recording start, including both AI switches. Hex+ overrides upstream;
+Verbatim selects no AI even when a switch is on. A selected path is not proof of
+a model call: skips, unavailable models, rejected answers and deadlines still
+need to be read alongside it. An enabled vocabulary with zero terms is distinct
+from a disabled vocabulary.
+
+Two always-visible detail sections and the plain-text export list the actual
+**original span → replacement**, plus the vocabulary term that matched:
+
+- **Before AI:** exact spelling changes after ASR, before optional cleanup.
+- **After formatting:** exact spelling changes after cleanup and style formatting.
+
+The matcher reports these at the point of replacement, not by guessing from the
+final text or re-running a mutable vocabulary list. Unchanged matches are not
+counted. Repeated occurrences are listed separately in encounter order. Counts
+measure operations, not unique words or correctness: a term can change in both
+passes. Exports escape quotes and line breaks in replacement spans.
+
+Each pass retains the first **20 replacements** and a full change count; omitted
+items and truncated span/term text are explicitly labelled. A pass that did not
+run (or an old entry) says **not recorded**, not **no replacements**. New fields
+are optional additions to schema 1, so existing history is retained and absent
+switch values are shown as **Not recorded**, never inferred as Off.
+
+Apple Speech can also receive the vocabulary as a best-effort recognition hint.
+There is no counterfactual ASR output, so the log cannot attribute individual
+recognition changes to that hint. The replacement sections cover only the two
+deterministic spelling passes. They are useful analysis evidence, not automatic
+quality ratings or proof that one configuration is better; intended speech and
+human corrections are still needed to judge accuracy.
+
 ### Text and processing evidence
 
 - **Recognized:** raw ASR output.
@@ -82,9 +118,9 @@ Details (also included in exports) contain:
 - Upstream cleanup reports **changed / unchanged / no result** only; its optional
   string API exposes neither a raw model answer nor a detailed failure reason.
   Verbatim's path is `none`. No upstream internals were added or changed.
-- Active vocabulary term **count**, and whether the first and second spelling
-  passes changed text. No whole vocabulary list and no speculative applied-term
-  list are retained; before/after text is the evidence.
+- Frozen vocabulary switch, active term **count**, both AI switches, and whether
+  the first and second spelling passes changed text. Bounded actual replacement
+  records include matched terms only; the whole vocabulary is never retained.
 
 ## Late answers and capture isolation
 
@@ -129,7 +165,10 @@ is unrelated and unchanged.
   replaced by newer ones, Clear or Off. There is no archive.
 - Each of four text fields is capped at **4,000 UTF-8 bytes**, on a Swift Character
   boundary, with an ellipsis inside the budget. Typically entries are a few kB;
-  the raw text maximum is 20 × 4 × 4,000 = 320 kB plus metadata.
+  the four transcript fields alone are at most 20 × 4 × 4,000 = 320 kB. Each
+  spelling pass additionally retains at most 20 records, each with three capped
+  text fields (before, after, term). The total encoded-size limit below applies
+  to all evidence, so replacement-heavy entries can evict older entries sooner.
 - The encoded JSON must be **≤ 1,000,000 bytes**. JSON escaping can expand control
   characters, quotes and backslashes; oldest entries are additionally evicted
   until the encoded snapshot fits. Thus there may be fewer than 20 entries.
@@ -164,6 +203,14 @@ explicitly exported. The app cannot retract a receiving app's copy.
 
 ## Verification and handover
 
+Additional analysis coverage: `DictationLogAnalysisTests` exercises actual matcher
+spans, repeated/possessive/no-op matches, bounded evidence/full counts, schema-1
+compatibility, storage/export round trips and explicit path/switch labels.
+`DictationLogControllerTests` also checks settings frozen across mid-recording
+toggle changes and upstream-path replacement evidence. These additions have not
+been run locally: Linux has no Swift/Xcode. Native compilation, simulator tests
+and visual verification remain required.
+
 New simulator test classes (automatically included by `ios/project.yml`'s
 `HEXMobileTests` folder source):
 
@@ -193,12 +240,14 @@ inspection, tree-sitter Swift syntax parsing and `git diff --check` are not
 compilation or simulator proof. No new
 native build, simulator pass, visual screenshot, file-protection/backup behavior
 on a device, model-quality, background-survival or physical-keyboard insertion
-result is claimed. No CI was dispatched, push made or PR opened by this task.
+result is claimed. The analysis enhancement passed tree-sitter syntax parsing
+for all six changed/new Swift files and `git diff --check`; its feature PR hands
+native compilation and simulator verification over to the repository workflow.
 
 Optional manual CI target list (run only when requested):
 
 ```text
-HEXMobileTests/DictationLogStoreTests,HEXMobileTests/DictationLogCleanupTests,HEXMobileTests/DictationLogControllerTests,HEXMobileTests/WordDiffTests,HEXMobileTests/AICleanupControllerTests,HEXMobileTests/HexPlusCleanupTests
+HEXMobileTests/DictationLogAnalysisTests,HEXMobileTests/DictationLogStoreTests,HEXMobileTests/DictationLogCleanupTests,HEXMobileTests/DictationLogControllerTests,HEXMobileTests/WordDiffTests,HEXMobileTests/AICleanupControllerTests,HEXMobileTests/HexPlusCleanupTests
 ```
 
 Before shipping, compile production and test Swift with Xcode 26 / Swift 6 and

@@ -141,6 +141,68 @@ final class DictationLogControllerTests: XCTestCase {
         try await f.dispose()
     }
 
+    func testSettingsAreFrozenAtStartEvenWhenToggledDuringRecording() async throws {
+        let f = LogControllerFixture()
+        let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
+        let upstream = AppleIntelligenceCleanupSettings(defaults: f.env.defaults)
+        vocabulary.isEnabled = true
+        vocabulary.terms = ["iPhone"]
+        upstream.isEnabled = true
+        await f.asr.setOutput("iphone works")
+        f.model.result = "iPhone works"
+        try await f.start()
+        vocabulary.isEnabled = false
+        vocabulary.terms = []
+        upstream.isEnabled = false
+        f.controller.finishRecording(); try await f.settle()
+        let entry = try XCTUnwrap(f.env.store.entries.first)
+        XCTAssertEqual(entry.context.vocabularyEnabled, true)
+        XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
+        XCTAssertEqual(entry.context.hexPlusCleanupEnabled, true)
+        XCTAssertEqual(entry.context.cleanupPath, .hexPlus)
+        XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
+        XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")
+        try await f.dispose()
+    }
+
+    func testCasualFormattingRestorationHasSeparateReplacementEvidence() async throws {
+        let f = LogControllerFixture()
+        let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
+        vocabulary.isEnabled = true
+        vocabulary.terms = ["iPhone"]
+        f.controller.setStyle(.casual)
+        await f.asr.setOutput("my iphone works")
+        f.model.result = "my iPhone works"
+        try await f.start()
+        f.controller.finishRecording(); try await f.settle()
+        let entry = try XCTUnwrap(f.env.store.entries.first)
+        XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 1)
+        XCTAssertEqual(entry.secondSpellingPass?.totalChanges, 1)
+        XCTAssertEqual(entry.secondSpellingPass?.changes.first?.before.text, "iphone")
+        XCTAssertEqual(entry.secondSpellingPass?.changes.first?.after.text, "iPhone")
+        XCTAssertEqual(entry.finalText?.text, "my iPhone works")
+        try await f.dispose()
+    }
+
+    func testVerbatimShowsNoAIWhileRetainingEnabledSwitchState() async throws {
+        let f = LogControllerFixture()
+        AppleIntelligenceCleanupSettings(defaults: f.env.defaults).isEnabled = true
+        let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
+        vocabulary.isEnabled = true // On but empty is not Off.
+        f.controller.setStyle(.verbatim)
+        try await f.start()
+        f.controller.finishRecording(); try await f.settle()
+        let entry = try XCTUnwrap(f.env.store.entries.first)
+        XCTAssertEqual(entry.context.cleanupPath, .none)
+        XCTAssertEqual(entry.context.hexPlusCleanupEnabled, true)
+        XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
+        XCTAssertEqual(entry.vocabularyLabel, "Vocabulary: On (0 terms)")
+        XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 0)
+        XCTAssertEqual(entry.secondSpellingPass?.totalChanges, 0)
+        XCTAssertNil(entry.aiAnswer)
+        try await f.dispose()
+    }
+
     func testASRFailureIsCategorizedWithoutErrorDescription() async throws {
         let f = LogControllerFixture()
         await f.asr.fail()
@@ -336,6 +398,13 @@ final class DictationLogControllerTests: XCTestCase {
             XCTAssertEqual(entry.recognized?.text, "my iphone works")
             XCTAssertEqual(entry.aiInput?.text, "my iPhone works")
             XCTAssertEqual(entry.context.vocabularyCount, 1)
+            XCTAssertEqual(entry.context.vocabularyEnabled, true)
+            XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
+            XCTAssertEqual(entry.context.hexPlusCleanupEnabled, false)
+            XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 1)
+            XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
+            XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")
+            XCTAssertNotNil(entry.secondSpellingPass)
             XCTAssertTrue(entry.firstSpellingChanged)
             XCTAssertEqual(entry.upstreamOutcome, result.map { $0 == "my iPhone works" ? "unchanged" : "changed" } ?? "no result")
             XCTAssertNil(entry.aiAnswer) // Upstream API does not expose raw model answers.

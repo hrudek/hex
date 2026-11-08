@@ -100,12 +100,17 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     var loudestAverageDBFS: Float?
     var cleanupPath: DictationLogCleanupPath = .none
     var vocabularyCount = 0
+    // Optional additions keep schema-1 history readable; nil means not recorded, never off.
+    var vocabularyEnabled: Bool?
+    var upstreamCleanupEnabled: Bool?
+    var hexPlusCleanupEnabled: Bool?
 
     @MainActor
     static func capture(keyboardJob: Bool, copyToPasteboard: Bool, style: DictationStyle,
                         engine: String, language: String, duration: TimeInterval,
                         loudestAverage: Float?, cleanupPath: DictationLogCleanupPath,
-                        vocabularyCount: Int) -> Self {
+                        vocabularyCount: Int, vocabularyEnabled: Bool? = nil,
+                        upstreamCleanupEnabled: Bool? = nil, hexPlusCleanupEnabled: Bool? = nil) -> Self {
         var context = Self()
         context.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         context.appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
@@ -124,7 +129,41 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.loudestAverageDBFS = loudestAverage
         context.cleanupPath = cleanupPath
         context.vocabularyCount = vocabularyCount
+        context.vocabularyEnabled = vocabularyEnabled
+        context.upstreamCleanupEnabled = upstreamCleanupEnabled
+        context.hexPlusCleanupEnabled = hexPlusCleanupEnabled
         return context
+    }
+}
+
+struct DictationLogReplacement: Codable, Equatable, Sendable {
+    var before: DictationLogText
+    var after: DictationLogText
+    var term: DictationLogText
+
+    mutating func recap() {
+        before = before.recapped()
+        after = after.recapped()
+        term = term.recapped()
+    }
+}
+
+struct DictationLogSpellingPass: Codable, Equatable, Sendable {
+    static let maximumReplacements = 20
+    var changes: [DictationLogReplacement] = []
+    var totalChanges = 0
+
+    mutating func record(before: String, after: String, term: String) {
+        totalChanges += 1
+        guard changes.count < Self.maximumReplacements else { return }
+        changes.append(DictationLogReplacement(before: DictationLogText(before),
+            after: DictationLogText(after), term: DictationLogText(term)))
+    }
+
+    mutating func recap() {
+        changes = Array(changes.prefix(Self.maximumReplacements))
+        for index in changes.indices { changes[index].recap() }
+        totalChanges = max(totalChanges, changes.count)
     }
 }
 
@@ -147,6 +186,8 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
     var upstreamOutcome: String?
     var firstSpellingChanged = false
     var secondSpellingChanged = false
+    var firstSpellingPass: DictationLogSpellingPass?
+    var secondSpellingPass: DictationLogSpellingPass?
     var asrMilliseconds: Int64?
     var cleanupMilliseconds: Int64?
     var modelMilliseconds: Int64?
@@ -175,6 +216,8 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
         aiInput = aiInput?.recapped()
         aiAnswer = aiAnswer?.recapped()
         finalText = finalText?.recapped()
+        firstSpellingPass?.recap()
+        secondSpellingPass?.recap()
     }
 }
 
@@ -303,13 +346,15 @@ final class DictationLogRecording: CleanupTextDiagnostics {
         store?.update(entryID, epoch: epoch, mutate)
     }
 
-    func recognized(_ text: String, spelled: String, asrMilliseconds: Int64) {
+    func recognized(_ text: String, spelled: String, asrMilliseconds: Int64,
+                    spellingPass: DictationLogSpellingPass? = nil) {
         guard terminal == nil else { return }
         raw = text
         update {
             $0.recognized = DictationLogText(text)
             $0.aiInput = text == spelled ? nil : DictationLogText(spelled)
             $0.firstSpellingChanged = text != spelled
+            $0.firstSpellingPass = spellingPass
             $0.asrMilliseconds = asrMilliseconds
         }
     }
@@ -350,12 +395,13 @@ final class DictationLogRecording: CleanupTextDiagnostics {
         }
     }
 
-    func finish(text: String, beforeSpelling: String) {
+    func finish(text: String, beforeSpelling: String, spellingPass: DictationLogSpellingPass? = nil) {
         guard terminal == nil else { return }
         let elapsed = dictationLogMilliseconds(from: stopped, to: clock())
         update {
             $0.finalText = DictationLogText(text)
             $0.secondSpellingChanged = beforeSpelling != text
+            $0.secondSpellingPass = spellingPass
             $0.pipelineChanged = raw.map { $0 != text }
             $0.stopToFinalMilliseconds = elapsed
         }

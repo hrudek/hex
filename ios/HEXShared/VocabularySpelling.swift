@@ -39,7 +39,9 @@ nonisolated enum VocabularySpelling {
         normalize(term)
     }
 
-    static func apply(_ terms: [String], to text: String) -> String {
+    /// Reports only actual replacements, at the point of matching (not inferred from a diff).
+    static func apply(_ terms: [String], to text: String,
+                      onReplacement: ((_ before: String, _ after: String, _ term: String) -> Void)? = nil) -> String {
         var glued: [String: Spelling] = [:]
         var phrases: [[String]: Spelling] = [:]
         for term in terms {
@@ -84,6 +86,11 @@ nonisolated enum VocabularySpelling {
             output.append(matched.spelling)
             if let possessive = matched.possessive {
                 output.append(possessive)
+            }
+            if let onReplacement {
+                let before = String(text[tokens[index].range.lowerBound..<tokens[lastWord].range.upperBound])
+                let after = matched.spelling + (matched.possessive ?? "")
+                if before != after { onReplacement(before, after, matched.spelling) }
             }
             copiedThrough = tokens[lastWord].range.upperBound
             index = lastWord + 1

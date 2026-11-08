@@ -6,6 +6,55 @@ import UniformTypeIdentifiers
 extension DictationLogEntry {
     /// The UI and conscious exports use the same facts. No export includes prompts, vocabulary
     /// lists, audio, device names or error descriptions. Text fields may contain private speech.
+    var aiPathLabel: String {
+        switch context.cleanupPath {
+        case .hexPlus: "AI: Hex+"
+        case .upstream: "AI: Upstream"
+        case .none: "AI: None"
+        }
+    }
+
+    var vocabularyLabel: String {
+        switch context.vocabularyEnabled {
+        case true?: "Vocabulary: On (\(context.vocabularyCount) terms)"
+        case false?: "Vocabulary: Off"
+        case nil: "Vocabulary: Not recorded (\(context.vocabularyCount) active terms)"
+        }
+    }
+
+    var processingResultLabel: String {
+        let ai = context.cleanupPath == .upstream
+            ? "Upstream: \(upstreamOutcome ?? "pending / not run")"
+            : (context.cleanupPath == .hexPlus ? "Hex+: \(cleanupOutcome ?? "pending / not run")" : "No AI pass")
+        let spelling: String
+        if let first = firstSpellingPass, let second = secondSpellingPass {
+            spelling = "Vocabulary: \(first.totalChanges + second.totalChanges) replacements"
+        } else {
+            spelling = "Vocabulary changes: \(firstSpellingChanged || secondSpellingChanged ? "yes" : "none recorded")"
+        }
+        return "\(ai) · \(spelling)"
+    }
+
+    var settingsLines: [String] {
+        func state(_ value: Bool?) -> String { value.map { $0 ? "On" : "Off" } ?? "Not recorded" }
+        return [aiPathLabel + " (selected path; not proof of a model call)",
+                "Hex+ AI setting: \(state(context.hexPlusCleanupEnabled))",
+                "Upstream AI setting: \(state(context.upstreamCleanupEnabled)) (overridden while Hex+ is on)",
+                vocabularyLabel, "Style: \(context.style)"]
+    }
+
+    func spellingLines(_ pass: DictationLogSpellingPass?) -> [String] {
+        guard let pass else { return ["Replacement details not recorded (older entry or pass not reached)."] }
+        guard pass.totalChanges > 0 else { return ["No replacements."] }
+        var lines = pass.changes.map { change in
+            "\(String(reflecting: change.before.text)) → \(String(reflecting: change.after.text)) (term: \(String(reflecting: change.term.text)))\(change.before.truncated || change.after.truncated || change.term.truncated ? " [truncated]" : "")"
+        }
+        if pass.totalChanges > pass.changes.count {
+            lines.append("\(pass.totalChanges - pass.changes.count) more replacements not retained (limit: \(DictationLogSpellingPass.maximumReplacements) per pass).")
+        }
+        return lines
+    }
+
     var detailLines: [String] {
         func ms(_ value: Int64?) -> String { value.map { "\($0) ms" } ?? "not recorded" }
         func flag(_ value: Bool?) -> String { value.map { $0 ? "yes" : "no" } ?? "not recorded" }
@@ -33,6 +82,8 @@ extension DictationLogEntry {
             "Model answer: \(answerLabel)", "Upstream cleanup: \(upstreamOutcome ?? "not used")",
             "Hex+ prompt revision: \(promptRevision); Hex+ guard revision: \(guardRevision)",
             "Active vocabulary terms: \(context.vocabularyCount)",
+            settingsLines.joined(separator: "\n"),
+            processingResultLabel,
             "First spelling pass changed text: \(flag(firstSpellingChanged))",
             "Second spelling pass changed text: \(flag(secondSpellingChanged))"
         ]
@@ -48,6 +99,9 @@ extension DictationLogEntry {
         if aiInput == nil, recognized != nil {
             sections.append("AI input is the recognized text (first spelling pass unchanged).")
         }
+        sections.append("Vocabulary replacements before AI:\n" + spellingLines(firstSpellingPass).joined(separator: "\n"))
+        sections.append("Vocabulary replacements after formatting:\n" + spellingLines(secondSpellingPass).joined(separator: "\n"))
+        sections.append("Vocabulary hints during speech recognition are best effort; individual word changes cannot be attributed to them. Replacement counts are not quality scores.")
         sections.append("Provided to keyboard does not prove insertion. The keyboard may adjust spacing.")
         return sections.joined(separator: "\n\n")
     }
@@ -78,6 +132,10 @@ struct DictationLogView: View {
                                 .font(.caption)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(HexTheme.bgBase, in: Capsule())
+                            Text(entry.aiPathLabel + " · " + entry.context.style)
+                                .font(.subheadline.weight(.semibold))
+                            Text(entry.vocabularyLabel).font(.caption)
+                            Text(entry.processingResultLabel).font(.caption).foregroundStyle(HexTheme.textMuted)
                             if let outcome = entry.cleanupSummary { Text(outcome).font(.caption).foregroundStyle(HexTheme.textMuted) }
                             Text(entry.finalText?.text.components(separatedBy: .newlines).first ?? entry.status.label)
                                 .lineLimit(1)
@@ -117,6 +175,22 @@ private struct DictationLogDetail: View {
         Group {
             if let entry {
                 List {
+                    Section("Settings at recording start") {
+                        ForEach(entry.settingsLines, id: \.self) { Text($0).font(.subheadline) }
+                        Text(entry.processingResultLabel).font(.caption)
+                    }
+                    Section("Vocabulary replacements — before AI") {
+                        ForEach(Array(entry.spellingLines(entry.firstSpellingPass).enumerated()), id: \.offset) { _, line in
+                            Text(line).textSelection(.enabled)
+                        }
+                    }
+                    Section("Vocabulary replacements — after formatting") {
+                        ForEach(Array(entry.spellingLines(entry.secondSpellingPass).enumerated()), id: \.offset) { _, line in
+                            Text(line).textSelection(.enabled)
+                        }
+                        Text("Recognition hints cannot be attributed to individual words. Counts show activity, not correctness.")
+                            .font(.footnote).foregroundStyle(HexTheme.textMuted)
+                    }
                     textSection("Recognized (raw speech recognition)", field: entry.recognized)
                     textSection("AI input (after spelling)", field: entry.aiInput ?? entry.recognized)
                     textSection("AI answer — \(entry.answerLabel)", field: entry.aiAnswer)

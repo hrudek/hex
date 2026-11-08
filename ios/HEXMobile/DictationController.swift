@@ -52,6 +52,8 @@ final class DictationController {
         let style: DictationStyle
         let usesCleanup: Bool
         let vocabularyTerms: [String]
+        let vocabularyEnabled: Bool
+        let hexPlusCleanupEnabled: Bool
         let copyToPasteboard: Bool
         let cleanupJob: CleanupJob?
         let cleanupSkipReason: CleanupSkipReason?
@@ -746,7 +748,8 @@ final class DictationController {
         endCleanupJob()
         let effectiveStyle = styleOverride ?? style
         let usesCleanup = cleanupSettings.isEnabled
-        let vocabularyTerms = customVocabularySettings.activeTerms
+        let vocabularyEnabled = customVocabularySettings.isEnabled
+        let vocabularyTerms = vocabularyEnabled ? customVocabularySettings.terms : []
         let enabled = cleanup?.isEnabled() == true
         let logToken = dictationLog?.token()
         let logCleanupPath: DictationLogCleanupPath = effectiveStyle == .verbatim ? .none
@@ -808,6 +811,8 @@ final class DictationController {
                     style: effectiveStyle,
                     usesCleanup: usesCleanup,
                     vocabularyTerms: vocabularyTerms,
+                    vocabularyEnabled: vocabularyEnabled,
+                    hexPlusCleanupEnabled: enabled,
                     copyToPasteboard: copyToPasteboard,
                     cleanupJob: cleanupJob,
                     cleanupSkipReason: cleanupSkipReason,
@@ -871,7 +876,10 @@ final class DictationController {
                 keyboardJob: keyboardJobID != nil, copyToPasteboard: session.copyToPasteboard,
                 style: session.style, engine: transcriber.displayName, language: transcriptionLanguage,
                 duration: finalDuration, loudestAverage: loudestAverageDBFS,
-                cleanupPath: session.logCleanupPath, vocabularyCount: session.vocabularyTerms.count),
+                cleanupPath: session.logCleanupPath, vocabularyCount: session.vocabularyTerms.count,
+                vocabularyEnabled: session.vocabularyEnabled,
+                upstreamCleanupEnabled: session.usesCleanup,
+                hexPlusCleanupEnabled: session.hexPlusCleanupEnabled),
                 stoppedAt: stoppedAt)
         }
         transcribingLog = recording
@@ -917,8 +925,12 @@ final class DictationController {
                 // words, then again after formatting because a style can lowercase a
                 // term or capitalize a sentence start ("iPhone" -> "IPhone").
                 let asrMilliseconds = dictationLogMilliseconds(from: asrStarted)
-                let spelled = VocabularySpelling.apply(session.vocabularyTerms, to: rawText)
-                recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds)
+                var firstPass = DictationLogSpellingPass()
+                let observeFirst: ((String, String, String) -> Void)? = recording == nil ? nil : { before, after, term in
+                    firstPass.record(before: before, after: after, term: term)
+                }
+                let spelled = VocabularySpelling.apply(session.vocabularyTerms, to: rawText, onReplacement: observeFirst)
+                recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds, spellingPass: firstPass)
                 var text = spelled
                 if let cleanup = self.cleanup, session.cleanupSkipReason != .off {
                     // Hex+ AI cleanup is on: it replaces upstream's cleanup experiment.
@@ -942,8 +954,12 @@ final class DictationController {
                     }
                 }
                 let beforeSpelling = TranscriptFormatter.format(text, style: session.style)
-                let formatted = VocabularySpelling.apply(session.vocabularyTerms, to: beforeSpelling)
-                recording?.finish(text: formatted, beforeSpelling: beforeSpelling)
+                var secondPass = DictationLogSpellingPass()
+                let observeSecond: ((String, String, String) -> Void)? = recording == nil ? nil : { before, after, term in
+                    secondPass.record(before: before, after: after, term: term)
+                }
+                let formatted = VocabularySpelling.apply(session.vocabularyTerms, to: beforeSpelling, onReplacement: observeSecond)
+                recording?.finish(text: formatted, beforeSpelling: beforeSpelling, spellingPass: secondPass)
                 self.recordingDuration = 0
                 self.transcript = formatted
                 if session.copyToPasteboard && !formatted.isEmpty {
