@@ -5,7 +5,6 @@ import Foundation
 @MainActor
 struct HexPlusSettings {
     private enum Key {
-        static let aiCleanup = "hexplus.aiCleanup"
         static let germanAutocorrect = "hexplus.germanAutocorrect"
         static let keyboardSwitchKey = "hexplus.keyboardSwitchKey"
     }
@@ -14,12 +13,6 @@ struct HexPlusSettings {
 
     init(defaults: UserDefaults? = UserDefaults(suiteName: KeyboardBridge.appGroup)) {
         self.defaults = defaults
-    }
-
-    /// On-device Apple Intelligence cleanup. Off retains the plain transcription path.
-    var aiCleanup: Bool {
-        get { defaults?.object(forKey: Key.aiCleanup) as? Bool ?? true }
-        nonmutating set { defaults?.set(newValue, forKey: Key.aiCleanup) }
     }
 
     /// German autocorrect on the full keyboard (ae/oe/ue/ss to umlauts, German typo fixes). On by default.

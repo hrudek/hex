@@ -8,8 +8,7 @@ import UIKit
 @Observable
 final class DictationController {
     static let shared = DictationController(
-        autoPrepareOnInit: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
-        cleanup: TranscriptCleanupProduction.dependencies()
+        autoPrepareOnInit: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
     )
 
     private static let minCaptureDuration: TimeInterval = 0.30
@@ -49,8 +48,6 @@ final class DictationController {
         let keyboardJobID: String?
         let style: DictationStyle
         let copyToPasteboard: Bool
-        let cleanupJob: CleanupJob?
-        let cleanupSkipReason: CleanupSkipReason?
     }
 
     private struct PendingKeyboardHandoff {
@@ -68,21 +65,6 @@ final class DictationController {
     private let now: () -> TimeInterval
     private let liveActivity = LiveActivityCoordinator()
     private var defaultURLOpener: @MainActor (URL) async -> Bool
-
-    private let cleanup: TranscriptCleanupDependencies?
-    private let cleanupCoordinator = CleanupCoordinator()
-    private var pendingCleanupJob: CleanupJob?
-    private var cleanupHeartbeat: Task<Void, Never>?
-
-    private func endCleanupJob() {
-        if let job = pendingCleanupJob {
-            cleanupCoordinator.cancel(job.id)
-            job.finish()
-        }
-        pendingCleanupJob = nil
-        cleanupHeartbeat?.cancel()
-        cleanupHeartbeat = nil
-    }
 
     private var jobGeneration: UInt64 = 0
     private var modelPrepGeneration: UInt64 = 0
@@ -158,14 +140,12 @@ final class DictationController {
         fileManager: FileManager = .default,
         now: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 },
         autoPrepareOnInit: Bool = true,
-        urlOpener: (@MainActor (URL) async -> Bool)? = nil,
-        cleanup: TranscriptCleanupDependencies? = nil
+        urlOpener: (@MainActor (URL) async -> Bool)? = nil
     ) {
         let resolvedBridge = keyboardBridge ?? KeyboardBridge()
         let resolvedAudio = audio ?? SystemAudioManager()
         let initialTranscriber = transcriber ?? ParakeetTranscriber()
 
-        self.cleanup = cleanup
         self.audio = resolvedAudio
         self.keyboardBridge = resolvedBridge
         self.transcriber = initialTranscriber
@@ -309,7 +289,6 @@ final class DictationController {
     }
 
     func cancelCurrentJob() {
-        endCleanupJob()
         jobGeneration &+= 1
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -366,7 +345,6 @@ final class DictationController {
 
         // Cancel an unaccepted in-progress recording, but preserve any already-accepted transcription!
         if let session = activeCapture {
-            endCleanupJob()
             jobGeneration &+= 1
             activeCapture = nil
             stopMetering()
@@ -719,11 +697,7 @@ final class DictationController {
         let captureGeneration = jobGeneration
         transcriptionTask?.cancel()
         transcriptionTask = nil
-        endCleanupJob()
         let effectiveStyle = styleOverride ?? style
-        let enabled = cleanup?.isEnabled() == true
-        let cleanupEnabled = enabled && effectiveStyle != .verbatim
-        let disabledCleanupReason: CleanupSkipReason? = !enabled ? .off : (effectiveStyle == .verbatim ? .verbatim : nil)
 
         phase = .requestingPermission
         copied = false
@@ -757,29 +731,13 @@ final class DictationController {
                 }
 
                 let startedAt = now()
-                var cleanupJob: CleanupJob?
-                var cleanupSkipReason = disabledCleanupReason
-                if cleanupEnabled, let cleanup {
-                    if cleanup.cleaner.unavailableReason != nil {
-                        cleanupSkipReason = .unavailable
-                    } else if cleanupCoordinator.reservedBy != nil {
-                        cleanupSkipReason = .busy
-                    } else {
-                        let job = CleanupJob(session: cleanup.cleaner.makeSession(), background: cleanup.background)
-                        cleanupJob = job
-                        pendingCleanupJob = job
-                        cleanupCoordinator.prewarm(job)
-                    }
-                }
                 activeCapture = ActiveCaptureSession(
                     generation: captureGeneration,
                     capture: capture,
                     startedAt: startedAt,
                     keyboardJobID: keyboardJobID,
                     style: effectiveStyle,
-                    copyToPasteboard: copyToPasteboard,
-                    cleanupJob: cleanupJob,
-                    cleanupSkipReason: cleanupSkipReason
+                    copyToPasteboard: copyToPasteboard
                 )
                 refreshWarmExpiry()
                 audioLevel = 0
@@ -819,7 +777,6 @@ final class DictationController {
         let keyboardJobID = session.keyboardJobID
 
         guard finalDuration >= Self.minCaptureDuration else {
-            endCleanupJob()
             try? fileManager.removeItem(at: captureURL)
             recordingDuration = 0
             activeKeyboardJobID = nil
@@ -832,16 +789,6 @@ final class DictationController {
         }
 
         phase = .transcribing
-        if let job = session.cleanupJob {
-            job.begin()
-            cleanupHeartbeat = Task { [weak self] in
-                while !Task.isCancelled {
-                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                    guard let self, self.jobGeneration == captureGeneration, self.phase == .transcribing else { return }
-                    self.publishKeyboardSnapshot()
-                }
-            }
-        }
         liveActivity.markTranscribing(startedAt: Date(timeIntervalSince1970: session.startedAt))
         restoreAudioAfterCapture()
         publishKeyboardSnapshot()
@@ -852,8 +799,6 @@ final class DictationController {
         transcriptionTask = Task { [weak self] in
             defer {
                 try? FileManager.default.removeItem(at: captureURL)
-                session.cleanupJob?.finish()
-                if let self, self.jobGeneration == captureGeneration { self.endCleanupJob() }
             }
 
             do {
@@ -861,18 +806,7 @@ final class DictationController {
                 guard let self, self.jobGeneration == captureGeneration, !Task.isCancelled else {
                     return
                 }
-                var text = rawText
-                if let cleanup = self.cleanup {
-                    if let reason = session.cleanupSkipReason, reason == .off || reason == .verbatim {
-                        // Off and Verbatim remain synchronous: no prepare, model call, lease or await.
-                        self.cleanupCoordinator.recordSkip(reason, dependencies: cleanup)
-                    } else {
-                        text = await self.cleanupCoordinator.clean(rawText, style: session.style, job: session.cleanupJob,
-                            dependencies: cleanup, skipReason: session.cleanupSkipReason)
-                        guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
-                    }
-                }
-                let formatted = TranscriptFormatter.format(text, style: session.style)
+                let formatted = TranscriptFormatter.format(rawText, style: session.style)
                 self.recordingDuration = 0
                 self.transcript = formatted
                 if session.copyToPasteboard && !formatted.isEmpty {
