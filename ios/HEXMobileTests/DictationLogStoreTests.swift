@@ -145,6 +145,34 @@ final class DictationLogStoreTests: XCTestCase {
         XCTAssertEqual(again.entries.first?.issues, ["future_issue"])
         await env.dispose()
     }
+    func testDeleteDuringUnfinishedMigrationCannotReappearAfterReloadOrDowngrade() async throws {
+        let env = LogTestEnvironment(); await env.storage.flush()
+        var good = DictationLogEntry(context: .init()); good.status = .finished; good.revision = nil
+        let unresolved = DictationLogEntry(context: .init())
+        let broken = env.storage.root.appendingPathComponent("entries/\(unresolved.id.uuidString).json")
+        try Data("unreadable newer copy".utf8).write(to: broken)
+        let legacy = try JSONEncoder().encode(DictationLogDocument(entries: [good, unresolved]))
+        try legacy.write(to: env.storage.url)
+        let migrated = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(migrated)
+        XCTAssertNotNil(migrated.entry(good.id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: env.storage.url.path))
+        migrated.delete(good.id); await migrated.storage.flush()
+        try await Task.sleep(for: .milliseconds(25))
+        let reloaded = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(reloaded)
+        XCTAssertFalse(reloaded.metadata.contains { $0.id == good.id })
+        XCTAssertNil(reloaded.entry(good.id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: env.storage.root
+            .appendingPathComponent("deleted/\(good.id.uuidString).deleted").path))
+        // Even after a downgrade reintroduces exactly the original schema-1 document.
+        try legacy.write(to: env.storage.url)
+        let downgraded = DictationLogStore(storage: DictationLogStorage(url: env.storage.url), settings: env.settings)
+        try await settle(downgraded)
+        XCTAssertFalse(downgraded.metadata.contains { $0.id == good.id })
+        await env.dispose()
+    }
+
     func testCorruptAndUnknownLegacyIsPreservedAndDoesNotBlockNewCaptures() async throws {
         for data in [Data("not JSON".utf8), Data(repeating: 32, count: 1_000_001),
                      Data(#"{"schemaVersion":999,"entries":[]}"#.utf8)] {

@@ -63,7 +63,11 @@ Schema-1 `HexPlus/dictation-log.json` migrates independently of collection being
 on. Copies are re-read and verified and a completion marker is verified before
 the original is removed. Existing v2 copies always win, including after a
 downgrade. Unknown/corrupt originals remain in place with a generic notice;
-unresolved copies keep the legacy source. Retry rescans and retries migration.
+unresolved copies keep the legacy source. Durable per-UUID deletion markers in
+`deleted/` precede entry removal; migration and later writes respect them, so an
+unfinished migration or a downgrade's reappearing schema-1 file cannot resurrect
+an explicitly deleted entry. Clear removes those markers with the old lineage.
+Retry rescans and retries migration.
 An interrupted saved transcription is finalized on startup unless owned by the
 current process. Wrong filenames are rejected before any write.
 

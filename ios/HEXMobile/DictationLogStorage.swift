@@ -17,9 +17,11 @@ final class DictationLogStorage: @unchecked Sendable {
     private var cleanedExports = false
     private var unreadableFiles = 0
     private var indexScheduled = false
+    private var tombstones = Set<UUID>()
     private let fm = FileManager.default
     private var entriesURL: URL { root.appendingPathComponent("entries", isDirectory: true) }
     private var exportsURL: URL { root.appendingPathComponent("exports", isDirectory: true) }
+    private var deletedURL: URL { root.appendingPathComponent("deleted", isDirectory: true) }
 
     init(url: URL, beforeExportStream: @escaping @Sendable () -> Void = {}) {
         self.url = url; self.beforeExportStream = beforeExportStream
@@ -49,6 +51,7 @@ final class DictationLogStorage: @unchecked Sendable {
         try protect(target)
     }
     private func writeEntry(_ source: DictationLogEntry) throws {
+        guard !tombstones.contains(source.id) else { throw CocoaError(.fileWriteNoPermission) }
         var entry = source; entry.schemaVersion = 2; entry.revision = entry.revision ?? 1
         let data = try encoder().encode(entry)
         try write(data, to: entryURL(entry.id))
@@ -78,6 +81,9 @@ final class DictationLogStorage: @unchecked Sendable {
         if fm.fileExists(atPath: identity.path) {
             archiveID = try JSONDecoder().decode(UUID.self, from: Data(contentsOf: identity))
         } else { try write(encoder().encode(archiveID), to: identity) }
+        try protect(deletedURL, directory: true)
+        tombstones = Set(try fm.contentsOfDirectory(at: deletedURL, includingPropertiesForKeys: nil)
+            .compactMap { UUID(uuidString: $0.deletingPathExtension().lastPathComponent) })
         // Reconcile directory names/fingerprints even when an index exists: it cannot hide newer files.
         let cached = (try? JSONDecoder().decode([DictationLogMetadata].self,
             from: Data(contentsOf: root.appendingPathComponent("index.json")))) ?? []
@@ -87,6 +93,9 @@ final class DictationLogStorage: @unchecked Sendable {
         for file in try fm.contentsOfDirectory(at: entriesURL, includingPropertiesForKeys: nil) {
             guard file.pathExtension == "json" else { continue }
             do {
+                if let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent), tombstones.contains(id) {
+                    try fm.removeItem(at: file); continue // Retry deletion interrupted after durable tombstone.
+                }
                 let signature = try fingerprint(file)
                 if let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent),
                    let row = cache[id], row.fileFingerprint == signature, row.status != .transcribing {
@@ -130,6 +139,7 @@ final class DictationLogStorage: @unchecked Sendable {
             }
             var unresolved = false
             for var entry in legacy.entries {
+                if tombstones.contains(entry.id) { continue }
                 if fm.fileExists(atPath: entryURL(entry.id).path) {
                     // Includes downgrade reappearance: never replace even a corrupt newer copy.
                     if (try? readEntry(entryURL(entry.id))) == nil { unresolved = true }
@@ -179,6 +189,10 @@ final class DictationLogStorage: @unchecked Sendable {
         queue.async {
             do {
                 try self.initialize()
+                // A tombstone must precede removal: unfinished migration or a downgrade's
+                // reappearing schema-1 file must never re-import an explicitly deleted UUID.
+                try self.write(Data(id.uuidString.utf8), to: self.deletedURL.appendingPathComponent(id.uuidString + ".deleted"))
+                self.tombstones.insert(id)
                 let file = self.entryURL(id)
                 if self.fm.fileExists(atPath: file.path) { try self.fm.removeItem(at: file) }
                 self.metadata[id] = nil
@@ -193,7 +207,7 @@ final class DictationLogStorage: @unchecked Sendable {
                 // Delete legacy too, otherwise a retry/relaunch could re-import deleted history.
                 if self.fm.fileExists(atPath: self.url.path) { try self.fm.removeItem(at: self.url) }
                 if self.fm.fileExists(atPath: self.root.path) { try self.fm.removeItem(at: self.root) }
-                self.metadata = [:]; self.owned = []; self.archiveID = archiveID; self.ready = false; self.issue = false
+                self.metadata = [:]; self.owned = []; self.tombstones = []; self.archiveID = archiveID; self.ready = false; self.issue = false
                 try self.initialize(); completion(true)
             } catch { self.ready = false; completion(false) }
         }
