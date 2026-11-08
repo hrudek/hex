@@ -1,6 +1,20 @@
 <!-- tallow -->
 # Hex Agent Guide
 
+## Fork workflow: one worktree per development task
+
+- Before starting any new development task (feature, bug fix, or refactor),
+  create a new Git worktree with its own task-specific branch. Do not start
+  unrelated development in an existing worktree or directly on `hex-plus`.
+- Keep worktrees as sibling directories under the repository's canonical
+  root (the directory containing `.bare/`). Start new fork work from
+  `hex-plus` unless the user explicitly requests another base. This fork
+  workflow takes precedence over the upstream branch instructions below.
+- Run `git worktree list` and check the relevant worktree's status before
+  making changes. Never overwrite or move another task's uncommitted work.
+- Resume an existing task in its own worktree; a new session alone does not
+  require a new worktree. Run edits, builds, and tests inside that worktree.
+
 ## Private Kit Tool
 
 `dev` and `production` take changes only through pull requests (Dax's
