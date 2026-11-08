@@ -89,7 +89,7 @@ may be listed for a feature. Documentation-only process changes need no feature 
 
 | Feature | Issue | PR | Status | Main files |
 | --- | --- | --- | --- | --- |
-| [AI cleanup](ios/AI_CLEANUP.md): on-device Apple Intelligence local word fixes and explicit self-corrections, with plain-transcript fallback; last outcome shown in the Hex+ card | — | #49, #52 | switch | ios/HEXMobile/TranscriptCleanup.swift, ios/HEXMobile/CleanupGuard.swift, ios/HEXMobile/CleanupObservation.swift, ios/HEXMobile/AppleIntelligenceCleaner.swift, ios/HEXMobile/DictationController.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
+| [AI cleanup](ios/AI_CLEANUP.md): on-device Apple Intelligence local word fixes and explicit self-corrections, with plain-transcript fallback; last outcome shown in the Hex+ card | — | #49, #52, #53 | switch | ios/HEXMobile/TranscriptCleanup.swift, ios/HEXMobile/CleanupGuard.swift, ios/HEXMobile/CleanupObservation.swift, ios/HEXMobile/AppleIntelligenceCleaner.swift, ios/HEXMobile/DictationController.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
 | Hex keyboard no longer falls back to the iOS keyboard (Swift 6 lexicon crash) | #31 | pending | fix | ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXShared/FullKeyboard/LexiconDelivery.swift |
 | German autocorrect: ae/oe/ue/ss → ä/ö/ü/ß and German typo fixes on the full keyboard | #33 | pending | switch | ios/HEXShared/FullKeyboard/GermanAutocorrect.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
 | Keep mic warm stays hot after a keyboard dictation (no trip back into the app for the next one) | #42 | pending | fix | ios/HEXMobile/AudioBackend.swift, ios/HEXMobile/DictationController.swift |

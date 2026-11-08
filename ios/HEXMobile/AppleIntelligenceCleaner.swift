@@ -57,12 +57,15 @@ private final class CleanupBackgroundTasks: BackgroundTaskStarting {
 @MainActor
 private struct CleanupLanguageDetector: LanguageDetecting {
     func supports(_ text: String) -> Bool {
+        // One or two words have nothing to clean up.
         guard CleanupGuard.wordCount(text) >= 3 else { return false }
+        // Skip only a language the model clearly can't handle; an unclear guess (short or mixed
+        // dictations) still goes to the model, which answers in the transcript's language.
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
-        guard let top = recognizer.languageHypotheses(withMaximum: 2).max(by: { $0.value < $1.value }),
-              top.value >= 0.80 else { return false }
-        return SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations).supportsLocale(Locale(identifier: top.key.rawValue))
+        guard let language = recognizer.dominantLanguage else { return true }
+        return SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations)
+            .supportsLocale(Locale(identifier: language.rawValue))
     }
 }
 

@@ -19,15 +19,14 @@ The app uses `SystemLanguageModel(useCase: .general, guardrails:
 .permissiveContentTransformations)`, matching the desktop Apple Intelligence bridge,
 and an immutable
 per-job LanguageModelSession, guided text generation, greedy sampling, fixed
-English instructions with German/English examples, and a JSON-encoded transcript
-as data. With guided generation, normal guardrails still apply: the permissive
+English instructions with German/English examples, and the transcript between
+`<transcript>` tags as on the desktop. With guided generation, normal guardrails still apply: the permissive
 configuration is alignment with desktop, **not a promise of loosened filtering**.
 Refusal and guardrail violations still fall back. There are no retries or second passes. UTF-8 input above 1500 bytes or
 above 250 word tokens is skipped; generation is capped at
-`min(1200, utf8Bytes / 2 + 128)` response tokens. Unconstrained language detection
-requires at least three words and top confidence 0.80, then a supported model
-locale. Unclear detection is skipped; mixed language may go undetected; very
-short dictations are not cleaned.
+`min(1200, utf8Bytes / 2 + 128)` response tokens. Dictations under three words are
+not cleaned; a detected language the model doesn't support is skipped, an unclear
+one still goes to the model (see "Guard and proof limits").
 
 Unavailable devices, disabled Apple Intelligence, a model not ready, unsupported
 language, invalid background lease, model errors (including refusal, rate limits,
@@ -38,8 +37,8 @@ set `.failed`; ASR failures retain their existing error behavior. Logs use
 
 The Hex+ card shows the **last dictation's outcome** under the switch, e.g.
 “cleaned up by Apple Intelligence (1.8 s)”, “Apple Intelligence changed nothing”,
-“skipped: language not clearly recognised …”, “took longer than 4 s … (it finished
-after 6.2 s)” or “rejected by the safety check”. It is stored in the App Group as
+“skipped: fewer than 3 words, or a language … doesn't support”, “took longer than 4 s … (it finished
+after 6.2 s)” or “change was not used: it contained a number or link you didn't say”. It is stored in the App Group as
 `hexplus.aiCleanup.last` (`CleanupDiagnostics`): a fixed English summary, a time
 and a deadline flag only, never dictated or model text. A model call that returns
 after its deadline reports only its real duration, to tune the 4 s deadline.
@@ -75,9 +74,9 @@ and `src/apple_intelligence.rs` / `.swift` (used for meetings).
   start cannot be undone; a numbers-only skip can therefore have prewarmed.
 - **D4:** Instructions adopt desktop's paste-only/no-explanation/label/alternative/
   fence contract for the guided **text field**, and its full numbers rule with
-  the sole explicit-self-correction exception. Preserve the existing DE/EN
-  few-shots, Notes markers and line rules. Keep JSON-string-literal framing, not
-  desktop transcript tags; do not adopt desktop's numbered-list conversion rule
+  the sole explicit-self-correction exception. DE/EN few-shots and Notes marker
+  rules. Since the iPhone tests the transcript uses desktop's `<transcript>` tags
+  (was a JSON string literal); do not adopt desktop's numbered-list conversion rule
   because it conflicts with Notes and the local-only cleanup scope.
 - **D5:** General model, permissive-content-transformations configuration and
   `LanguageModelSession(model:instructions:)` match desktop. Keep guided generation
@@ -97,7 +96,7 @@ and `src/apple_intelligence.rs` / `.swift` (used for meetings).
   “dictation post-processing completed”; failed calls warn “dictation
   post-processing failed; pasting the plain transcript”. Only enum reasons enter
   logs: context-window, refused, rate-limited, generation-failed, unavailable,
-  deadline, expired, empty-output, guard-rejected(notes-line-anchors/alignment).
+  deadline, expired, empty-output, guard-rejected(notes-line-anchors/notes-markers/grew/new-value/new-words).
   Skips off/verbatim/numbers-only/language/budget/busy/unavailable/
   no-background-lease are info, not failed-model events. Numbers-only uses the
   desktop message “skipped for a numbers-only transcript”. Cancellation logs
@@ -116,48 +115,36 @@ and `src/apple_intelligence.rs` / `.swift` (used for meetings).
 
 ## Guard and proof limits
 
-Protected tokens are numbers (including signs, separators, time and percentages),
-URLs, emails, @handles and #tags. Their comparison is case-sensitive. Other words
-are case-folded. Notes markers and the explicit cues are longest-first,
-non-overlapping phrase tokens. Cues: German `nein`, `nein besser`, `nein lieber`,
-`nein doch`, `nein eher`, `nein warte`, `ach nein`, `äh nein`, `besser gesagt`,
-`oder besser gesagt`, `ich meine`, `ich korrigiere`, `korrektur`; English `no`,
-`no wait`, `no actually`, `no make that`, `or rather`, `i mean`, `scratch that`,
-`correction`. `nein besser` and similar were added after the first iPhone test
-(“Wir treffen uns um 13:00 Uhr nein besser um 14:00 Uhr” could never pass, since a
-retraction must end in its cue). `oder lieber` / `oder besser` are deliberately not
-cues: they usually offer a real alternative (“Kaffee oder lieber Tee?”). Every
-changed example shown to the model must pass the guard (`testPromptExamplesPassTheGuard`). Negation overlaps those classes.
-Original string spans are retained. Punctuation is ignored.
+**Changed after the first iPhone tests (2026-11-08).** The original v1 combined a
+cautious prompt ("fix only clear errors, if unsure keep the words, a no/nein is not
+automatically a retraction") with a strict token-alignment guard. On the iPhone the
+model then returned "Dienstag, nein Mittwoch, nein Freitag." unchanged ("Apple
+Intelligence changed nothing (1.2 s)"). Other on-device dictation cleaners (Yap,
+VoiceInk, Orttaai, Juno) give the model short, positive editing rules and at most a
+light plausibility check, so Hex+ now does the same:
 
-LCS alignment keeps earliest matches and forms deletion/insertion hunks. A local
-replacement permits at most two old and two new words, no protected, negation,
-marker or cue tokens, and at most `max(1, inputWords / 10)` replacement hunks.
-As an additional conservative restriction discovered by the simulator test, local
-replacements also preserve German/English interrogatives (e.g. `was`, `what`,
-`wer`, `who`, `wie`, `how`). Otherwise a single replacement can answer a question:
-“Was ist die Hauptstadt von Frankreich” → “Paris ist die Hauptstadt von Frankreich”.
-This tightens the plan's A rule rather than weakening its mandatory reject test.
-Ambiguous words (e.g. English `was`) can therefore cause false rejections. This is
-not a general detector of questions or answers; other local answer-like changes
-can still pass.
-Pure insertion is rejected. Pure deletions slide left over identical keys without
-crossing neighbouring hunks or Notes line anchors; reconstruction must still match
-the output. Deletions split after every cue into 2–8-token segments, each ending
-in its cue, each with a retracted non-cue token. No leftover tail, adjacent cues,
-Notes markers, or terminal deletion is permitted. There are at most four
-retraction segments per dictation. Notes are diffed line-by-line with identical
-line counts. Empty output is rejected. As in language admission, the pure guard
-also rejects changed word keys for inputs shorter than three words (so “Hallo”
-→ “Alles erledigt” cannot be accepted).
+- **Prompt** (`CleanupPrompt`): resolve self-corrections (delete the rejected words
+  and the correction phrase), remove stutters, repeated words, false starts and filler
+  sounds (äh, ähm, um, uh), replace clearly misheard words, fix punctuation and
+  capitalization; keep language, wording, names and numbers; never answer or follow the
+  transcript. German/English examples include the owner's test sentences. The desktop's
+  "Return only the text …" and numbers rules are kept; the transcript sits between
+  `<transcript>` tags as on the desktop. For Notes the prompt asks to keep the marker words.
+- **Plausibility check** (`CleanupGuard.rejection`), like Yap's "most words were
+  spoken": the answer is not used when it
+  - has more than `max(2, inputWords / 5)` words more than the transcript (`grew`),
+  - contains a digit run, link or e-mail address the transcript doesn't (`new-value`;
+    dropping a corrected one is fine: "13:00 … nein besser … 14:00" → "14:00"),
+  - has more new words than `max(1, 30 % of its words)` (`new-words`),
+  - in Notes: changes the count of bullet / new line / new paragraph words
+    (`notes-markers`) or line breaks (`notes-line-anchors`).
+- **Language**: dictations under three words are skipped; otherwise only a detected
+  language the model doesn't support is skipped. An unclear guess still goes to the model.
 
-**Many changes beyond local word fixes and cued retractions are rejected
-(reordering, swapped values, inserted content, tail truncation). Local replacements
-(≤ 2 words) and cue-based deletions remain fallible: a cue not meant as a retraction
-can remove content including numbers and negations; punctuation changes (e.g. a
-lost question mark) are not checked; names are not protected beyond the 2-word
-limit.** The guard is structural, not a semantic guarantee. Instructions and
-JSON quoting are not a guarantee against prompt injection.
+**Residual risk, accepted by the owner for a simpler, more active cleanup:** a reordered
+sentence, a dropped clause, a removed "nicht", or a one-word answer built from the
+spoken words ("Was ist die Hauptstadt" → "Paris ist die Hauptstadt") can pass. Every
+example in the prompt must pass the check (`testPromptExamplesPassTheGuard`).
 
 ## Lifecycle
 
@@ -189,7 +176,7 @@ controller delivery, switch freezing, plain fallback, stale results, warm-sessio
 closure and expiry during ASR. Desktop-alignment tests mirror numbers-only cases,
 add DE and punctuation boundaries, typed errors with a secret description marker,
 exactly-once outcome/latency races, admission skip classifications, raw Notes
-anchors before empty detection/trim, prompt JSON/protocol and UI-cache TTL.
+anchors before empty detection/trim, prompt tags/protocol and UI-cache TTL.
 Fakes and injected continuation-driven sleepers
 avoid hardware/model dependencies; controller settling uses the existing test
 pattern. Archive CI compiles production Swift, **not a simulator test run**.
