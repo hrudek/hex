@@ -10,7 +10,13 @@ final class CleanupTestSession: CleanupSession {
     var shouldThrow = false
     var suspend = false
     var gate: CheckedContinuation<String, Never>?
-    func prewarm() async { prepareCount += 1 }
+    var suspendPrewarm = false
+    var prewarmGate: CheckedContinuation<Void, Never>?
+    func prewarm() async {
+        prepareCount += 1
+        if suspendPrewarm { await withCheckedContinuation { prewarmGate = $0 } }
+        cancelled = Task.isCancelled
+    }
     func clean(_ text: String, style: DictationStyle) async throws -> String {
         cleanCount += 1
         if shouldThrow { throw CocoaError(.coderInvalidValue) }
@@ -183,6 +189,70 @@ final class TranscriptCleanupTests: XCTestCase {
         coordinator.release(job.id)
         XCTAssertEqual(coordinator.reservedBy, foreign)
         coordinator.release(foreign); job.finish()
+    }
+
+    func testLateDeadlineCannotResolveFollowingJobAndResultRaceIsSingleResolution() async {
+        let session = CleanupTestSession(), bg = CleanupTestBackground(), clock = CleanupTestSleeper()
+        let deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: session), language: CleanupTestLanguage(),
+            background: bg, isEnabled: { true }, sleep: clock.sleep)
+        let coordinator = CleanupCoordinator()
+        let a = CleanupJob(session: session, background: bg); a.begin()
+        session.suspend = true
+        let firstTask = Task { await coordinator.clean(raw, style: .polished, job: a, dependencies: deps) }
+        await drain()
+        XCTAssertEqual(clock.gates.count, 1)
+        session.resume()
+        let first = await firstTask.value
+        XCTAssertEqual(first, session.result)
+        await drain()
+        session.suspend = true
+        let b = CleanupJob(session: session, background: bg); b.begin()
+        let task = Task { await coordinator.clean(raw, style: .polished, job: b, dependencies: deps) }
+        await drain()
+        // Wake only A's cancelled sleeper; it must not cancel or resolve B.
+        if !clock.gates.isEmpty { clock.gates.removeFirst().resume() }
+        await drain()
+        XCTAssertEqual(coordinator.reservedBy, b.id)
+        XCTAssertNotNil(session.gate)
+        // Result and deadline become runnable together. Either value is valid, never a double resume.
+        session.resume(); clock.fire()
+        let second = await task.value
+        XCTAssertTrue(second == raw || second == session.result)
+        await drain()
+        XCTAssertNil(coordinator.reservedBy)
+        a.finish(); b.finish()
+        XCTAssertEqual(bg.ends, [1, 2])
+    }
+
+    func testPrewarmCancellationKeepsSlotUntilActualCompletion() async {
+        let session = CleanupTestSession(), bg = CleanupTestBackground()
+        session.suspendPrewarm = true
+        let coordinator = CleanupCoordinator()
+        let job = CleanupJob(session: session, background: bg)
+        coordinator.prewarm(job)
+        await drain()
+        coordinator.cancel(job.id)
+        XCTAssertEqual(coordinator.reservedBy, job.id)
+        XCTAssertFalse(coordinator.admit(UUID()))
+        session.prewarmGate?.resume(); session.prewarmGate = nil
+        await drain()
+        XCTAssertTrue(session.cancelled)
+        XCTAssertNil(coordinator.reservedBy)
+    }
+
+    func testInputAndLanguageAdmissionSkipModel() async {
+        let session = CleanupTestSession(), bg = CleanupTestBackground()
+        for text in [String(repeating: "a", count: 1501), String(repeating: "word ", count: 251), raw] {
+            let deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: session), language: CleanupTestLanguage(allowed: false),
+                background: bg, isEnabled: { true })
+            let job = CleanupJob(session: session, background: bg); job.begin()
+            let coordinator = CleanupCoordinator()
+            let value = await coordinator.clean(text, style: .polished, job: job, dependencies: deps)
+            XCTAssertEqual(value, text)
+            XCTAssertNil(coordinator.reservedBy)
+            job.finish()
+        }
+        XCTAssertEqual(session.cleanCount, 0)
     }
 
     func testAlreadyCancelledBeforeRegistrationDoesNotStartModel() async {

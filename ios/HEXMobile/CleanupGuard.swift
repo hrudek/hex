@@ -57,8 +57,7 @@ enum CleanupGuard {
                 let group = Array(words[i..<(i + parts.count)])
                 guard !group.contains(where: \.protected), group.map(\.key) == parts else { continue }
                 let span = group.first!.span.lowerBound..<group.last!.span.upperBound
-                // Do not join phrases over a line anchor or intervening punctuation.
-                guard text[span].lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init) == parts else { continue }
+                // Punctuation is ignored, but a phrase must never cross a line anchor.
                 guard !text[span].contains("\n") else { continue }
                 result.append(Token(key: phrase, span: span, protected: false, cue: cues.contains(phrase),
                                     marker: markers.contains(phrase), negation: group.contains(where: \.negation)))
