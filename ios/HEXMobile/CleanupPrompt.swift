@@ -4,6 +4,8 @@ import Foundation
 /// Orttaai): the small Apple model edits actively when told what to do, and returned the transcript
 /// unchanged under the earlier "change as little as possible, if unsure keep it" wording.
 enum CleanupPrompt {
+    static let revision = "2026-11-08a"
+
     static func transcript(_ text: String, style: DictationStyle, vocabulary: [String] = []) throws -> String {
         let notes = style == .notes
             ? "Keep the spoken words bullet, next bullet, bullet point, new line and new paragraph exactly as they are.\n"
