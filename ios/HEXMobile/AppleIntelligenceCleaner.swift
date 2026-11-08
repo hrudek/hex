@@ -63,7 +63,7 @@ private struct CleanupLanguageDetector: LanguageDetecting {
         // dictations) still goes to the model, which answers in the transcript's language.
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
-        guard let language = recognizer.dominantLanguage else { return true }
+        guard let language = recognizer.dominantLanguage, language != .undetermined else { return true }
         return SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations)
             .supportsLocale(Locale(identifier: language.rawValue))
     }
