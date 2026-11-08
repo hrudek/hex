@@ -1,9 +1,13 @@
+import Combine
 import SwiftUI
 
 /// Hex+ switches. They live in the App Group so the keyboard reads them too.
+@MainActor
 struct HexPlusCard: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var aiCleanup = HexPlusSettings().aiCleanup
+    @State private var showCleanupModel = HexPlusSettings().showCleanupModel
+    @State private var modelInfo = HexPlusModelInfoReader.production.read()
     @State private var cleanupReason = TranscriptCleanupProduction.unavailableReason
     @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
     @State private var germanAutocorrect = HexPlusSettings().germanAutocorrect
@@ -35,7 +39,24 @@ struct HexPlusCard: View {
                 }
                 .onChange(of: aiCleanup) { _, enabled in
                     HexPlusSettings().aiCleanup = enabled
+                    modelInfo = HexPlusModelInfoReader.production.read()
                 }
+                Divider()
+                    .overlay(HexTheme.borderWeak)
+                    .padding(.leading, 16)
+
+                row(
+                    "Show AI cleanup model",
+                    detail: showCleanupModel
+                        ? modelInfo.lines.joined(separator: "\n")
+                        : "Shows which Apple Intelligence model cleans up your dictations",
+                    isOn: $showCleanupModel
+                )
+                .onChange(of: showCleanupModel) { _, enabled in
+                    HexPlusSettings().showCleanupModel = enabled
+                    if enabled { modelInfo = HexPlusModelInfoReader.production.read() }
+                }
+
                 Divider()
                     .overlay(HexTheme.borderWeak)
                     .padding(.leading, 16)
@@ -93,16 +114,30 @@ struct HexPlusCard: View {
                 TranscriptCleanupProduction.invalidateAvailability()
                 log.setEnabled(HexPlusSettings().dictationLog)
                 aiCleanup = HexPlusSettings().aiCleanup
+                showCleanupModel = HexPlusSettings().showCleanupModel
                 cleanupReason = TranscriptCleanupProduction.unavailableReason
                 cleanupLast = TranscriptCleanupProduction.lastSummary
+                modelInfo = HexPlusModelInfoReader.production.read()
+            }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+                .receive(on: RunLoop.main)
+        ) { _ in
+            // Separate defaults instances back the sibling card; do not filter by object.
+            // Hop delivery to the main run loop without carrying Notification into a Task.
+            MainActor.assumeIsolated {
+                modelInfo = HexPlusModelInfoReader.production.read()
             }
         }
         .onAppear {
             log.setEnabled(HexPlusSettings().dictationLog)
             TranscriptCleanupProduction.invalidateAvailability()
             aiCleanup = HexPlusSettings().aiCleanup
+            showCleanupModel = HexPlusSettings().showCleanupModel
             cleanupReason = TranscriptCleanupProduction.unavailableReason
             cleanupLast = TranscriptCleanupProduction.lastSummary
+            modelInfo = HexPlusModelInfoReader.production.read()
             germanAutocorrect = HexPlusSettings().germanAutocorrect
             keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
         }

@@ -7,6 +7,7 @@ struct HexPlusSettings {
     private enum Key {
         static let aiCleanup = "hexplus.aiCleanup"
         static let dictationLog = "hexplus.dictationLog"
+        static let showCleanupModel = "hexplus.showCleanupModel"
         static let germanAutocorrect = "hexplus.germanAutocorrect"
         static let keyboardSwitchKey = "hexplus.keyboardSwitchKey"
     }
@@ -21,6 +22,12 @@ struct HexPlusSettings {
     var aiCleanup: Bool {
         get { defaults?.object(forKey: Key.aiCleanup) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.aiCleanup) }
+    }
+
+    /// Show the configured cleanup model in the Hex+ card, without changing cleanup itself.
+    var showCleanupModel: Bool {
+        get { defaults?.object(forKey: Key.showCleanupModel) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.showCleanupModel) }
     }
 
     /// Local diagnostic text history. Turning it off also deletes the log through its store.
