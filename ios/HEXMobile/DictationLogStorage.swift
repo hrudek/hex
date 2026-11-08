@@ -49,7 +49,7 @@ final class DictationLogStorage: @unchecked Sendable {
         try protect(target)
     }
     private func writeEntry(_ source: DictationLogEntry) throws {
-        var entry = source; entry.schemaVersion = 2
+        var entry = source; entry.schemaVersion = 2; entry.revision = entry.revision ?? 1
         let data = try encoder().encode(entry)
         try write(data, to: entryURL(entry.id))
         var row = DictationLogMetadata(entry, bytes: data.count)
@@ -152,7 +152,7 @@ final class DictationLogStorage: @unchecked Sendable {
         } catch { issue = true; throw error }
     }
     private func entryWithSchema2(_ entry: DictationLogEntry) -> DictationLogEntry {
-        var result = entry; result.schemaVersion = 2; return result
+        var result = entry; result.schemaVersion = 2; result.revision = result.revision ?? 1; return result
     }
     func load(completion: @escaping @Sendable (DictationArchiveLoad) -> Void) {
         queue.async {
