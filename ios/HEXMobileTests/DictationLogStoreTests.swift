@@ -60,7 +60,7 @@ final class DictationLogStoreTests: XCTestCase {
         for _ in 0..<100 {
             await store.storage.flush()
             try await Task.sleep(for: .milliseconds(5))
-            if !store.isLoading { return }
+            if !store.isLoading && store.metadata.prefix(50).allSatisfy({ store.entry($0.id) != nil }) { return }
         }
         XCTFail("Archive did not load")
     }
@@ -151,6 +151,23 @@ final class DictationLogStoreTests: XCTestCase {
             await env.dispose()
         }
     }
+    func testDeleteThenOffAndRetryCannotRewriteDirtyEntry() async throws {
+        let env = LogTestEnvironment()
+        let recording = env.begin() // Source completion has not reached the main actor yet: dirty.
+        let id = recording.entryID
+        env.store.delete(id)
+        env.store.setEnabled(false)
+        env.store.retry()
+        recording.finish(text: "stale", beforeSpelling: "stale")
+        await env.storage.flush()
+        try await Task.sleep(for: .milliseconds(25))
+        XCTAssertNil(env.store.entry(id))
+        XCTAssertFalse(env.store.metadata.contains { $0.id == id })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: env.storage.root
+            .appendingPathComponent("entries/\(id.uuidString).json").path))
+        await env.dispose()
+    }
+
     func testFeedbackOrderAndEditorFieldOwnership() async throws {
         let env = LogTestEnvironment(); let recording = env.begin(); let id = recording.entryID
         let time = Date()

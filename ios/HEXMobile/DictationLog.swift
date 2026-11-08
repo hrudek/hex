@@ -272,6 +272,7 @@ final class DictationLogStore {
     private var active = Set<UUID>()
     private var pinned: UUID?
     private var deleted = Set<UUID>()
+    private var failedDeletes = Set<UUID>()
     private var dirty: [UUID: DictationLogEntry] = [:]
     private let settings: HexPlusSettings
     let storage: DictationLogStorage
@@ -342,6 +343,7 @@ final class DictationLogStore {
     }
     func delete(_ id: UUID) {
         deleted.insert(id); exportURL = nil
+        dirty[id] = nil; active.remove(id)
         let generation = storageGeneration
         storage.delete(id) { [weak self] success in
             Task { @MainActor [weak self] in
@@ -349,7 +351,10 @@ final class DictationLogStore {
                 if success {
                     self.entries.removeAll { $0.id == id }; self.metadata.removeAll { $0.id == id }
                     self.dirty[id] = nil; self.active.remove(id)
-                } else { self.storageProblem = Self.problem }
+                    self.failedDeletes.remove(id)
+                } else {
+                    self.failedDeletes.insert(id); self.storageProblem = Self.problem
+                }
             }
         }
     }
@@ -407,11 +412,18 @@ final class DictationLogStore {
         }
     }
     private func put(_ entry: DictationLogEntry) {
+        guard !deleted.contains(entry.id) else { return }
         entries.removeAll { $0.id == entry.id }; entries.insert(entry, at: 0)
-        let bytes = metadata.first { $0.id == entry.id }?.bytes ?? 0
-        metadata.removeAll { $0.id == entry.id }
-        metadata.append(DictationLogMetadata(entry, bytes: max(bytes, (try? JSONEncoder().encode(entry).count) ?? 0)))
-        metadata.sort { $0.date > $1.date }
+        let fields = [entry.recognized, entry.aiInput, entry.aiAnswer, entry.cleanupOutput,
+                      entry.formattedText, entry.finalText, entry.expectedText, entry.feedbackNote,
+                      entry.context.vocabularySnapshot]
+        let estimate = fields.reduce(2_048) { $0 + ($1?.text.utf8.count ?? 0) }
+        if let index = metadata.firstIndex(where: { $0.id == entry.id }) {
+            metadata[index] = DictationLogMetadata(entry, bytes: max(metadata[index].bytes, estimate))
+        } else {
+            let index = metadata.firstIndex { $0.date < entry.context.createdAt } ?? metadata.endIndex
+            metadata.insert(DictationLogMetadata(entry, bytes: estimate), at: index)
+        }
         dirty[entry.id] = entry; trimCache()
         let generation = storageGeneration
         storage.save(entry) { [weak self] success in
@@ -423,7 +435,11 @@ final class DictationLogStore {
             }
         }
     }
-    func retry() { for entry in dirty.values { put(entry) }; reload() }
+    func retry() {
+        for id in failedDeletes { delete(id) }
+        for entry in dirty.values where !deleted.contains(entry.id) { put(entry) }
+        reload()
+    }
     func releaseJSON(_ url: URL) {
         storage.removeExport(url)
         if exportURL == url { exportURL = nil }

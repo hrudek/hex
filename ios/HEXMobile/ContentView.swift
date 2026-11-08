@@ -371,6 +371,21 @@ struct ContentView: View {
 
     private var transcriptCard: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if let id = dictation.lastLoggedTranscriptID,
+               let entry = DictationLogStore.shared.entry(id), entry.status == .finished {
+                HStack {
+                    Button("Good", systemImage: entry.rating == "good" ? "hand.thumbsup.fill" : "hand.thumbsup") {
+                        DictationLogStore.shared.rate(id, rating: "good")
+                    }
+                    Button("Problem", systemImage: entry.rating == "bad" ? "hand.thumbsdown.fill" : "hand.thumbsdown") {
+                        DictationLogStore.shared.rate(id, rating: "bad")
+                    }
+                }.buttonStyle(.bordered).frame(minHeight: 44)
+                if entry.rating == "bad" {
+                    Text("Optional categories and reference: Hex+ → Dictation log")
+                        .font(.footnote).foregroundStyle(HexTheme.textMuted)
+                }
+            }
             Text(dictation.transcript)
                 .font(.system(size: 17))
                 .lineSpacing(3)

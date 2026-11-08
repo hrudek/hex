@@ -59,15 +59,21 @@ struct DictationJSONExportMenu: View {
             if let sharedURL { store.releaseJSON(sharedURL) }
             sharedURL = nil
         }) {
-            if let sharedURL { DictationJSONShareSheet(url: sharedURL) }
+            if let sharedURL { DictationJSONShareSheet(url: sharedURL, completion: { sharing = false }) }
         }
     }
 }
 
 private struct DictationJSONShareSheet: UIViewControllerRepresentable {
     let url: URL
+    let completion: @MainActor @Sendable () -> Void
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let finished = completion
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            Task { @MainActor in finished() }
+        }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
