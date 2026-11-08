@@ -63,7 +63,7 @@ struct HexPlusCard: View {
 
                 row(
                     "Dictation log",
-                    detail: "Keeps your last 20 dictations on this iPhone only: what was recognized, what AI cleanup made of it, and timings. Turning it off deletes the log.",
+                    detail: "Keeps up to 20 dictations on this iPhone: recognition, cleanup and formatting stages, active vocabulary, optional human feedback and technical diagnostics. No audio. Turning it off deletes the log.",
                     isOn: Binding(get: { log.isEnabled }, set: { log.setEnabled($0) })
                 )
                 if let problem = log.storageProblem {

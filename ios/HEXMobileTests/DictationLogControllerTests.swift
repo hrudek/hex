@@ -162,6 +162,9 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertEqual(entry.context.cleanupPath, .hexPlus)
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")
+        XCTAssertEqual(entry.context.vocabularySnapshot?.text, "\"iPhone\"")
+        XCTAssertEqual(entry.cleanupOutput?.text, "iPhone works")
+        XCTAssertEqual(entry.formattedText?.text, TranscriptFormatter.format("iPhone works", style: .polished))
         try await f.dispose()
     }
 
@@ -181,6 +184,8 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertEqual(entry.secondSpellingPass?.changes.first?.before.text, "iphone")
         XCTAssertEqual(entry.secondSpellingPass?.changes.first?.after.text, "iPhone")
         XCTAssertEqual(entry.finalText?.text, "my iPhone works")
+        XCTAssertEqual(entry.cleanupOutput?.text, "my iPhone works")
+        XCTAssertEqual(entry.formattedText?.text, "my iphone works")
         try await f.dispose()
     }
 
@@ -352,7 +357,7 @@ final class DictationLogControllerTests: XCTestCase {
         try await f.dispose()
     }
 
-    func testExplicitExportsIncludeEvidenceAndNoWholeVocabularyOrErrorPayload() async throws {
+    func testExplicitExportsIncludeEvidenceButNoInternalKeysOrErrorPayload() async throws {
         let env = LogTestEnvironment()
         let recording = env.begin()
         recording.recognized("spoken secret", spelled: "spoken Secret", asrMilliseconds: 12)
@@ -408,6 +413,12 @@ final class DictationLogControllerTests: XCTestCase {
             XCTAssertTrue(entry.firstSpellingChanged)
             XCTAssertEqual(entry.upstreamOutcome, result.map { $0 == "my iPhone works" ? "unchanged" : "changed" } ?? "no result")
             XCTAssertNil(entry.aiAnswer) // Upstream API does not expose raw model answers.
+            XCTAssertEqual(entry.cleanupOutput?.text, result ?? "my iPhone works")
+            XCTAssertEqual(entry.formattedText?.text,
+                TranscriptFormatter.format(result ?? "my iPhone works", style: .polished))
+            XCTAssertEqual(entry.context.vocabularySnapshot?.text, "\"iPhone\"")
+            XCTAssertEqual(entry.upstreamReason,
+                result == nil ? "cleaner returned nil; API exposes no failure reason" : nil)
             XCTAssertNil(entry.cleanupOutcome)
         }
         controller.cancelCurrentJob()

@@ -104,13 +104,15 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     var vocabularyEnabled: Bool?
     var upstreamCleanupEnabled: Bool?
     var hexPlusCleanupEnabled: Bool?
+    var vocabularySnapshot: DictationLogText?
 
     @MainActor
     static func capture(keyboardJob: Bool, copyToPasteboard: Bool, style: DictationStyle,
                         engine: String, language: String, duration: TimeInterval,
                         loudestAverage: Float?, cleanupPath: DictationLogCleanupPath,
                         vocabularyCount: Int, vocabularyEnabled: Bool? = nil,
-                        upstreamCleanupEnabled: Bool? = nil, hexPlusCleanupEnabled: Bool? = nil) -> Self {
+                        upstreamCleanupEnabled: Bool? = nil, hexPlusCleanupEnabled: Bool? = nil,
+                        vocabularyTerms: [String]? = nil) -> Self {
         var context = Self()
         context.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         context.appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
@@ -132,6 +134,9 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.vocabularyEnabled = vocabularyEnabled
         context.upstreamCleanupEnabled = upstreamCleanupEnabled
         context.hexPlusCleanupEnabled = hexPlusCleanupEnabled
+        context.vocabularySnapshot = vocabularyTerms.map {
+            DictationLogText($0.prefix(100).map { String(reflecting: $0) }.joined(separator: ", "))
+        }
         return context
     }
 }
@@ -178,6 +183,12 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
     var aiInput: DictationLogText?
     var aiAnswer: DictationLogText?
     var finalText: DictationLogText?
+    // Optional schema-1 additions: nil is missing evidence, never inferred unchanged.
+    var cleanupOutput: DictationLogText?
+    var formattedText: DictationLogText?
+    var expectedText: DictationLogText?
+    var feedbackNote: DictationLogText?
+    var upstreamReason: String?
     var answerUse: String?
     var cleanupOutcome: String?
     var cleanupSummary: String?
@@ -216,6 +227,11 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
         aiInput = aiInput?.recapped()
         aiAnswer = aiAnswer?.recapped()
         finalText = finalText?.recapped()
+        cleanupOutput = cleanupOutput?.recapped()
+        formattedText = formattedText?.recapped()
+        expectedText = expectedText?.recapped()
+        feedbackNote = feedbackNote?.recapped()
+        context.vocabularySnapshot = context.vocabularySnapshot?.recapped()
         firstSpellingPass?.recap()
         secondSpellingPass?.recap()
     }
@@ -292,6 +308,13 @@ final class DictationLogStore {
         submit(nil)
     }
 
+    func saveFeedback(for id: UUID, expectedText: String, note: String) {
+        update(id, epoch: epoch) {
+            $0.expectedText = expectedText.isEmpty ? nil : DictationLogText(expectedText)
+            $0.feedbackNote = note.isEmpty ? nil : DictationLogText(note)
+        }
+    }
+
     fileprivate func update(_ id: UUID, epoch: UInt64, _ mutate: (inout DictationLogEntry) -> Void) {
         guard isEnabled, self.epoch == epoch, let index = entries.firstIndex(where: { $0.id == id }) else { return }
         mutate(&entries[index])
@@ -359,9 +382,20 @@ final class DictationLogRecording: CleanupTextDiagnostics {
         }
     }
 
-    func upstreamResult(_ result: String?, input: String) {
+    func upstreamResult(_ result: String?, input: String, reason: String? = nil) {
         guard terminal == nil else { return }
-        update { $0.upstreamOutcome = result.map { $0 == input ? "unchanged" : "changed" } ?? "no result" }
+        update {
+            $0.upstreamOutcome = result.map { $0 == input ? "unchanged" : "changed" } ?? "no result"
+            $0.upstreamReason = reason
+        }
+    }
+
+    func processingStages(cleanupOutput: String, formattedText: String) {
+        guard terminal == nil else { return }
+        update {
+            $0.cleanupOutput = DictationLogText(cleanupOutput)
+            $0.formattedText = DictationLogText(formattedText)
+        }
     }
 
     func cleanupResolved(_ observation: CleanupObservation, changed: Bool?) {
