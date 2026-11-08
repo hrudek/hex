@@ -3,8 +3,9 @@
 `hrudek/hex` is a personal fork of [anomalyco/hex](https://github.com/anomalyco/hex)
 for the iPhone app. Branch `hex-plus` (the fork's default branch) is upstream's
 `dev` merged in daily, plus Hex+'s own features. Upstream takes no pull
-requests, so features live only here. Features are built by AI agents; this file
-is the entry point for them and for the owner.
+requests, so features live only here. Features are built locally with Pi and
+reach `hex-plus` through PRs that a Claude review agent checks; this file is
+the entry point for agents and for the owner.
 
 ## For agents: start here
 
@@ -18,8 +19,9 @@ is the entry point for them and for the owner.
   merge. No issue or issue number in the branch name is required. Do not create
   an issue retroactively just to document an already implemented change.
 - Use an existing relevant issue when there is one. Create an issue only for
-  deferred or unresolved work, explicit delegation (including the optional
-  GitHub agent), coordination across multiple PRs, or at the owner's request.
+  deferred or unresolved work, coordination across multiple PRs, or at the
+  owner's request. Issues are notes only: no agent starts from an issue or an
+  `@claude` comment.
   Use `Closes #<issue>` only when the PR fully resolves that issue; otherwise
   link it without closing it. Automatic CI incident and status issues keep
   their existing roles and are not affected by this rule.
@@ -99,29 +101,25 @@ may be listed for a feature. Documentation-only process changes need no feature 
   draft PR if an early durable work-in-progress record helps. The PR preserves
   the agreed behaviour, decisions and verification; lasting product or
   architecture rules belong in repository documentation. Existing CI, merge
-  requirements and distribution rules still apply.
-- **Optional: delegate through the GitHub agent.** Open an issue with the
-  **Hex+ feature** form (it sets the
-  `agent` label itself), or label any issue `agent`. A blank issue stays a
-  note the agent ignores. **Planning** (Opus, Linux runner, cannot change code) replies with
-  a short summary and at most 3 questions (with suggested defaults); the full
-  technical plan for the build agent sits collapsed below it. Revise with `@claude plan …`; approve with
-  `@claude go` plus any corrections. **Building** (Sonnet, macOS runner) then
-  implements that plan and its tests on `feature/<n>-…`, without waiting for
-  a local simulator test run. PR CI builds only the device archive; simulator tests
-  run after merging to `hex-plus`. The PR
-  then opens itself with auto-merge: it lands on `hex-plus` as soon as it
-  compiles, and TestFlight follows (fast lane, as upstream). Red tests are
-  repaired afterwards by **Hex+ fix**. To try a PR before it merges, run
-  **Hex+ PR to iPhone** with its number. Disable auto-merge before the required
-  checks finish if you want to run the optional manual simulator check or try the
-  PR on your iPhone before merging.
-  You can then request fixes in the open PR and merge whenever you choose. Each run
-  starts fresh and reads the issue and all comments by `hrudek` and Claude.
-  A small change needs no plan: comment `@claude …` on an issue without the
-  `agent` label. Label `model:opus` makes building use Opus too.
-- **Changes to a PR:** ask Pi here to continue on that branch, or comment
-  `@claude …` on the PR to delegate to the GitHub agent.
+  requirements and distribution rules still apply. To try a PR before it
+  merges, run **Hex+ PR to iPhone** with its number.
+- **Review agent (automatic).** Every same-repository PR into `hex-plus`
+  (`feature/*`, `fix/*`, `infra/*`, …; not `sync/upstream` or `upstream-pr/*`)
+  is reviewed by Claude (`hexplus-review.yml`, Opus, read-only) when it is
+  opened, reopened or marked ready, and again after **every new commit**; a
+  newer commit cancels the review of the older one. The verdict is one sticky
+  PR comment for exactly the reviewed commit, and the check **Hex+ review**:
+  - `✅ PASS — nothing to fix`: check green.
+  - `❌ FIX — N thing(s) to fix`: check red, with a numbered list (file, line,
+    problem, fix). Optional remarks sit collapsed under *Optional notes* and
+    never change the verdict.
+  - `⚠️ NO RESULT`: the review could not finish (usage limit, timeout); re-run
+    the failed job.
+  Agents working on a PR: read the latest Hex+ review comment, fix every
+  numbered finding, push, and wait for the next verdict. The check is not a
+  required status check, so the owner can still merge deliberately.
+- **Changes to a PR:** ask Pi here to continue on that branch; the push starts
+  a new review.
 - **Removing a feature:**
   1. Not merged yet: close the PR.
   2. Merged, just not wanted right now: turn its switch off in the app's Hex+ section.
@@ -131,16 +129,14 @@ may be listed for a feature. Documentation-only process changes need no feature 
      whole feature is removed; PRs and any existing issue stay as history.
      Reverting the revert brings it back.
   4. The revert conflicts (a later feature builds on it): ask Pi to remove the
-     feature while preserving the dependent behaviour. Alternatively, delegate
-     through an existing feature issue, or create one for this handover, with
-     `@claude remove this feature again, keep <other feature>`.
+     feature while preserving the dependent behaviour.
   Agents: a revert is mechanical; prefer GitHub's Revert over rewriting code.
 - **Automation changes** need the `infra` label. Adding it re-runs the PR's failed
   Hex+ CI jobs by itself (`hexplus-recheck.yml`; the scope check reads labels live).
   Other label events start no CI run (as in OpenCode).
   Draft PRs get only the Linux checks until marked ready.
-- **An unmerged upstream PR:** `gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=1234`,
-  or ask in an issue comment. It opens a PR from `upstream-pr/1234`; merge it
+- **An unmerged upstream PR:** `gh workflow run hexplus-upstream-pr.yml -R hrudek/hex -f pr=1234`.
+  It opens a PR from `upstream-pr/1234`; merge it
   automatically with a **merge commit** once its required checks pass. Conflicts
   are resolved by the automatic Linux route first. The daily sync PR reports when upstream
   merged (the carry dissolves) or closed it (decide whether to keep it).
@@ -150,9 +146,12 @@ may be listed for a feature. Documentation-only process changes need no feature 
   marks the conflict draft ready. CI must still compile it; the sync gate still
   requires successful simulator tests. See Automatic merge-conflict repair below.
 
-Only `hrudek` can start the agent; it reads only comments by `hrudek` and itself. It uses
-the owner's Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`, environment
-`hexplus-agent`) and has no signing secrets.
+The review, fix and conflict agents use the owner's Claude subscription
+(`CLAUDE_CODE_OAUTH_TOKEN`, environment `hexplus-agent`) and have no signing
+secrets. The review runs as `pull_request_target` from `hex-plus`'s copy of
+its workflow, so a PR cannot change its own reviewer; it only reads the PR's
+code and never runs it. The previous issue/`@claude` agent is kept on branch
+`backup/workflows-2026-11-08`.
 
 ## How the fork works
 

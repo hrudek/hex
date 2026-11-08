@@ -1,8 +1,6 @@
-# Hex+ (fork-only). Creating an issue with this form labels it "agent", which
-# starts the planning agent (owner only; anyone else's issue starts nothing).
+# Hex+ (fork-only). A note for later work; no agent starts from issues.
 name: Hex+ feature
-description: Describe what should change in the iPhone app. Claude asks questions and writes a plan.
-labels: [agent]
+description: Note what should change in the iPhone app, to be built later in a local session.
 body:
   - type: textarea
     id: what
