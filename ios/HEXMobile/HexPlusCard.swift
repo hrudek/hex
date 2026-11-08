@@ -58,11 +58,13 @@ struct HexPlusCard: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                TranscriptCleanupProduction.invalidateAvailability()
                 aiCleanup = HexPlusSettings().aiCleanup
                 cleanupReason = TranscriptCleanupProduction.unavailableReason
             }
         }
         .onAppear {
+            TranscriptCleanupProduction.invalidateAvailability()
             aiCleanup = HexPlusSettings().aiCleanup
             cleanupReason = TranscriptCleanupProduction.unavailableReason
             germanAutocorrect = HexPlusSettings().germanAutocorrect

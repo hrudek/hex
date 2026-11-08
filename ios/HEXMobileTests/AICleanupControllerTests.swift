@@ -59,11 +59,11 @@ final class AICleanupControllerTests: XCTestCase {
             let defaults = UserDefaults(suiteName: suite)!
             defer { defaults.removePersistentDomain(forName: suite) }
             let bridge = KeyboardBridge(defaults: defaults)
-            let model = CleanupTestSession(), bg = CleanupTestBackground(), clock = CleanupTestSleeper()
+            let model = CleanupTestSession(), bg = CleanupTestBackground(), clock = CleanupTestSleeper(), observer = CleanupTestObserver()
             model.shouldThrow = mode == 4
             var enabled = mode != 1 && mode != 6
             let deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: model), language: CleanupTestLanguage(),
-                background: bg, isEnabled: { enabled }, sleep: clock.sleep)
+                background: bg, isEnabled: { enabled }, sleep: clock.sleep, observer: observer)
             let asr = CleanupASR()
             if mode == 7 { await asr.fail() }
             let controller = DictationController(audio: CleanupAudio(), keyboardBridge: bridge, transcriber: asr,
@@ -89,6 +89,8 @@ final class AICleanupControllerTests: XCTestCase {
                 let attempted = mode == 0 || mode == 4 || mode == 5
                 XCTAssertEqual(model.cleanCount, attempted ? 1 : 0)
                 XCTAssertEqual(model.prepareCount, attempted ? 1 : 0)
+                let expectedOutcome: CleanupOutcome = cleaned ? .completed : (mode == 4 ? .failed(.generationFailed) : .skipped(mode == 2 ? .verbatim : .off))
+                XCTAssertEqual(observer.events.map(\.outcome), mode == 3 ? [] : [expectedOutcome])
             }
             controller.cancelCurrentJob(); clock.fire(); try await settle()
         }
@@ -100,9 +102,9 @@ final class AICleanupControllerTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let bridge = KeyboardBridge(defaults: defaults), model = CleanupTestSession()
         model.suspend = true
-        let bg = CleanupTestBackground(), clock = CleanupTestSleeper(), asr = CleanupASR()
+        let bg = CleanupTestBackground(), clock = CleanupTestSleeper(), asr = CleanupASR(), observer = CleanupTestObserver()
         let deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: model), language: CleanupTestLanguage(),
-            background: bg, isEnabled: { true }, sleep: clock.sleep)
+            background: bg, isEnabled: { true }, sleep: clock.sleep, observer: observer)
         let controller = DictationController(audio: CleanupAudio(), keyboardBridge: bridge, transcriber: asr,
             transcriberFactory: { asr }, autoPrepareOnInit: false, cleanup: deps)
         controller.prepareModel(); try await settle()
@@ -120,6 +122,7 @@ final class AICleanupControllerTests: XCTestCase {
         XCTAssertEqual(controller.transcript, "Die Katze sitzt auf der Mathe.")
         XCTAssertEqual(bridge.snapshot().resultID, resultID)
         XCTAssertEqual(model.cleanCount, 1)
+        XCTAssertEqual(observer.events.map(\.outcome), [.cancelled, .skipped(.busy)])
         controller.cancelCurrentJob(); clock.fire(); try await settle()
     }
 

@@ -50,6 +50,7 @@ final class DictationController {
         let style: DictationStyle
         let copyToPasteboard: Bool
         let cleanupJob: CleanupJob?
+        let cleanupSkipReason: CleanupSkipReason?
     }
 
     private struct PendingKeyboardHandoff {
@@ -720,7 +721,9 @@ final class DictationController {
         transcriptionTask = nil
         endCleanupJob()
         let effectiveStyle = styleOverride ?? style
-        let cleanupEnabled = cleanup?.isEnabled() == true && effectiveStyle != .verbatim
+        let enabled = cleanup?.isEnabled() == true
+        let cleanupEnabled = enabled && effectiveStyle != .verbatim
+        let disabledCleanupReason: CleanupSkipReason? = !enabled ? .off : (effectiveStyle == .verbatim ? .verbatim : nil)
 
         phase = .requestingPermission
         copied = false
@@ -755,12 +758,18 @@ final class DictationController {
 
                 let startedAt = now()
                 var cleanupJob: CleanupJob?
-                if cleanupEnabled, let cleanup, cleanup.cleaner.unavailableReason == nil,
-                   cleanupCoordinator.reservedBy == nil {
-                    let job = CleanupJob(session: cleanup.cleaner.makeSession(), background: cleanup.background)
-                    cleanupJob = job
-                    pendingCleanupJob = job
-                    cleanupCoordinator.prewarm(job)
+                var cleanupSkipReason = disabledCleanupReason
+                if cleanupEnabled, let cleanup {
+                    if cleanup.cleaner.unavailableReason != nil {
+                        cleanupSkipReason = .unavailable
+                    } else if cleanupCoordinator.reservedBy != nil {
+                        cleanupSkipReason = .busy
+                    } else {
+                        let job = CleanupJob(session: cleanup.cleaner.makeSession(), background: cleanup.background)
+                        cleanupJob = job
+                        pendingCleanupJob = job
+                        cleanupCoordinator.prewarm(job)
+                    }
                 }
                 activeCapture = ActiveCaptureSession(
                     generation: captureGeneration,
@@ -769,7 +778,8 @@ final class DictationController {
                     keyboardJobID: keyboardJobID,
                     style: effectiveStyle,
                     copyToPasteboard: copyToPasteboard,
-                    cleanupJob: cleanupJob
+                    cleanupJob: cleanupJob,
+                    cleanupSkipReason: cleanupSkipReason
                 )
                 refreshWarmExpiry()
                 audioLevel = 0
@@ -852,9 +862,15 @@ final class DictationController {
                     return
                 }
                 var text = rawText
-                if let cleanup = self.cleanup, let job = session.cleanupJob {
-                    text = await self.cleanupCoordinator.clean(rawText, style: session.style, job: job, dependencies: cleanup)
-                    guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
+                if let cleanup = self.cleanup {
+                    if let reason = session.cleanupSkipReason, reason == .off || reason == .verbatim {
+                        // Off and Verbatim remain synchronous: no prepare, model call, lease or await.
+                        self.cleanupCoordinator.recordSkip(reason, dependencies: cleanup)
+                    } else {
+                        text = await self.cleanupCoordinator.clean(rawText, style: session.style, job: session.cleanupJob,
+                            dependencies: cleanup, skipReason: session.cleanupSkipReason)
+                        guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
+                    }
                 }
                 let formatted = TranscriptFormatter.format(text, style: session.style)
                 self.recordingDuration = 0

@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 
 @MainActor
 protocol CleanupSession: AnyObject {
@@ -9,6 +8,7 @@ protocol CleanupSession: AnyObject {
 
 @MainActor
 protocol TranscriptCleaning {
+    /// Fresh availability, never the UI's cached value.
     var unavailableReason: String? { get }
     func makeSession() -> any CleanupSession
 }
@@ -32,6 +32,8 @@ struct TranscriptCleanupDependencies {
     let background: any BackgroundTaskStarting
     let isEnabled: @MainActor () -> Bool
     var sleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    var observer: any CleanupObserving = CleanupLogger()
+    var clock: @MainActor () -> ContinuousClock.Instant = { .now }
 }
 
 /// Owns a capture's background lease independently of the model operation's lifetime.
@@ -82,13 +84,18 @@ final class CleanupJob {
 /// Unstructured tasks are intentional: structured task groups would await an uncooperative model.
 @MainActor
 final class CleanupCoordinator {
+    private struct Pending {
+        let id: UUID
+        let continuation: CheckedContinuation<String, Never>
+        let raw: String
+        let started: ContinuousClock.Instant
+        let dependencies: TranscriptCleanupDependencies
+    }
+
     private(set) var reservedBy: UUID?
     private var modelTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
-    private var pendingID: UUID?
-    private var continuation: CheckedContinuation<String, Never>?
-    private var fallback = ""
-    private static let logger = Logger(subsystem: "hexplus", category: "ai-cleanup")
+    private var pending: Pending?
 
     func admit(_ id: UUID) -> Bool {
         guard reservedBy == nil else { return false }
@@ -110,51 +117,92 @@ final class CleanupCoordinator {
         }
     }
 
-    func cancel(_ id: UUID) {
-        if pendingID == id { resolve(id, value: fallback) }
+    func cancel(_ id: UUID, outcome: CleanupOutcome = .cancelled) {
+        if let pending, pending.id == id { resolve(id, value: pending.raw, outcome: outcome) }
         if reservedBy == id { modelTask?.cancel() }
     }
 
-    private func resolve(_ id: UUID, value: String) {
-        guard pendingID == id, let continuation else { return }
-        self.continuation = nil
-        pendingID = nil
-        deadlineTask?.cancel()
-        deadlineTask = nil
-        continuation.resume(returning: value)
+    private func observe(_ outcome: CleanupOutcome, started: ContinuousClock.Instant,
+                         dependencies: TranscriptCleanupDependencies) {
+        let elapsed = started.duration(to: dependencies.clock()).components
+        let milliseconds = max(0, elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000)
+        dependencies.observer.record(CleanupObservation(outcome: outcome, latencyMilliseconds: milliseconds))
     }
 
-    func clean(_ raw: String, style: DictationStyle, job: CleanupJob,
-               dependencies: TranscriptCleanupDependencies) async -> String {
-        guard !Task.isCancelled, job.permitted, dependencies.cleaner.unavailableReason == nil,
-              raw.utf8.count <= 1500, CleanupGuard.wordCount(raw) <= 250,
-              dependencies.language.supports(raw), admit(job.id) else { return raw }
+    func recordSkip(_ reason: CleanupSkipReason, dependencies: TranscriptCleanupDependencies) {
+        observe(.skipped(reason), started: dependencies.clock(), dependencies: dependencies)
+    }
+
+    private func resolve(_ id: UUID, value: String, outcome: CleanupOutcome) {
+        guard let pending, pending.id == id else { return }
+        self.pending = nil
+        deadlineTask?.cancel()
+        deadlineTask = nil
+        // Only the resolution winner observes; late model/deadline/cancellation paths are no-ops.
+        observe(outcome, started: pending.started, dependencies: pending.dependencies)
+        pending.continuation.resume(returning: value)
+    }
+
+    func clean(_ raw: String, style: DictationStyle, job: CleanupJob?,
+               dependencies: TranscriptCleanupDependencies, skipReason: CleanupSkipReason? = nil) async -> String {
+        let started = dependencies.clock()
+        func skip(_ reason: CleanupSkipReason) -> String {
+            observe(.skipped(reason), started: started, dependencies: dependencies)
+            return raw
+        }
+        guard !Task.isCancelled else {
+            observe(.cancelled, started: started, dependencies: dependencies)
+            return raw
+        }
+        if skipReason == .off || skipReason == .verbatim { return skip(skipReason!) }
+        // Desktop #949: after ASR, before language/admission. Prewarm may already have run.
+        if CleanupNumbers.only(raw) { return skip(.numbersOnly) }
+        if let skipReason { return skip(skipReason) }
+        guard let job else { return skip(.busy) }
+        if job.expired {
+            observe(.failed(.expired), started: started, dependencies: dependencies)
+            return raw
+        }
+        guard job.permitted else { return skip(.noBackgroundLease) }
+        guard dependencies.cleaner.unavailableReason == nil else { return skip(.unavailable) }
+        guard raw.utf8.count <= 1500, CleanupGuard.wordCount(raw) <= 250 else { return skip(.budget) }
+        guard dependencies.language.supports(raw) else { return skip(.language) }
+        guard admit(job.id) else { return skip(.busy) }
         return await withTaskCancellationHandler {
             // No suspension between cancellation check and continuation registration on MainActor.
-            guard !Task.isCancelled else { release(job.id); return raw }
+            guard !Task.isCancelled else {
+                release(job.id)
+                observe(.cancelled, started: started, dependencies: dependencies)
+                return raw
+            }
             return await withCheckedContinuation { continuation in
-                self.continuation = continuation
-                pendingID = job.id
-                fallback = raw
-                job.onExpiry = { [weak self] in self?.cancel(job.id) }
+                pending = Pending(id: job.id, continuation: continuation, raw: raw, started: started, dependencies: dependencies)
+                job.onExpiry = { [weak self] in self?.cancel(job.id, outcome: .failed(.expired)) }
                 modelTask = Task {
                     do {
                         let revised = try await job.session.clean(raw, style: style)
-                        let accepted = CleanupGuard.accepts(input: raw, output: revised, style: style)
-                        if !accepted { Self.logger.info("fallback: structural guard") }
-                        resolve(job.id, value: accepted ? revised : raw)
+                        // Inspect RAW Notes line anchors before trimming or classifying empty output.
+                        if style == .notes && raw.components(separatedBy: "\n").count != revised.components(separatedBy: "\n").count {
+                            resolve(job.id, value: raw, outcome: .failed(.guardRejected(.notesLineAnchors)))
+                        } else if revised.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            resolve(job.id, value: raw, outcome: .failed(.emptyOutput))
+                        } else if !CleanupGuard.accepts(input: raw, output: revised, style: style) {
+                            resolve(job.id, value: raw, outcome: .failed(.guardRejected(.alignment)))
+                        } else {
+                            resolve(job.id, value: revised.trimmingCharacters(in: .whitespacesAndNewlines), outcome: .completed)
+                        }
                     } catch {
-                        // Never log localized errors, prompts, responses, or transcripts.
-                        Self.logger.info("fallback: model generation error")
-                        resolve(job.id, value: raw)
+                        // Never inspect descriptions, associated contexts, prompts, or refusal explanations.
+                        let reason = (error as? CleanupModelError)?.reason ?? .generationFailed
+                        let outcome: CleanupOutcome = reason == .unavailable ? .skipped(.unavailable) : .failed(reason)
+                        resolve(job.id, value: raw, outcome: outcome)
                     }
                     release(job.id)
                 }
                 deadlineTask = Task {
                     do { try await dependencies.sleep(.seconds(4)) } catch { return }
-                    guard !Task.isCancelled, pendingID == job.id else { return }
-                    Self.logger.info("fallback: deadline")
-                    cancel(job.id)
+                    guard !Task.isCancelled, pending?.id == job.id else { return }
+                    cancel(job.id, outcome: .failed(.deadline))
                 }
             }
         } onCancel: {

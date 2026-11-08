@@ -8,6 +8,7 @@ final class CleanupTestSession: CleanupSession {
     var cancelled = false
     var result = "Die Katze sitzt auf der Matte"
     var shouldThrow = false
+    var failure: (any Error)?
     var suspend = false
     var gate: CheckedContinuation<String, Never>?
     var suspendPrewarm = false
@@ -19,6 +20,7 @@ final class CleanupTestSession: CleanupSession {
     }
     func clean(_ text: String, style: DictationStyle) async throws -> String {
         cleanCount += 1
+        if let failure { throw failure }
         if shouldThrow { throw CocoaError(.coderInvalidValue) }
         if suspend {
             let value = await withCheckedContinuation { gate = $0 }
