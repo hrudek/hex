@@ -235,6 +235,10 @@ Launch Hex, setup incomplete              // setup.tour; every build and OS, ful
 │   │   Hex's own dictation (macOS listener, Linux and Windows event log) holds
 │   │   the keys, flies the live words, and lightning burns the answered card
 │   ├── A short, silent, or failed try -> a hint under the field
+│   ├── Listener running but still loading its model, microphone, or shortcuts
+│   │   -> "Getting Hex ready to listen…" in place of the hold prompt until its
+│   │   first session starts (desktop/host.rs `warming`)
+│   │   // setup.warming; Check: `the_practice_page_waits_for_the_listener`
 │   └── Done at any time -> Hex is ready  // practice is never required
 ├── Listener cannot start after setup     // setup.relaunch; event tap refused
 │   ├── First time -> Hex records a marker, reopens itself, resumes at the practice
@@ -667,6 +671,17 @@ Labs > Second dictation shortcut (macOS, off)   // labs.md; issue 627
   -> it dictates like the shortcut: Hold/Toggle, double-tap lock, release
   -> the shortcut that starts a capture finishes it; the other stands down meanwhile
 
+Labs > Caps Lock dictation (macOS, off)   // labs.md
+  -> a Caps Lock press starts a hands-free capture; the next press finishes it
+  -> needs both the HID Caps Lock key and its AlphaShift edge; remapped to
+     Control or Escape changes no AlphaShift, so it never toggles dictation
+  -> Caps Lock stays off so typing is unchanged; its light is solid while any
+     capture records (normal-shortcut and Annotate too), blinks while Hex
+     transcribes or processes, off when done
+  -> Escape cancels in any mode; in Toggle mode only Escape cancels a Caps
+     Lock capture; the normal shortcut stands down while one runs; off or
+     quit clears the light and restores Caps Lock
+
 Labs > Unload model when idle (off; 5/15/30/60 min, default 15)   // labs.md; transcription/engine
   -> nothing used the model that long and nothing records -> the model unloads
   -> next press, meeting chunk, or API request -> reloads first; audio waits, nothing lost
@@ -867,16 +882,28 @@ Intentional recording                    // recording.environment, idle_sleep
     // no caffeinate child process or executable-policy dialog
 ```
 
-Feedback tones keep their output open for five idle minutes (macOS, Windows).
+Feedback tones keep their output open briefly after the last one: about ten
+seconds on macOS, where an open output is a live CoreAudio client coreaudiod
+services and holds a sleep assertion for, and five idle minutes on Windows.
 On Linux, where an open output stays listed in the desktop's sound controls,
 it closes about a second after the last tone ends
 ([#720](https://github.com/anomalyco/hex/issues/720)); the existing
 `output_opens_for_a_tone_and_releases_after_the_idle_grace` check covers the
-grace logic, not a real PipeWire stream list. On macOS the
-CoreAudio listeners on the default output, the device list, and an audio service
-restart advance an output route generation; the next tone drops an output opened
-under an older one and opens the current default at once, so unplugging a USB
-or Bluetooth output no longer silences tones until Hex restarts
+grace logic, not a real PipeWire stream list. A fatal stream error (the output
+became unavailable or invalid) sets a per-sink flag from the stream error
+callback, which may run on a CoreAudio thread; overload glitches (`Xrun`) do
+not. The worker drops a flagged sink on its next 250 ms observation or next
+tone, and the next tone opens a fresh one
+(`an_errored_sink_is_dropped_and_reopened_on_the_next_tone`). A default-output
+change is not fatal on macOS, where cpal reports `DeviceChanged` after the
+default-output unit has already rerouted the stream; on Windows cpal's WASAPI
+backend never rebinds, so a default-device change ends the stream with
+`StreamInvalidated`, which is fatal: the output is dropped and the next tone
+opens the new default. On macOS the CoreAudio listeners on the default output,
+the device list, and an audio service restart advance an output route
+generation; the next tone drops an output opened under an older one and opens
+the current default at once, so unplugging a USB or Bluetooth output no longer
+silences tones until Hex restarts
 ([#428](https://github.com/anomalyco/hex/issues/428)). Check:
 `a_route_change_reopens_the_output_on_the_current_default` in
 [feedback.rs](../../src/feedback.rs), with injected opens; a real unplug has not
@@ -1028,9 +1055,10 @@ the GPUI occlusion regression went with GPUI and has no Rune counterpart.
 
 ```ts
 A pane, detail card or dropdown longer than its space    // ui.scroll-bar (#1209)
-├── Scroll bar -> a thin thumb on the right edge, only while the content overflows
+├── Pane and card bodies -> a wider, clearly visible thumb on the right edge, only while the content overflows
 │   ├── Drag the thumb -> the content follows it
 │   └── Press above or below it -> jumps there
+├── Dropdowns and menus -> the kit's thin thumb, with the same drag and track press
 ├── Page Up / Page Down, Home / End -> page the pane around focus or the pointer
 ├── Open menu or dropdown -> ↑ ↓ move the highlight, Page Up / Down by the rows it
 │   shows, Home / End to the ends; the highlight stays in view
@@ -1039,8 +1067,12 @@ A pane, detail card or dropdown longer than its space    // ui.scroll-bar (#1209
 ```
 
 The bar is Rune's `rune_kit::scroll_bar`, used by `scroll_body`, `faded_body`
-and every kit `Menu`, `Select` and `Combobox`. Checks:
-`a_long_transcript_scrolls_by_dragging_its_scroll_bar`, and in Rune the
+and every kit `Menu`, `Select` and `Combobox`. Hex's pane and card bodies call
+`scroll_bar_styled` instead, with an 8 pt `text_faint` thumb that turns
+`text_muted` and widens to 10 pt under the pointer; dropdowns keep the kit's
+thin thumb. Checks:
+`a_long_transcript_scrolls_by_dragging_its_scroll_bar`,
+`a_long_labs_store_scrolls_by_dragging_its_scroll_bar`, and in Rune the
 `scroll_bar` tests and `page_keys_move_a_scrolling_listbox_highlight_by_what_it_shows`.
 A touchscreen (Wayland, X11, Windows; a pen where the system reports it as a
 touch) acts as the primary button (#1337): a tap clicks, dragging a slider or
@@ -1063,6 +1095,9 @@ Output (main sidebar, replaces the Modes editor) // rune_ui/output.rs; scenes ou
 │   └── Labs > Fix results in Output (off, #989) -> Vocabulary (the shared sheet) and,
 │       with a sentence typed, Fix this: copies Edit with agent's prompt ending
 │       `When I say "<sentence>", Hex pastes "<result>". It should paste: ` (labs.md)
+├── Labs > Transform typed text (Linux, off) -> a Typed text section with typed_text_hotkey,
+│   unbound by default: copies the focused field, runs its Output steps, re-checks the
+│   selection, and replaces it (labs.md, dictation.md)
 └── In some apps -> Each mode's apps and its steps (Only: …), opens to list them
     // the old Modes editor stays in the code for its scenes, unreachable
 
@@ -1627,6 +1662,8 @@ Linux beta                               // not macOS feature parity
 │   │       // check: only_backend_failures_count_as_a_missing_portal (the
 │   │       // classification only); not run on niri
 │   ├── Wayland without the portal -> Bind `hex` commands in the desktop
+│   │   ├── The commands reach only the service listener (`hex start`/`hex service`);
+│   │   │   a foreground `hex dictate` receives none and says so at startup (#1506)
 │   │   ├── General hides shortcut rows and lists the commands
 │   │   └── GNOME: Add GNOME keyboard shortcuts -> custom shortcuts running
 │   │       `hex dictation toggle` (#781); written only while the listener has no
@@ -1689,6 +1726,10 @@ Linux beta                               // not macOS feature parity
 │       │   ├── Meeting capsules take clicks, so they open there only with Labs ›
 │       │   │   Floating meeting capsules on GNOME on and Xwayland already running
 │       │   │   (meetings.md, labs.md; #1274)
+│       │   ├── Annotate's capsule and ink take clicks too, so they open there only
+│       │   │   with Labs › Annotate on GNOME and Xwayland already running; the ink
+│       │   │   takes pointer regions and no keys, Esc can't stop drawing there, and
+│       │   │   the capsule's pen button does (capture.md, labs.md)
 │       │   ├── Drawn on the compositor's GPU only, opaque when its driver offers
 │       │   │   no translucent alpha (NVIDIA), never moved to an iGPU or lavapipe
 │       │   │   that can't make its swapchain (#979, #982)
@@ -2005,7 +2046,16 @@ Linux process                            // maintain.linux-service
 │   │       or Wayland socket discovery (unless HEX_SYSTEMD_UNIT explicitly opts in)
 │   └── Two racing launches -> One Hex; the other forwards and exits 0
 ├── hex start / desktop autostart / hex service -> Same, without the window
+│   └── No WAYLAND_DISPLAY (none at all, or only Xwayland's DISPLAY)
+│       -> Adopt the manager's live WAYLAND_DISPLAY, else the newest answering socket
+│       (#756); behind DISPLAY only for an explicit wayland session type, or an unset
+│       one whose manager names a live display. An explicit x11 or tty login keeps its
+│       X display. Launchers adopt first, so session.env agrees. The shortcut backend
+│       follows the adopted Wayland session: the portal, or the `hex` commands where
+│       it has none
 ├── hex dictation|paste-last -> Socket worker -> Listener queue (never the UI thread)
+├── hex dictate -> Foreground listener; adopts the session's Wayland display like hex service;
+│   `hex` commands reach only the service listener, never it (#1506)
 ├── hex status -> Published status; hex quit / Quit Hex / launcher action -> Drain, exit 0
 ├── Any instance stop still draining after 20 s -> _exit before the unit's 30 s TimeoutStopSec
 │   └── A transcription or paste cut by the deadline is lost; checked by unit tests only,
@@ -2119,10 +2169,12 @@ The shared [feedback player](../../src/feedback.rs) uses Hex's bundled sounds
 ([Feedback](dictation.md#feedback)) on every platform; only macOS wake/sleep
 use `afplay`.
 Decoding happens before the Linux capture loop; the output device opens for
-the first tone and is released five minutes after the last one, as described
-in [macOS feedback](dictation.md#feedback). Playback admission is bounded and
-nonblocking. Output preparation failures are
-logged without blocking dictation. The Settings window saves the volume to
+the first tone and is released shortly after the last one (about ten seconds
+on macOS, five minutes on Windows, one second on Linux), as described in
+[macOS feedback](dictation.md#feedback). A fatal stream error (the output became
+unavailable or invalid) drops the output, so the next tone reopens it. Playback
+admission is bounded and nonblocking. Output preparation failures are logged
+without blocking dictation. The Settings window saves the volume to
 `settings.json` and the service reloads it without restarting the listener. The start sound does not wait
 for the 300 ms capture-retention threshold; input delivery and audio-device
 latency still apply. **While dictating** mute, pause, or lower does: the audio loop
@@ -2159,12 +2211,16 @@ TypeScript SDK + local service             // macOS, Linux, Windows
 ├── Running desktop capture API -> Separate microphone ownership protocol
 │   ├── No silence gate                  // model output, unlike hotkey dictation;
 │   │                                     // only recognition-hint echoes are dropped
-│   ├── Linux -> The listener records it (dictation::service owner)
+│   ├── Linux, Windows -> The listener records it (dictation::service owner)
+│   │   ├── With the microphone chosen in Settings, as the shortcut does
 │   │   ├── Shortcut or `hex dictation` records -> 409 dictation-busy
 │   │   ├── Client's dictation records -> shortcut starts and ends nothing
 │   │   ├── Lapsed lease or owner's cancel -> only that dictation is dropped
-│   │   └── Microphone lost -> finish answers microphone-lost (no kept clip)
-│   └── Windows, hex service -> serviceCapture false, 404 service-capture-unavailable
+│   │   ├── Microphone lost -> finish answers microphone-lost (no kept clip)
+│   │   └── Start with "partials": true -> GET /dictations/{id}/partials
+│   │       └── SSE {stable, tentative} while the model streams (GPU)
+│   ├── macOS -> No partials: dictationPartials false; the SSE ends at once
+│   └── hex service -> serviceCapture false, 404 service-capture-unavailable
 └── Distribution
     ├── SDK 0.3.0 -> Published
     └── Turnkey signed helper -> Unfinished
@@ -2186,6 +2242,18 @@ without a hold threshold or release tail. Unit tests cover ownership, lease
 expiry, busy refusal beside a shortcut capture, and the HTTP round trip
 (`local_api` tests now run on Linux). A live Linux microphone run through the
 SDK is unverified.
+
+Windows `/dictations` uses the same owner in the listener
+([windows/dictation.rs](../../src/windows/dictation.rs)), so a client gets
+Hex's microphone choice, pre-roll, and While dictating behavior, and the HUD
+shows the recording. Live text is opt-in per dictation: `POST /dictations
+{"source": "…", "partials": true}` holds a live-text demand for the
+recording's stream, and `GET /dictations/{id}/partials` (owner token, once)
+sends `data: {"stable": "…", "tentative": "…"}` after each change until the
+dictation ends; it is provisional, and `/finish` returns the transcript.
+`/capabilities` reports `dictationPartials`. Checked live on Windows x64
+(start, partials subscription, finish, a silent room's empty transcript);
+not run on Linux.
 
 The [SDK guide](../../sdk/typescript/README.md),
 [service contract](../specs/local-transcription-service.md), and

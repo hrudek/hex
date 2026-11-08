@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -14,7 +14,8 @@ use crate::control::{PrintReply, PrintedTranscript};
 use crate::desktop::events::{
     DictationPhase, EventLog, TranscriptPhase, VoiceEvent, VoiceState, now_ms,
 };
-use crate::dictation::service::{DictationControl, Effect, MICROPHONE_LOST, ServiceDictations};
+use crate::desktop::host::DesktopShortcuts;
+use crate::dictation::service::{DictationQueue, Effect, MICROPHONE_LOST, ServiceDictations};
 use crate::dictation::{DictationCapture, Finish, ReleaseWait};
 use crate::feedback::{self, Tone};
 use crate::linux::input::{
@@ -59,6 +60,9 @@ enum OutputJob {
     Dictation(Job),
     /// Pastes the newest completed dictation again.
     PasteLast,
+    /// Runs the focused field's text through its Output steps and replaces
+    /// it (Labs › Transform typed text).
+    TypedText,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -67,6 +71,7 @@ enum OutputKind {
     /// A dictation printed by `hex dictation stop --print`.
     Printed,
     PasteLast,
+    TypedText,
 }
 
 /// A release whose capture is still collecting its post-release tail.
@@ -127,35 +132,6 @@ impl Drop for OutputWorker {
     }
 }
 
-/// The local API's `/dictations` controls. The host keeps one queue for
-/// whichever listener runs; while none does, a control goes unanswered and
-/// the API answers `service-capture-unavailable`.
-#[derive(Clone)]
-pub(crate) struct DictationQueue(Arc<Mutex<mpsc::Receiver<DictationControl>>>);
-
-impl From<mpsc::Receiver<DictationControl>> for DictationQueue {
-    fn from(receiver: mpsc::Receiver<DictationControl>) -> Self {
-        Self(Arc::new(Mutex::new(receiver)))
-    }
-}
-
-/// A queue nothing sends to: a listener without the local API.
-impl Default for DictationQueue {
-    fn default() -> Self {
-        mpsc::sync_channel(0).1.into()
-    }
-}
-
-impl DictationQueue {
-    fn drain(&self) -> Vec<DictationControl> {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .try_iter()
-            .collect()
-    }
-}
-
 /// What the host hands a running listener. Settings apply in place while no
 /// dictation records, so changing one never stops listening.
 pub(crate) enum ListenerUpdate {
@@ -186,6 +162,8 @@ fn shortcuts(settings: &AppSettings) -> (LinuxHotkey, HotkeyOptions) {
             .raw_dictation_hotkey
             .as_ref()
             .map(LinuxHotkey::from),
+        // Only while Labs › Transform typed text is on: off registers nothing.
+        typed_text: settings.active_typed_text_hotkey().map(LinuxHotkey::from),
         capture: settings
             .capture
             .enabled
@@ -255,7 +233,13 @@ impl DictationOutput {
         let processed = if raw {
             crate::dictation::processor::Processed::unchanged(raw_text.trim())
         } else {
-            modes.process(&raw_text, language, &context, &self.transformations)
+            modes.process(
+                &raw_text,
+                language,
+                &context,
+                &self.transformations,
+                crate::dictation::processor::Source::Dictation,
+            )
         };
         let printed = paster.is_none();
         // Live typing inserts the final text through the input method; a
@@ -299,6 +283,35 @@ impl DictationOutput {
             }
         }
         Ok(processed.text)
+    }
+}
+
+/// The line a listener prints once its shortcuts are settled: what actually
+/// starts dictation from here. `commands` is whether `hex` commands reach
+/// this listener.
+fn readiness_message(
+    device: &str,
+    hotkey: &str,
+    shortcuts: &DesktopShortcuts,
+    commands: bool,
+) -> String {
+    let ready = format!("Hex dictation is ready on {device}.");
+    match shortcuts {
+        DesktopShortcuts::Registered | DesktopShortcuts::Portal(_) => {
+            format!("{ready} Hold {hotkey} to dictate; Ctrl-C stops.")
+        }
+        // A listener sets its status before it reports ready, so no running
+        // listener prints this.
+        DesktopShortcuts::Unregistered => format!("{ready} Ctrl-C stops."),
+        DesktopShortcuts::Commands if commands => format!(
+            "{ready} No shortcut is bound: bind `hex dictation start` and `hex dictation stop` \
+             (or `hex dictation toggle`) in your desktop's keybindings; Ctrl-C stops."
+        ),
+        DesktopShortcuts::Commands => format!(
+            "{ready} No shortcut is bound and this foreground listener can't receive `hex` \
+             commands: run `hex start` and bind `hex dictation toggle` in your desktop's \
+             keybindings; Ctrl-C stops."
+        ),
     }
 }
 
@@ -385,6 +398,25 @@ pub(crate) fn run(
                         .map(|()| String::new())
                         .map_err(|error| format!("{error:#}"));
                     if result_sender.send((OutputKind::PasteLast, result)).is_err() {
+                        break;
+                    }
+                    continue;
+                }
+                OutputJob::TypedText => {
+                    let result = paster
+                        .as_mut()
+                        .map_err(|error| eyre!("{error:#}"))
+                        .and_then(|paster| {
+                            crate::linux::typed_text::run_job(
+                                paster,
+                                &output_settings.modes,
+                                &output_settings.transformations,
+                                &worker_stop,
+                            )
+                        })
+                        .map(|()| String::new())
+                        .map_err(|error| format!("{error:#}"));
+                    if result_sender.send((OutputKind::TypedText, result)).is_err() {
                         break;
                     }
                     continue;
@@ -523,7 +555,13 @@ pub(crate) fn run(
     })?;
     emit_state(&mut events, VoiceState::Listening, &device_label)?;
     println!(
-        "Hex dictation is ready on {device_label}. Hold {hotkey_label} to dictate; Ctrl-C stops."
+        "{}",
+        readiness_message(
+            &device_label,
+            &hotkey_label,
+            &hotkey_status.shortcuts(),
+            commands.connected(),
+        )
     );
 
     while !shutdown.load(Ordering::Relaxed) {
@@ -916,6 +954,19 @@ pub(crate) fn run(
                         }
                     }
                 }
+                HotkeyEvent::TypedText
+                    if !capture.is_recording()
+                        && !start_pending
+                        && finishing.is_none()
+                        && !service.is_active() =>
+                {
+                    match jobs.try_send(OutputJob::TypedText) {
+                        Ok(()) | Err(TrySendError::Full(_)) => {}
+                        Err(TrySendError::Disconnected(_)) => {
+                            return Err(eyre!("dictation worker is unavailable"));
+                        }
+                    }
+                }
                 HotkeyEvent::Cancel if capture.is_recording() => {
                     capture.cancel();
                     cancel_typing(&mut active_typing);
@@ -945,6 +996,13 @@ pub(crate) fn run(
             };
             // A repeated paste has no transcript and is not pending work.
             if kind == OutputKind::PasteLast {
+                if let Err(error) = result {
+                    fail(&events, error)?;
+                }
+                continue;
+            }
+            // Typed text never touches History, Paste Last, or pending work.
+            if kind == OutputKind::TypedText {
                 if let Err(error) = result {
                     fail(&events, error)?;
                 }
@@ -1100,7 +1158,8 @@ pub(crate) fn run(
                 }
                 // A release in its tail never starts an input method: a
                 // short tap must stay inert even while its last audio lands.
-                if finishing.is_none() {
+                // A client's dictation returns its text and types nothing.
+                if finishing.is_none() && !service.is_active() {
                     begin_live_typing(
                         &capture,
                         toggle,
@@ -1111,10 +1170,12 @@ pub(crate) fn run(
                     );
                 }
                 stream_when_due(&mut capture, &engine, toggle);
-                if let Some(partial) = capture.report_live_text()
-                    && let Some(typing) = &active_typing
-                {
-                    typing.session.preedit(&partial.stable, &partial.tentative);
+                if let Some(partial) = capture.report_live_text() {
+                    if let Some(typing) = &active_typing {
+                        typing.session.preedit(&partial.stable, &partial.tentative);
+                    }
+                    // A client's dictation is the only capture while it records.
+                    service.partial(&partial);
                 }
             }
             RecoveringAudioInputEvent::Timeout => {}
@@ -1460,6 +1521,41 @@ mod tests {
         (EventLog::create(&path).unwrap(), path)
     }
 
+    #[test]
+    fn the_ready_line_names_what_starts_dictation() {
+        assert_eq!(
+            readiness_message("System default", "Alt", &DesktopShortcuts::Registered, true),
+            "Hex dictation is ready on System default. Hold Alt to dictate; Ctrl-C stops."
+        );
+        assert_eq!(
+            readiness_message(
+                "Yeti",
+                "Alt+Space",
+                &DesktopShortcuts::Portal(Vec::new()),
+                false
+            ),
+            "Hex dictation is ready on Yeti. Hold Alt+Space to dictate; Ctrl-C stops."
+        );
+        let unregistered =
+            readiness_message("Yeti", "Alt+Space", &DesktopShortcuts::Unregistered, true);
+        assert!(!unregistered.contains("Hold"));
+
+        let service = readiness_message("Yeti", "Alt+Space", &DesktopShortcuts::Commands, true);
+        assert!(service.contains("No shortcut is bound"));
+        assert!(service.contains("`hex dictation start`"));
+        assert!(service.contains("`hex dictation stop`"));
+        assert!(service.contains("`hex dictation toggle`"));
+        assert!(service.contains("desktop's keybindings"));
+        assert!(!service.contains("Hold"));
+
+        let foreground = readiness_message("Yeti", "Alt+Space", &DesktopShortcuts::Commands, false);
+        assert!(foreground.contains("No shortcut is bound"));
+        assert!(foreground.contains("can't receive `hex` commands"));
+        assert!(foreground.contains("run `hex start`"));
+        assert!(foreground.contains("`hex dictation toggle`"));
+        assert!(!foreground.contains("Hold"));
+    }
+
     /// Records `seconds` of speech-level audio in 100 ms chunks, streaming
     /// as the live loop would.
     fn record(
@@ -1623,10 +1719,11 @@ mod tests {
             let (reply, answer) = mpsc::sync_channel(1);
             assert_eq!(
                 owner.control(
-                    DictationControl::Start {
+                    crate::dictation::service::DictationControl::Start {
                         source: "test".into(),
                         owner_token: "hex_a".into(),
                         levels,
+                        partials: None,
                         reply,
                     },
                     false,
@@ -1846,6 +1943,33 @@ mod tests {
         ));
         drop(events);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn typed_text_is_registered_only_while_its_lab_is_on() {
+        use crate::app_settings::{HotkeyBinding, HotkeyKey, HotkeyModifiers};
+        let binding = HotkeyBinding {
+            modifiers: HotkeyModifiers::default(),
+            key: Some(HotkeyKey::named("f8")),
+        };
+        let mut settings = AppSettings {
+            typed_text_hotkey: Some(binding.clone()),
+            ..AppSettings::default()
+        };
+        let (_, options) = shortcuts(&settings);
+        assert!(
+            options.typed_text.is_none(),
+            "the lab off registers nothing"
+        );
+
+        settings.labs.typed_text = true;
+        assert_eq!(
+            shortcuts(&settings).1.typed_text,
+            Some(LinuxHotkey::from(&binding))
+        );
+
+        settings.typed_text_hotkey = None;
+        assert!(shortcuts(&settings).1.typed_text.is_none());
     }
 
     #[test]

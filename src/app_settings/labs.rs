@@ -74,9 +74,15 @@ pub struct LabsSettings {
     pub hide_menu_bar_icon: bool,
     /// ⌘Q closes the Settings window instead of quitting Hex (macOS).
     pub quit_closes_window: bool,
+    /// A Caps Lock press starts and stops dictation, and its light follows
+    /// Hex's recording and processing (macOS).
+    pub caps_lock_dictation: bool,
     pub movable_meeting_capsules: bool,
     /// A paste restores the clipboard through a running XWayland on Wayland desktops without data-control, such as GNOME (Linux, issue 1111).
     pub gnome_clipboard_restore: bool,
+    /// A shortcut runs the focused app's Output steps on the text already
+    /// typed there and replaces it (`typed_text_hotkey`, unbound by default).
+    pub typed_text: bool,
     /// Meeting titles and summaries read the vocabulary (issue 1154).
     pub meeting_notes_vocabulary: bool,
     /// At either visible indicator position, the HUD grows out of the notch on a screen with one (macOS).
@@ -85,6 +91,8 @@ pub struct LabsSettings {
     pub meeting_finished_event: bool,
     /// The meeting capsules float on a running XWayland on Wayland desktops without layer-shell, such as GNOME (Linux, issue 1274).
     pub gnome_meeting_capsules: bool,
+    /// Annotate's capsule and ink float on a running XWayland on Wayland desktops without layer-shell, such as GNOME (Linux).
+    pub gnome_annotate: bool,
     /// The screenshot shortcut takes an area or a window (macOS); its
     /// shortcut and folder are `screenshots.*`.
     pub screenshots: bool,
@@ -150,14 +158,17 @@ impl Default for LabsSettings {
             settings_search: false,
             hide_menu_bar_icon: false,
             quit_closes_window: false,
+            caps_lock_dictation: false,
             movable_meeting_capsules: false,
             gnome_clipboard_restore: false,
+            typed_text: false,
             meeting_notes_vocabulary: false,
             notch_indicator: false,
             meeting_finished_event: false,
             annotate_replay: false,
             more_call_apps: false,
             gnome_meeting_capsules: false,
+            gnome_annotate: false,
             screenshots: false,
             follow_live_transcript: false,
             meeting_import: false,
