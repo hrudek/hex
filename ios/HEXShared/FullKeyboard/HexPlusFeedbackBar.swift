@@ -33,7 +33,9 @@ final class HexPlusFeedbackBar: UIScrollView {
         button("Dismiss dictation feedback", symbol: "xmark", palette: palette) { [weak self] in self?.onDismiss?() }
         if let message = value.message {
             let label = UILabel(); label.font = .systemFont(ofSize: 11); label.text = message
-            label.textColor = palette.textMuted; stack.addArrangedSubview(label)
+            label.textColor = palette.textMuted
+            label.widthAnchor.constraint(equalToConstant: label.intrinsicContentSize.width).isActive = true
+            stack.addArrangedSubview(label)
             if message.hasPrefix("Not queued") {
                 button("Retry feedback", symbol: "arrow.clockwise", palette: palette) { [weak self] in
                     self?.onRating?(value.retryRating ?? value.rating ?? "bad", value.retryIssues)
@@ -62,13 +64,14 @@ final class HexPlusFeedbackBar: UIScrollView {
         if showTitle { config.title = title; config.imagePadding = 4 }
         button.configuration = config; button.accessibilityLabel = title
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        button.widthAnchor.constraint(greaterThanOrEqualToConstant: showTitle ? 80 : 32).isActive = true
+        button.widthAnchor.constraint(equalToConstant: max(showTitle ? 80 : 44, button.intrinsicContentSize.width)).isActive = true
         stack.addArrangedSubview(button)
     }
     override func layoutSubviews() {
         super.layoutSubviews()
         let size = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        stack.frame = CGRect(x: 0, y: 0, width: max(bounds.width, size.width), height: bounds.height)
-        contentSize = stack.bounds.size
+        stack.frame = CGRect(x: 0, y: 0, width: size.width, height: bounds.height)
+        stack.layoutIfNeeded()
+        contentSize = CGSize(width: max(bounds.width, size.width), height: bounds.height)
     }
 }

@@ -195,6 +195,24 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
     }
 
     #if canImport(UIKit)
+    func testFullFeedbackProblemActionsInitiallyVisibleInBothAppearances() {
+        for dark in [false, true] {
+            let bar = HexPlusFeedbackBar(frame: CGRect(x: 0, y: 0, width: 210, height: 33))
+            bar.update(.snapshotFixture(problem: true), palette: FullKeyboardPalette(isDark: dark))
+            bar.layoutIfNeeded()
+            func buttons(_ root: UIView) -> [UIButton] {
+                (root as? UIButton).map { [$0] } ?? root.subviews.flatMap(buttons)
+            }
+            for label in ["Good", "Problem", "Dismiss dictation feedback"] {
+                let button = buttons(bar).first { $0.accessibilityLabel == label }!
+                let rect = button.convert(button.bounds, to: bar)
+                XCTAssertGreaterThanOrEqual(rect.minX, 0)
+                XCTAssertLessThanOrEqual(rect.maxX, bar.bounds.maxX)
+                XCTAssertGreaterThanOrEqual(rect.width, 44)
+            }
+        }
+    }
+
     func testFullKeyboardFeedbackKeepsUndoDoesNotEditHostAndTypingDismisses() {
         let target = FixtureTextTarget(text: "Original host text")
         let model = KeyboardViewModel()
