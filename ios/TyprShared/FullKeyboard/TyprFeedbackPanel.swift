@@ -20,8 +20,8 @@ final class TyprFeedbackPanel: UIView {
         case notice(String)
     }
 
-    static let openTitle = "Fix in Typr"
-    static let openAccessibilityLabel = "Open this dictation in Typr to enter what you said"
+    static let openTitle = "Feedback in Typr"
+    static let openAccessibilityLabel = "Open this dictation in Typr to add a feedback note"
     static let dismissFeedbackLabel = "Dismiss dictation feedback"
     static let dismissMessageLabel = "Dismiss message"
 
@@ -88,7 +88,7 @@ final class TyprFeedbackPanel: UIView {
                 tile("Problem", symbol: "hand.thumbsdown") { [weak self] in self?.onProblem?() },
             ]
         case .problem:
-            titleLabel.text = "Show Typr what you said"
+            titleLabel.text = "What did you expect differently?"
             closeButton.accessibilityLabel = Self.dismissFeedbackLabel
             tiles = [
                 tile(Self.openTitle, symbol: "square.and.pencil", accessibilityLabel: Self.openAccessibilityLabel) {

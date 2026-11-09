@@ -139,7 +139,7 @@ struct TyprCard: View {
             )
         }
         .sheet(isPresented: $showingLog) { DictationLogView(store: log, router: feedbackRouter) }
-        // "Fix in Typr" from the keyboard: the log opens the requested entry itself.
+        // "Feedback in Typr" from the keyboard: the log opens the requested entry itself.
         .onChange(of: feedbackRouter.requestedEntry) { _, id in
             if id != nil { showingLog = true }
         }

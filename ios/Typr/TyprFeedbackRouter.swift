@@ -1,9 +1,9 @@
 import Observation
 import SwiftUI
 
-/// Typr: carries a "Fix in Typr" request from the keyboard (`TyprFeedbackLink`) to the
+/// Typr: carries a "Feedback in Typr" request from the keyboard (`TyprFeedbackLink`) to the
 /// dictation log. The Typr card presents the log; the log consumes the request and opens
-/// that entry with its "What I said" field focused.
+/// that entry with its expectations note focused.
 @MainActor
 @Observable
 final class TyprFeedbackRouter {

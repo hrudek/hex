@@ -285,6 +285,7 @@ struct KeyboardBridge {
         static let warmDuration = "settings.warmDuration"
         static let style = "settings.dictationStyle"
         static let allowBluetoothMic = "settings.allowBluetoothMic"
+        static let feedbackJobs = "keyboard.feedbackJobs"
         static let lastInsertedResultID = "keyboard.lastInsertedResultID"
         static let fullAccessSeenAt = "keyboard.fullAccessSeenAt"
     }
@@ -313,6 +314,18 @@ struct KeyboardBridge {
         )
         guard let data = try? encoder.encode(command) else { return }
         defaults?.set(data, forKey: Key.command)
+    }
+
+    /// Text-free ownership survives extension recreation during the cold-start app handoff.
+    var feedbackJobs: Set<String> {
+        Set(defaults?.stringArray(forKey: Key.feedbackJobs) ?? [])
+    }
+
+    func ownFeedbackJob(_ jobID: String) {
+        var jobs = defaults?.stringArray(forKey: Key.feedbackJobs) ?? []
+        jobs.removeAll { $0 == jobID }
+        jobs.append(jobID)
+        defaults?.set(Array(jobs.suffix(32)), forKey: Key.feedbackJobs)
     }
 
     func latestCommand() -> KeyboardCommand? {

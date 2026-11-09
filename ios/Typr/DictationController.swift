@@ -54,8 +54,6 @@ final class DictationController {
         let vocabularyTerms: [String]
         /// Speech hints, spelling passes and cleanup terms (Custom vocabulary + built-in glossary).
         let vocabulary: DictationVocabulary
-        /// Every saved term, frozen for the log even while the experiment is off.
-        let savedVocabularyTerms: [String]
         let vocabularyEnabled: Bool
         let typrCleanupEnabled: Bool
         let copyToPasteboard: Bool
@@ -945,7 +943,6 @@ final class DictationController {
                     usesCleanup: usesCleanup,
                     vocabularyTerms: vocabularyTerms,
                     vocabulary: vocabulary,
-                    savedVocabularyTerms: savedVocabularyTerms,
                     vocabularyEnabled: vocabularyEnabled,
                     typrCleanupEnabled: enabled,
                     copyToPasteboard: copyToPasteboard,
@@ -1019,7 +1016,6 @@ final class DictationController {
                 vocabularyEnabled: session.vocabularyEnabled,
                 upstreamCleanupEnabled: session.usesCleanup,
                 typrCleanupEnabled: session.typrCleanupEnabled,
-                vocabularyTerms: session.savedVocabularyTerms,
                 cleanupContext: session.cleanupContext),
                 stoppedAt: stoppedAt)
         }
@@ -1108,6 +1104,12 @@ final class DictationController {
                     secondPass.record(before: before, after: after, term: term)
                 }
                 let formatted = session.vocabulary.afterFormatting(beforeSpelling, onReplacement: observeSecond)
+                if keyboardJobID != nil, recording != nil {
+                    // An offer omitted while the archive loads cannot be added after insertion:
+                    // the keyboard deliberately consumes each result exactly once.
+                    await self.dictationLog?.waitForFeedbackReadiness()
+                    guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
+                }
                 recording?.finish(text: formatted, beforeSpelling: beforeSpelling, spellingPass: secondPass)
                 self.cleanupHistory.record(formatted, at: self.now())
                 self.recordingDuration = 0
