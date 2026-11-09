@@ -65,6 +65,11 @@ final class DictationController {
         let logCleanupPath: DictationLogCleanupPath
         /// Dictation language and data-only preceding text for Typr cleanup, frozen at start.
         let cleanupContext: CleanupContext
+        /// The engine and language this capture is transcribed with, frozen at start: a later
+        /// engine or language change applies to the next dictation only.
+        let transcriber: any LocalTranscribing
+        let language: DictationLanguage
+        let speechLanguageName: String
     }
 
     private struct PendingKeyboardHandoff {
@@ -75,7 +80,9 @@ final class DictationController {
     }
 
     private var transcriber: any LocalTranscribing
-    private let transcriberFactory: () async -> any LocalTranscribing
+    /// Test seam for the automatic (no engine chosen) path; nil uses the provider's automatic choice.
+    private let transcriberFactory: (() async -> any LocalTranscribing)?
+    private let engineProvider: any SpeechEngineProviding
     private let cleaner: (any TranscriptCleaning)?
     private let cleanupSettings: AppleIntelligenceCleanupSettings
     private let customVocabularySettings: CustomVocabularySettings
@@ -111,9 +118,15 @@ final class DictationController {
 
     private var jobGeneration: UInt64 = 0
     private var modelPrepGeneration: UInt64 = 0
+    @ObservationIgnored private var preparationTask: Task<Void, Never>?
     private var activeCapture: ActiveCaptureSession?
     private var meterTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
+    // Cancellation is cooperative: an old task can still own a model after the UI returns to
+    // ready. Keep a fence until its actual completion, including tasks superseded by a capture.
+    private var inFlightTranscriptions: Set<UUID> = []
+    private var inFlightPermissionRequests = 0
+    private var pendingAppleLanguageChange = false
     private var keyboardSessionTask: Task<Void, Never>?
     private var autoReturnFallbackTask: Task<Void, Never>?
 
@@ -172,6 +185,11 @@ final class DictationController {
     private(set) var transcriptionLanguage = "English"
     /// The chosen dictation language (Typr settings); Automatic keeps the previous behavior.
     private(set) var dictationLanguage: DictationLanguage
+    /// The engine the user explicitly chose (persisted). nil: never chosen, the original
+    /// automatic choice applies. An explicit engine is never replaced by another one.
+    private(set) var preferredEngine: SpeechEngineChoice?
+    /// The engine of the ready transcriber; nil while none is ready or while switching.
+    private(set) var currentEngine: SpeechEngineChoice?
     private(set) var modelPreparation = ModelPreparationProgress(
         fractionCompleted: 0,
         detail: "Checking model files"
@@ -191,11 +209,14 @@ final class DictationController {
         customVocabularySettings: CustomVocabularySettings = CustomVocabularySettings(),
         cleanup: TranscriptCleanupDependencies? = nil,
         dictationLog: DictationLogStore? = nil,
-        languageSettings: TyprSettings = TyprSettings()
+        languageSettings: TyprSettings = TyprSettings(),
+        engineProvider: (any SpeechEngineProviding)? = nil
     ) {
         let resolvedBridge = keyboardBridge ?? KeyboardBridge()
         let resolvedAudio = audio ?? SystemAudioManager()
         let initialTranscriber = transcriber ?? ParakeetTranscriber()
+        let resolvedProvider = engineProvider ?? ProductionSpeechEngineProvider()
+        let preferred = languageSettings.preferredSpeechEngine
 
         self.cleanup = cleanup
         self.dictationLog = dictationLog
@@ -204,7 +225,9 @@ final class DictationController {
         self.audio = resolvedAudio
         self.keyboardBridge = resolvedBridge
         self.transcriber = initialTranscriber
-        self.transcriberFactory = transcriberFactory ?? Self.defaultTranscriber
+        self.transcriberFactory = transcriberFactory
+        self.engineProvider = resolvedProvider
+        self.preferredEngine = preferred
         self.cleaner = cleaner
         self.cleanupSettings = cleanupSettings
         self.customVocabularySettings = customVocabularySettings
@@ -217,7 +240,11 @@ final class DictationController {
 
         let hasCachedModel = ParakeetTranscriber.hasCachedModel
         resolvedBridge.publish(.offline)
-        resolvedBridge.setModelInstalled(hasCachedModel)
+        // The keyboard's flag follows the selected engine; no choice keeps the original Parakeet check.
+        resolvedBridge.setModelInstalled(preferred.map { resolvedProvider.isInstalled($0) } ?? hasCachedModel)
+        if let preferred {
+            engineName = preferred.displayName
+        }
 
         wireAudioCallbacks()
         wireSystemIntentBus()
@@ -226,15 +253,30 @@ final class DictationController {
             return
         }
 
-        if autoPrepareOnInit {
+        if autoPrepareOnInit, let preferred {
+            // An explicit engine prepares at launch only without downloading: Apple Speech (iOS
+            // manages its assets), Parakeet when cached, Whisper when verified on disk.
+            switch preferred {
+            case .appleSpeech:
+                prepareModel()
+            case .parakeetV2, .whisperLargeV3Turbo:
+                if resolvedProvider.isInstalled(preferred) {
+                    prepareModel()
+                }
+            }
+        } else if autoPrepareOnInit {
             if hasCachedModel {
                 engineName = "Parakeet V2"
                 prepareModel()
             } else if #available(iOS 26.0, *), AppleSpeechTranscriber.isAvailable {
                 let language = dictationLanguage
+                let launchGeneration = modelPrepGeneration
                 Task { [weak self] in
-                    guard let self else { return }
-                    if await AppleSpeechTranscriber.preferredLocale(language: language) != nil {
+                    let available = await AppleSpeechTranscriber.preferredLocale(language: language, strict: false) != nil
+                    guard let self, self.modelPrepGeneration == launchGeneration,
+                          self.preferredEngine == nil, self.phase == .modelRequired,
+                          self.canChangeEngine else { return }
+                    if available {
                         self.engineName = "Apple Speech"
                         self.prepareModel()
                     } else {
@@ -307,9 +349,61 @@ final class DictationController {
         guard language != dictationLanguage else { return }
         dictationLanguage = language
         languageSettings.dictationLanguage = language
-        if isModelReady, phase == .ready, activeCapture == nil, transcriber.displayName == "Apple Speech" {
-            prepareModel()
+        // Apple Speech prepares one locale. Do not mutate the current capture; reprepare when
+        // idle, including after a cancelled inference has really released its snapshot.
+        if preferredEngine == .appleSpeech || transcriber.displayName == "Apple Speech" || engineName == "Apple Speech" {
+            pendingAppleLanguageChange = true
+            preparePendingAppleLanguageIfIdle()
         }
+    }
+
+    private func preparePendingAppleLanguageIfIdle() {
+        guard pendingAppleLanguageChange, canChangeEngine, phase != .preparingModel else { return }
+        prepareModel()
+    }
+
+    // MARK: - Speech Engine
+
+    enum SpeechEngineSelection: Equatable {
+        case selected
+        case alreadySelected
+        /// A dictation is being set up, recorded, transcribed or cleaned up.
+        case busy
+        /// Whisper is not downloaded and verified; nothing is downloaded by selecting it.
+        case notInstalled
+    }
+
+    /// False from the microphone permission request until transcription and cleanup finish.
+    var canChangeEngine: Bool {
+        switch phase {
+        case .requestingPermission, .recording, .transcribing:
+            return false
+        case .modelRequired, .preparingModel, .ready, .failed:
+            return activeCapture == nil && pendingCleanupJob == nil && transcribingLog == nil
+                && inFlightTranscriptions.isEmpty && inFlightPermissionRequests == 0
+        }
+    }
+
+    /// OS, device, language and install status for the settings section. Starts no model work.
+    func engineAvailability(_ engine: SpeechEngineChoice) async -> SpeechEngineAvailability {
+        await engineProvider.availability(of: engine, language: dictationLanguage)
+    }
+
+    /// The settings section's choice: persisted, then the previous engine is released and the
+    /// chosen one prepared while idle. Never falls back to another engine.
+    @discardableResult
+    func selectEngine(_ engine: SpeechEngineChoice) -> SpeechEngineSelection {
+        guard canChangeEngine else { return .busy }
+        guard engine != preferredEngine else { return .alreadySelected }
+        if engine == .whisperLargeV3Turbo, !engineProvider.isInstalled(engine) {
+            return .notInstalled
+        }
+        preferredEngine = engine
+        languageSettings.preferredSpeechEngine = engine
+        engineName = engine.displayName
+        // Pinning the automatically ready engine needs no model reload.
+        if currentEngine != engine || !isModelReady { prepareModel() }
+        return .selected
     }
 
     func setAllowBluetoothMic(_ allow: Bool) {
@@ -364,6 +458,7 @@ final class DictationController {
         }
         restoreAudioAfterCapture()
         publishKeyboardSnapshot()
+        preparePendingAppleLanguageIfIdle()
     }
 
     func clearTranscript() {
@@ -422,6 +517,7 @@ final class DictationController {
         }
 
         publishKeyboardSnapshot()
+        preparePendingAppleLanguageIfIdle()
     }
 
     func noteSceneDidEnterBackground() {
@@ -660,6 +756,9 @@ final class DictationController {
     // MARK: - Model Preparation
 
     func prepareModel() {
+        // This is also called by handoff/intents and tests, not just the settings button.
+        guard canChangeEngine else { return }
+        pendingAppleLanguageChange = false
         modelPrepGeneration &+= 1
         let prepGen = modelPrepGeneration
         phase = .preparingModel
@@ -668,10 +767,31 @@ final class DictationController {
             fractionCompleted: 0,
             detail: "Checking model files"
         )
+        let preferred = preferredEngine
+        let language = dictationLanguage
+        let previous = preparationTask
+        previous?.cancel()
+        // Release the previous engine before the next one loads, so two large models are never
+        // held together. A running transcription keeps its own snapshot until it ends.
+        transcriber = UnpreparedTranscriber(displayName: engineName)
+        currentEngine = nil
+        isModelReady = false
+        keyboardBridge.setModelInstalled(preferred.map { engineProvider.isInstalled($0) } ?? ParakeetTranscriber.hasCachedModel)
+        publishKeyboardSnapshot()
 
-        Task {
+        preparationTask = Task {
+            // A superseded preparation finishes (and is dropped) before this one creates a model.
+            await previous?.value
+            guard self.modelPrepGeneration == prepGen else { return }
             do {
-                let candidate = await transcriberFactory()
+                let candidate: any LocalTranscribing
+                if let preferred {
+                    candidate = try await engineProvider.transcriber(for: preferred, language: language)
+                } else if let transcriberFactory {
+                    candidate = await transcriberFactory()
+                } else {
+                    candidate = await engineProvider.automaticTranscriber(language: language)
+                }
                 guard self.modelPrepGeneration == prepGen else { return }
                 engineName = candidate.displayName
                 try await candidate.prepare { [weak self] progress in
@@ -680,9 +800,19 @@ final class DictationController {
                         self.modelPreparation = progress
                     }
                 }
+                let candidateLanguageName = await candidate.languageName
                 guard self.modelPrepGeneration == prepGen else { return }
+                // A language change while preparation awaited must not publish the old Apple
+                // locale as ready. The replacement waits for this task to release its candidate.
+                if candidate.displayName == "Apple Speech", self.dictationLanguage != language {
+                    self.pendingAppleLanguageChange = true
+                    self.phase = .ready
+                    self.preparePendingAppleLanguageIfIdle()
+                    return
+                }
                 self.transcriber = candidate
-                self.transcriptionLanguage = await candidate.languageName
+                self.currentEngine = SpeechEngineChoice(displayName: candidate.displayName)
+                self.transcriptionLanguage = candidateLanguageName
                 self.keyboardBridge.setModelInstalled(true)
                 self.isModelReady = true
                 self.phase = .ready
@@ -692,22 +822,14 @@ final class DictationController {
                 }
             } catch {
                 guard self.modelPrepGeneration == prepGen else { return }
-                self.keyboardBridge.setModelInstalled(ParakeetTranscriber.hasCachedModel)
+                self.keyboardBridge.setModelInstalled(
+                    preferred.map { self.engineProvider.isInstalled($0) } ?? ParakeetTranscriber.hasCachedModel)
                 self.pendingHandoff = nil
                 self.phase = .failed(error.localizedDescription)
                 self.publishKeyboardSnapshot()
+                self.preparePendingAppleLanguageIfIdle()
             }
         }
-    }
-
-    private static func defaultTranscriber() async -> any LocalTranscribing {
-        let language = TyprSettings().dictationLanguage
-        if #available(iOS 26.0, *),
-           AppleSpeechTranscriber.isAvailable,
-           let locale = await AppleSpeechTranscriber.preferredLocale(language: language) {
-            return AppleSpeechTranscriber(locale: locale)
-        }
-        return ParakeetTranscriber()
     }
 
     // MARK: - Capture & Generation-Scoped Transcription
@@ -720,6 +842,13 @@ final class DictationController {
         keyboardContext: String? = nil
     ) {
         guard activeCapture == nil else { return }
+        // Never begin a new Apple capture with the previous locale. The current capture is
+        // unaffected, but the next waits for the deferred local preparation.
+        if pendingAppleLanguageChange {
+            preparePendingAppleLanguageIfIdle()
+            return
+        }
+        guard isModelReady, phase != .preparingModel, phase != .requestingPermission else { return }
         if let keyboardJobID, keyboardJobID == activeKeyboardJobID {
             return
         }
@@ -737,6 +866,10 @@ final class DictationController {
         transcriptionTask?.cancel()
         transcriptionTask = nil
         endCleanupJob()
+        let captureTranscriber = transcriber
+        let captureLanguage = dictationLanguage
+        let captureLanguageName = SpeechEngineChoice(displayName: captureTranscriber.displayName) == .whisperLargeV3Turbo
+            ? WhisperTranscriber.languageName(for: captureLanguage) : transcriptionLanguage
         let effectiveStyle = styleOverride ?? style
         let usesCleanup = cleanupSettings.isEnabled
         let vocabularyEnabled = customVocabularySettings.isEnabled
@@ -749,13 +882,18 @@ final class DictationController {
             : (enabled ? .typr : (usesCleanup && cleaner != nil ? .upstream : .none))
         let cleanupEnabled = enabled && effectiveStyle != .verbatim
         let disabledCleanupReason: CleanupSkipReason? = !enabled ? .off : (effectiveStyle == .verbatim ? .verbatim : nil)
-        let cleanupContext = CleanupContext.make(language: languageSettings.dictationLanguage, keyboard: keyboardContext,
+        let cleanupContext = CleanupContext.make(language: captureLanguage, keyboard: keyboardContext,
                                                  previousDictations: cleanupHistory.recent(at: now()))
 
         phase = .requestingPermission
         copied = false
 
+        inFlightPermissionRequests += 1
         Task {
+            defer {
+                self.inFlightPermissionRequests -= 1
+                self.preparePendingAppleLanguageIfIdle()
+            }
             let granted = await audio.requestPermission()
             guard self.jobGeneration == captureGeneration else { return }
             guard granted else {
@@ -815,7 +953,10 @@ final class DictationController {
                     cleanupSkipReason: cleanupSkipReason,
                     logToken: logToken,
                     logCleanupPath: logCleanupPath,
-                    cleanupContext: cleanupContext
+                    cleanupContext: cleanupContext,
+                    transcriber: captureTranscriber,
+                    language: captureLanguage,
+                    speechLanguageName: captureLanguageName
                 )
                 refreshWarmExpiry()
                 audioLevel = 0
@@ -872,7 +1013,7 @@ final class DictationController {
         let recording = session.logToken.flatMap { token in
             dictationLog?.begin(token: token, context: .capture(
                 keyboardJob: keyboardJobID != nil, copyToPasteboard: session.copyToPasteboard,
-                style: session.style, engine: transcriber.displayName, language: transcriptionLanguage,
+                style: session.style, engine: session.transcriber.displayName, language: session.speechLanguageName,
                 duration: finalDuration, loudestAverage: loudestAverageDBFS,
                 cleanupPath: session.logCleanupPath, vocabularyCount: session.vocabularyTerms.count,
                 vocabularyEnabled: session.vocabularyEnabled,
@@ -898,10 +1039,12 @@ final class DictationController {
         restoreAudioAfterCapture()
         publishKeyboardSnapshot()
 
-        let activeTranscriber = transcriber
+        let activeTranscriber = session.transcriber
 
         transcriptionTask?.cancel()
-        transcriptionTask = Task { [weak self] in
+        let inferenceID = UUID()
+        inFlightTranscriptions.insert(inferenceID)
+        let task = Task { [weak self] in
             let asrStarted = ContinuousClock.now
             defer {
                 recording?.finishIfOpen(.cancelled) // Also outside the generation fence: stale tasks terminate their own entry.
@@ -916,7 +1059,8 @@ final class DictationController {
             do {
                 let rawText = try await activeTranscriber.transcribe(
                     captureURL,
-                    vocabulary: session.vocabulary.speechHints
+                    vocabulary: session.vocabulary.speechHints,
+                    language: session.language
                 )
                 guard let self, self.jobGeneration == captureGeneration, !Task.isCancelled else {
                     return
@@ -1009,6 +1153,15 @@ final class DictationController {
                 self.phase = .failed(error.localizedDescription)
                 self.publishKeyboardSnapshot()
             }
+        }
+        transcriptionTask = task
+        Task { [weak self] in
+            // Waiting outside the inference body matters: its locals (and model snapshot) must
+            // be gone before a different engine may allocate a large model.
+            await task.value
+            guard let self else { return }
+            self.inFlightTranscriptions.remove(inferenceID)
+            self.preparePendingAppleLanguageIfIdle()
         }
     }
 
@@ -1427,6 +1580,7 @@ final class DictationController {
         }
         let scene = args[flagIndex + 1]
         controller.engineName = "Apple Speech"
+        controller.currentEngine = .appleSpeech
         controller.transcriptionLanguage = "English"
         controller.keyboardBridge.setModelInstalled(true)
         controller.isModelReady = true

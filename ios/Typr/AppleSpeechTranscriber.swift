@@ -92,6 +92,8 @@ actor AppleSpeechTranscriber: LocalTranscribing {
         case authorizationDenied
         case emptyTranscript
         case unavailable
+        /// An explicit dictation language this iPhone's Apple Speech does not support (its label).
+        case languageUnsupported(String)
 
         var errorDescription: String? {
             switch self {
@@ -101,6 +103,8 @@ actor AppleSpeechTranscriber: LocalTranscribing {
                 "Apple Speech did not detect any speech."
             case .unavailable:
                 "Apple Speech is not available for your preferred languages on this iPhone."
+            case .languageUnsupported(let language):
+                "Apple Speech does not support \(language) on this iPhone. Choose another language or engine."
             }
         }
     }
@@ -108,6 +112,7 @@ actor AppleSpeechTranscriber: LocalTranscribing {
     nonisolated let displayName = "Apple Speech"
 
     private let requestedLocale: Locale
+    private let requestedLanguage: DictationLanguage
 
     private var preparedAnalyzer: SpeechAnalyzer?
     private var preparedTranscriber: SpeechTranscriber?
@@ -118,19 +123,31 @@ actor AppleSpeechTranscriber: LocalTranscribing {
         Self.displayName(for: locale ?? requestedLocale)
     }
 
-    init(locale: Locale) {
+    /// `language` is what the user chose; an explicit language never prepares another language.
+    init(locale: Locale, language: DictationLanguage = .automatic) {
         requestedLocale = locale
+        requestedLanguage = language
+    }
+
+    /// The locale asked for when no candidate is supported, so preparation fails with the reason.
+    nonisolated static func requestedLocale(for language: DictationLanguage) -> Locale {
+        Locale(identifier: language.speechLocaleIdentifier ?? Locale.current.identifier)
     }
 
     nonisolated static var isAvailable: Bool {
         SpeechTranscriber.isAvailable
     }
 
-    /// The chosen dictation language's locale first, then the preferred languages, the current
-    /// locale and en-US (`DictationLanguage.speechLocaleCandidates`).
-    static func preferredLocale(language: DictationLanguage = .automatic) async -> Locale? {
-        let identifiers = language.speechLocaleCandidates(preferred: Locale.preferredLanguages,
-                                                          current: Locale.current.identifier)
+    /// The first supported locale. `strict` (the prepared locale): an explicit language only in
+    /// that language (`speechLocaleCandidates`). Not strict: the original order, explicit locale then
+    /// preferred languages, current locale and en-US (`availabilityLocaleCandidates`), used only
+    /// to decide between Apple Speech and Parakeet when no engine was chosen.
+    static func preferredLocale(language: DictationLanguage = .automatic, strict: Bool = true) async -> Locale? {
+        let preferred = Locale.preferredLanguages
+        let current = Locale.current.identifier
+        let identifiers = strict
+            ? language.speechLocaleCandidates(preferred: preferred, current: current)
+            : language.availabilityLocaleCandidates(preferred: preferred, current: current)
 
         var checked = Set<String>()
         for identifier in identifiers {
@@ -146,6 +163,28 @@ actor AppleSpeechTranscriber: LocalTranscribing {
         return nil
     }
 
+    /// Device, language and asset status for the settings section. Never requests authorization,
+    /// reserves or downloads assets.
+    static func availability(language: DictationLanguage) async -> SpeechEngineAvailability {
+        guard isAvailable else { return .unsupportedDevice("Not supported on this iPhone") }
+        guard let locale = await preferredLocale(language: language) else {
+            return .languageUnsupported(language == .automatic
+                ? "Not available for your preferred languages on this iPhone"
+                : "Not available for \(language.label) on this iPhone")
+        }
+        let name = displayName(for: locale)
+        switch await AssetInventory.status(forModules: [SpeechTranscriber(locale: locale, preset: .transcription)]) {
+        case .installed:
+            return .installed
+        case .unsupported:
+            return .languageUnsupported("Not available for \(name) on this iPhone")
+        case .downloading:
+            return .downloadRequired("iOS is downloading the \(name) speech model")
+        default:
+            return .downloadRequired("iOS downloads the \(name) speech model when you use it")
+        }
+    }
+
     func prepare(
         progressHandler: @escaping @Sendable (ModelPreparationProgress) -> Void
     ) async throws {
@@ -156,7 +195,9 @@ actor AppleSpeechTranscriber: LocalTranscribing {
         guard let locale = await SpeechTranscriber.supportedLocale(
             equivalentTo: requestedLocale
         ) else {
-            throw TranscriberError.unavailable
+            throw requestedLanguage == .automatic
+                ? TranscriberError.unavailable
+                : TranscriberError.languageUnsupported(requestedLanguage.label)
         }
 
         try await AppleSpeechAssetReservations.shared.acquire(locale)

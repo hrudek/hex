@@ -28,10 +28,31 @@ nonisolated enum DictationLanguage: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// Locale identifiers Apple Speech tries in order. An explicit language comes first; the
-    /// automatic order (preferred languages, current locale, en-US) follows, so dictation still
-    /// works on a device without that language's speech model. The log records what was used.
+    /// The Whisper decoding language: nil for automatic (Whisper detects it), else "de" or "en".
+    var whisperLanguageCode: String? {
+        switch self {
+        case .automatic: nil
+        case .german, .english: rawValue
+        }
+    }
+
+    /// Locale identifiers Apple Speech may prepare, in order. Automatic: preferred languages, the
+    /// current locale, then en-US. An explicit language never falls back to another language:
+    /// its default locale, then preferred/current locales of the same language ("de-CH"); Apple
+    /// Speech fails with a clear reason when none is supported.
     func speechLocaleCandidates(preferred: [String], current: String) -> [String] {
+        guard let speechLocaleIdentifier else {
+            return availabilityLocaleCandidates(preferred: preferred, current: current)
+        }
+        let sameLanguage = (preferred + [current]).filter { Self.languageCode(of: $0) == rawValue }
+        var seen = Set<String>()
+        return ([speechLocaleIdentifier] + sameLanguage).filter { seen.insert($0).inserted }
+    }
+
+    /// The pre-engine-choice order (explicit locale first, then the automatic order). Used only
+    /// when no engine was chosen, to decide between Apple Speech and Parakeet V2 exactly as before;
+    /// the locale Apple Speech prepares comes from the strict `speechLocaleCandidates`.
+    func availabilityLocaleCandidates(preferred: [String], current: String) -> [String] {
         var identifiers: [String] = []
         if let speechLocaleIdentifier { identifiers.append(speechLocaleIdentifier) }
         identifiers += preferred
@@ -39,6 +60,10 @@ nonisolated enum DictationLanguage: String, CaseIterable, Codable, Sendable {
         identifiers.append("en-US")
         var seen = Set<String>()
         return identifiers.filter { seen.insert($0).inserted }
+    }
+
+    private static func languageCode(of identifier: String) -> String {
+        String(identifier.prefix { $0 != "-" && $0 != "_" }).lowercased()
     }
 
     /// The cleanup prompt's language line; nil for automatic (the transcript's own language).

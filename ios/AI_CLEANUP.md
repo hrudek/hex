@@ -302,9 +302,13 @@ them. Every example in the prompt must pass the check (`testPromptExamplesPassTh
 
 - **Language picker** (main settings, *Language*: Automatic / Deutsch / English;
   App Group key `typr.dictationLanguage`, default Automatic, not a switch).
-  `DictationLanguage` gives the Apple Speech locale (de-DE, en-US) tried before the
-  automatic order (preferred languages, current locale, en-US), so a device without
-  that speech model still dictates; the log's speech language says what was used.
+  `DictationLanguage` gives the Apple Speech locale (de-DE, en-US, or a preferred
+  locale of the same language such as de-CH); an explicit language never falls back to
+  another language, so a device without that speech model shows why instead of
+  dictating in the wrong language. Automatic keeps the order preferred languages,
+  current locale, en-US. Whisper gets `de`/`en`, or detects the language for
+  Automatic; Parakeet is English only ([SPEECH_ENGINES.md](SPEECH_ENGINES.md)).
+  The log's speech language says what was used.
   Changing it while Apple Speech is prepared and idle prepares Apple Speech again;
   during a recording the next preparation picks it up. For cleanup an explicit
   language adds "write German, keep English words and technical terms as spoken,

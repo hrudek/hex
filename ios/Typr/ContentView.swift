@@ -156,6 +156,7 @@ struct ContentView: View {
                 }
 
                 settingsCard
+                SpeechEngineCard(dictation: dictation)
                 ExperimentsCard()
                 TyprCard()
                 practiceField

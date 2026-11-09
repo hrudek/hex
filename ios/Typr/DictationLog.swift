@@ -72,9 +72,22 @@ enum DictationLogASRFailure: String, Codable, Sendable {
             case .emptyTranscript: return .noSpeech
             }
         }
+        if let error = error as? WhisperTranscriber.TranscriberError {
+            switch error {
+            case .notInstalled, .notPrepared: return .modelNotReady
+            case .emptyTranscript: return .noSpeech
+            case .corruptModel: return .other
+            }
+        }
+        if let error = error as? SpeechEngineError {
+            switch error {
+            case .notReady, .notInstalled: return .modelNotReady
+            case .requiresNewerOS, .unsupportedDevice, .languageUnsupported: return .other
+            }
+        }
         if #available(iOS 26.0, *), let error = error as? AppleSpeechTranscriber.TranscriberError {
             switch error {
-            case .unavailable: return .modelNotReady
+            case .unavailable, .languageUnsupported: return .modelNotReady
             case .emptyTranscript: return .noSpeech
             case .authorizationDenied: return .other
             }

@@ -203,9 +203,13 @@ final class CleanupRewriteTests: XCTestCase {
         XCTAssertEqual(DictationLanguage.allCases.map(\.label), ["Automatic", "Deutsch", "English"])
         XCTAssertEqual(DictationLanguage.automatic.speechLocaleCandidates(preferred: ["de-DE", "en-GB"], current: "de_DE"),
                        ["de-DE", "en-GB", "de_DE", "en-US"])
-        XCTAssertEqual(DictationLanguage.german.speechLocaleCandidates(preferred: ["en-US", "de-DE"], current: "en_US"),
+        // An explicit language never falls back to another language for the prepared locale.
+        XCTAssertEqual(DictationLanguage.german.speechLocaleCandidates(preferred: ["en-US", "de-CH"], current: "en_US"),
+                       ["de-DE", "de-CH"])
+        XCTAssertEqual(DictationLanguage.english.speechLocaleCandidates(preferred: ["de-DE"], current: "de_DE"), ["en-US"])
+        // The automatic engine choice (no explicit engine) keeps the previous availability order.
+        XCTAssertEqual(DictationLanguage.german.availabilityLocaleCandidates(preferred: ["en-US", "de-DE"], current: "en_US"),
                        ["de-DE", "en-US", "en_US"])
-        XCTAssertEqual(DictationLanguage.english.speechLocaleCandidates(preferred: ["de-DE"], current: "de_DE").first, "en-US")
     }
 
     func testLanguageSettingDefaultsToAutomaticInIsolatedDefaults() {

@@ -2,8 +2,10 @@
 
 Typr is a private, standalone iPhone dictation keyboard with a containing app,
 widgets and Live Activity. Speech stays on-device: Apple Speech on iOS 26+,
-or Parakeet via FluidAudio on iOS 18+. The keyboard exchanges commands and
-completed text with the app; it never accesses the microphone, model or network.
+Parakeet V2 via FluidAudio, or Whisper Large V3 Turbo via WhisperKit on iOS 18+
+([speech engines](ios/SPEECH_ENGINES.md)). Whisper downloads only on explicit
+request. The keyboard exchanges commands and completed text with the app; it
+never accesses the microphone, model or network.
 
 Typr is based on Hex by Kit Langton
 (https://github.com/kitlangton/hex / https://github.com/anomalyco/hex), MIT

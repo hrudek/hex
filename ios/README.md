@@ -5,8 +5,9 @@ Typr is a standalone iPhone dictation keyboard.
 **Status:** Internal TestFlight app (`Typr`), custom keyboard extension
 (`TyprKeyboard`), and Live Activity + Control Center widget extension
 (`TyprWidgets`). The containing app records a generation-scoped temporary WAV,
-transcribes on-device with Apple Speech (`SpeechTranscriber` on iOS 26+) or
-FluidAudio Parakeet V2 (iOS 18+), and removes each capture's file after
+transcribes on-device with Apple Speech (`SpeechTranscriber` on iOS 26+),
+FluidAudio Parakeet V2 (iOS 18+) or Whisper Large V3 Turbo (WhisperKit, downloaded
+only on request); see [SPEECH_ENGINES.md](SPEECH_ENGINES.md). It removes each capture's file after
 inference, cancellation, or failure. The keyboard extension sends commands and
 inserts completed text over the shared App Group (`group.dev.rudek.typr`);
 it never accesses the microphone, speech model, or network.
@@ -73,7 +74,11 @@ it never accesses the microphone, speech model, or network.
     always, but English um/uh/er/ah only from text that reads as English ("um 13 Uhr",
     "was er sagt" stay); a period after bzw., z. B., d. h., ca., usw. and similar
     abbreviations does not capitalize the next word.
+  - **Speech engine:** Apple Speech, Parakeet V2 or Whisper Large V3 Turbo, with
+    languages, live status and an explicit Whisper download; an explicit choice
+    never falls back to another engine ([SPEECH_ENGINES.md](SPEECH_ENGINES.md)).
   - **Language (Automatic / Deutsch / English):** picks the Apple Speech locale
+    (an explicit language never falls back to another) and Whisper's language,
     and tells Typr AI cleanup which language to write (English terms in German
     speech stay English). A warm-session start also sends up to 300 characters
     of the field's text before the cursor to the app as cleanup context (never
@@ -153,7 +158,9 @@ xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>
   and UI layouts.
 - **Requires a physical iPhone:** Real `AVAudioSession` background keepalive
   survival across lock/app switches, live orange indicator behavior, on-device
-  `SpeechTranscriber` / Neural Engine Parakeet latency, keyboard-arbiter host
+  `SpeechTranscriber` / Neural Engine Parakeet latency, the Whisper download,
+  Core ML optimization, accuracy, memory and thermal behavior
+  ([checklist](SPEECH_ENGINES.md#iphone-16-a18-checklist)), keyboard-arbiter host
   detection, `LSApplicationWorkspace` and URL-scheme return into installed
   apps (and where each lands), share-sheet refusal, Dynamic Island
   Live Activity interaction, and hardware Action Button invocation. Transient
@@ -164,7 +171,8 @@ xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>
   Its contextual strings are best effort and unverified on a physical iPhone.
   Apple documents contextual strings only for `DictationTranscriber`, Typr sets
   them on `SpeechTranscriber`, and
-  Parakeet's batch path gets no hint.
+  Parakeet's batch path gets no hint. Whisper gets no vocabulary prompt; for it
+  vocabulary is post-processing only (spelling passes and cleanup).
 - **Typr CI:** PRs compile an unsigned device archive (app, keyboard and
   widgets); they do not build the test bundle or automatically run simulator
   tests. App changes on `main` run simulator tests after merge, beside
