@@ -1,10 +1,10 @@
 # Security
 
-Report vulnerabilities through
-[GitHub private vulnerability reporting](https://github.com/anomalyco/hex/security/advisories/new).
-Do not include secrets, private transcripts, browsing history, or unredacted Hex
-diagnostic logs in a public issue.
+To report a suspected security problem, open an
+[issue](https://github.com/hrudek/hex/issues/new) **without vulnerability details**
+and ask the owner for a private contact channel. Private vulnerability reporting
+is not currently enabled for this repository.
 
-Custom command handlers and npm dependencies execute locally with the user's
-normal permissions. They are supervised for lifecycle and bounded IPC, but they
-are not sandboxed.
+Never post secrets, signing credentials, transcripts, dictation logs or private
+exports in public issues or pull requests. Share sensitive evidence only after
+agreeing on a private channel.

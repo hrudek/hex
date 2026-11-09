@@ -35,7 +35,8 @@ it never accesses the microphone, speech model, or network.
     orders the apps the keyboard tray and jump bar offer.
   - **GPU Dot Scope (`HEXShared/DotScope.swift`, `DotScopeShader.metal`):**
     Both `HEXMobile` and `HEXKeyboard` render Hex's desktop menu-bar braided
-    oscilloscope (`src/dot_scope.rs`, `src/rune_hud.wgsl`) at native display
+    oscilloscope (in `anomalyco/hex` at `cae389a8`: `src/rune_hud/dot_scope.rs`,
+    `src/rune_hud.wgsl`) at native display
     refresh via `CAMetalLayer` + `CADisplayLink`, pausing at 0% CPU/GPU once
     settled in idle. Lock Screen / Dynamic Island Live Activities render a
     matching `Canvas` dot-matrix badge (`HexDotMatrixBadge`) because WidgetKit
@@ -129,6 +130,9 @@ xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=
   and unverified on a physical iPhone. Apple documents contextual strings only
   for `DictationTranscriber`, Hex sets them on `SpeechTranscriber`, and
   Parakeet's batch path gets no hint.
-- **No iOS CI:** Custom vocabulary is covered by unit tests only. No CI job
-  compiles or tests the iOS targets, so these checks run only in a local
-  `xcodebuild test`.
+- **Hex+ CI:** PRs compile an unsigned device archive (app, keyboard and
+  widgets); they do not build the test bundle or automatically run simulator
+  tests. App changes on `hex-plus` run simulator tests after merge, beside
+  TestFlight. Manual `distribution=simulator` runs are available before merge;
+  see [HEXPLUS.md](../HEXPLUS.md). These checks do not prove physical-iPhone
+  behavior; a test's presence is not evidence of a passing run.
