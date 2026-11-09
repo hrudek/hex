@@ -34,7 +34,7 @@ struct TyprDictationLiveActivity: Widget {
                         .padding(.trailing, 4)
                 }
             } minimal: {
-                TyprDotMatrixBadge(columns: 7, rows: 5, pitch: 2.1, cooling: isCooling)
+                TyprDotMatrixBadge(columns: 7, rows: 5, pitch: 2.1, cooling: isCooling, opticallyCentered: true)
             }
             .keylineTint(isRecording ? TyprTheme.warmPearl : TyprTheme.agentBlue)
         }

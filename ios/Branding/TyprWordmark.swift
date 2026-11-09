@@ -2,13 +2,20 @@
 import SwiftUI
 
 /// The outlined Typr wordmark, aspect-fitted without the icon background.
+/// `opticallyCentered` applies the app icon's optical offset; use it only
+/// when the mark sits centered in a surface, not when aligned to an edge.
 struct TyprWordmark: Shape {
+    var opticallyCentered = false
+
+    static let opticalOffset = CGSize(width: 39, height: 12)
+
     func path(in rect: CGRect) -> Path {
         let width: CGFloat = 1359.72
         let height: CGFloat = 573
         let scale = min(rect.width / width, rect.height / height)
-        let origin = CGPoint(x: rect.midX - width * scale / 2,
-                             y: rect.midY - height * scale / 2)
+        let offset = opticallyCentered ? Self.opticalOffset : .zero
+        let origin = CGPoint(x: rect.midX - width * scale / 2 + offset.width * scale,
+                             y: rect.midY - height * scale / 2 + offset.height * scale)
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: origin.x + (x - 344.012) * scale,
                     y: origin.y + (y - 788.4) * scale)

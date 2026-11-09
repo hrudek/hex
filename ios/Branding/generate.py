@@ -11,6 +11,12 @@ import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parent
 
+# Optical correction in SVG units (wordmark height 573), applied after the
+# visible bounds are centered. The light period widens the bounds, so the heavy
+# "typr" sits left; descenders pull the x-height up. Right/down shift balances
+# both without fully centering on ink mass, which would crowd the period.
+OPTICAL_OFFSET = (39, 12)
+
 
 def geometry():
     root = ET.parse(HERE / 'typr-logo.svg').getroot()
@@ -62,13 +68,20 @@ def swift_source():
         '// Generated from typr-logo.svg by generate.py; edit the SVG, not this file.',
         'import SwiftUI', '',
         '/// The outlined Typr wordmark, aspect-fitted without the icon background.',
+        '/// `opticallyCentered` applies the app icon\'s optical offset; use it only',
+        '/// when the mark sits centered in a surface, not when aligned to an edge.',
         'struct TyprWordmark: Shape {',
+        '    var opticallyCentered = false',
+        '',
+        f'    static let opticalOffset = CGSize(width: {OPTICAL_OFFSET[0]:g}, height: {OPTICAL_OFFSET[1]:g})',
+        '',
         '    func path(in rect: CGRect) -> Path {',
         f'        let width: CGFloat = {x1 - x0:g}',
         f'        let height: CGFloat = {y1 - y0:g}',
         '        let scale = min(rect.width / width, rect.height / height)',
-        '        let origin = CGPoint(x: rect.midX - width * scale / 2,',
-        '                             y: rect.midY - height * scale / 2)',
+        '        let offset = opticallyCentered ? Self.opticalOffset : .zero',
+        '        let origin = CGPoint(x: rect.midX - width * scale / 2 + offset.width * scale,',
+        '                             y: rect.midY - height * scale / 2 + offset.height * scale)',
         '        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {',
         f'            CGPoint(x: origin.x + (x - {x0:g}) * scale,',
         f'                    y: origin.y + (y - {y0:g}) * scale)',
@@ -90,11 +103,14 @@ def swift_source():
 def render_layer(destination):
     root, path, _, (x0, y0, x1, y1) = geometry()
     # Preserve the source's wordmark proportions; center its visible bounds on
-    # the 2000-square canvas. The background belongs to Icon Composer, not PNG.
+    # the 2000-square canvas, then apply the optical offset. The background
+    # belongs to Icon Composer, not the PNG.
     for child in list(root):
         if child is not path:
             root.remove(child)
-    path.set('transform', f'translate({1000 - (x0 + x1) / 2:g} {1000 - (y0 + y1) / 2:g})')
+    dx = 1000 - (x0 + x1) / 2 + OPTICAL_OFFSET[0]
+    dy = 1000 - (y0 + y1) / 2 + OPTICAL_OFFSET[1]
+    path.set('transform', f'translate({dx:g} {dy:g})')
     subprocess.run(['rsvg-convert', '--width', '2048', '--height', '2048',
                     '--output', str(destination)], input=ET.tostring(root), check=True)
 
