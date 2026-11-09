@@ -42,13 +42,6 @@ final class KeyboardSurfaceChoiceTests: XCTestCase {
 
     // MARK: - Settings and choice
 
-    func testSettingDefaultsOnAndPersists() {
-        let settings = TyprSettings(defaults: defaults)
-        XCTAssertTrue(settings.keyboardSwitchKey)
-        settings.keyboardSwitchKey = false
-        XCTAssertFalse(TyprSettings(defaults: defaults).keyboardSwitchKey)
-    }
-
     func testChoiceDefaultsToFullKeyboardAndPersists() {
         let choice = KeyboardSurfaceChoice(defaults: defaults)
         XCTAssertFalse(choice.showsCompactBar)
@@ -58,13 +51,11 @@ final class KeyboardSurfaceChoiceTests: XCTestCase {
 
     func testWhichKeyboardMounts() {
         typealias Choice = KeyboardSurfaceChoice
-        XCTAssertTrue(Choice.wantsFullKeyboard(experimentOn: true, switchKeyOn: true, compactChosen: false))
-        XCTAssertFalse(Choice.wantsFullKeyboard(experimentOn: true, switchKeyOn: true, compactChosen: true))
-        XCTAssertTrue(
-            Choice.wantsFullKeyboard(experimentOn: true, switchKeyOn: false, compactChosen: true),
-            "switch off keeps today's behaviour: the experiment alone decides"
-        )
-        XCTAssertFalse(Choice.wantsFullKeyboard(experimentOn: false, switchKeyOn: true, compactChosen: false))
-        XCTAssertFalse(Choice.wantsFullKeyboard(experimentOn: false, switchKeyOn: false, compactChosen: false))
+        // A persisted, retired switch value must no longer disable switching.
+        defaults.set(false, forKey: "typr.keyboardSwitchKey")
+        XCTAssertTrue(Choice.wantsFullKeyboard(experimentOn: true, compactChosen: false))
+        XCTAssertFalse(Choice.wantsFullKeyboard(experimentOn: true, compactChosen: true))
+        XCTAssertFalse(Choice.wantsFullKeyboard(experimentOn: false, compactChosen: false))
+        XCTAssertFalse(Choice.wantsFullKeyboard(experimentOn: false, compactChosen: true))
     }
 }

@@ -130,55 +130,8 @@ and a deadline flag only, never dictated or model text. A model call that return
 after its deadline reports only its real duration, to tune the deadline.
 Turning the switch off keeps the previous outcome visible.
 
-## Which model (Typr card)
-
-**Show AI cleanup model**, directly below **AI cleanup**, is on by default
-(`typr.showCleanupModel` in the App Group). It reports the **configured cleanup
-model for new recordings**, not the speech-recognition model or a guarantee that
-a particular dictation will be cleaned:
-
-- With Typr AI cleanup on, it shows Apple's on-device foundation model with
-  general use and permissive content transformations. Unavailable Typr cleanup
-  does **not** fall through to the upstream experiment.
-- With Typr off and Experiments › Clean up with Apple Intelligence on, it shows
-  the upstream configuration: general use, default guardrails.
-- With both switches off, it says no model is configured. Below iOS 26 or without
-  FoundationModels, it says the model requires iOS 26 or later, regardless of the
-  switches. Neither case looks up model availability.
-- For either active path, it shows that configuration's own availability reason,
-  or “Model availability: available. Model version managed by Apple. Never used
-  in Verbatim.” The “running on iOS x.y.z” label is the OS version, **not** a
-  model checkpoint/version identifier. Apple manages the model version.
-
-Both cleanup paths skip Verbatim. Style, transcript length, detected language,
-busy work and background execution are per-recording decisions; this display
-cannot predict them. Context size and device-locale support are deliberately
-omitted: they are not needed to identify the configuration, and locale support
-would not establish support for a future transcript's detected language.
-
-Turning the display switch off hides the details but keeps its control visible,
-with “Shows which Apple Intelligence model cleans up your dictations”. It changes
-neither cleanup switch nor recording behavior. The other card rows stay unchanged.
-Information refreshes on appearance, foregrounding (after invalidating Typr's
-availability cache), after persisting the Typr cleanup switch, when enabling the
-display, and on defaults-change notifications, including the sibling experiment's
-switch. Notification handling runs on the main actor and only reads; it does not
-write settings or invalidate the cache. Reading information never creates a
-session, prewarms, generates, or logs model work.
-
-`TyprModelInfoTests` adds deterministic coverage of all precedence combinations,
-exact available/unavailable/no-model strings, selected-path-only availability reads,
-isolated-defaults sibling-switch changes in both directions, and the independent
-default-on display switch. These new tests have **not run locally**: no Swift or
-Xcode toolchain is installed on the implementation host. The SwiftUI notification
-subscription, foreground refresh and mounted-card updates have no automated UI
-wiring test. Production needs archive compilation; the test target needs a manual
-Typr CI run with distribution `simulator` (optionally
-`only_testing=TyprTests/TyprModelInfoTests`). Neither is claimed here.
-Suggested screenshot: the settings screen, checking multiline wrapping and
-VoiceOver readability with the display on/off and Typr/upstream/both-off paths.
-A real eligible iPhone is still needed to verify actual model availability and
-foreground transitions as Apple Intelligence is enabled or becomes ready.
+The former **Show AI cleanup model** setting and model-information row have been
+removed. This does not change either cleanup path or its availability checks.
 
 ## Explicit desktop alignment (D1–D9 and reviewed amendments)
 

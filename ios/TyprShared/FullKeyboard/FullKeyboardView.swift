@@ -120,7 +120,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
 
         engine.autocorrect.isEnabled = FullKeyboardSettings().autocorrect
-        if TyprSettings().germanAutocorrect { // Typr
+        engine.autocorrect.englishEnabled = TyprSettings().autocorrectEnglish
+        if TyprSettings().autocorrectGerman {
             let instance = GermanAutocorrect.system()
             cachedGerman = instance
             engine.autocorrect.german = instance
@@ -181,8 +182,13 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             engine.autocorrect.isEnabled = wantsAutocorrect
             engine.refreshSuggestions()
         }
-        // Typr: German autocorrect switch (cached instance, built once).
-        let wantsGerman = TyprSettings().germanAutocorrect
+        let wantsEnglish = TyprSettings().autocorrectEnglish
+        if engine.autocorrect.englishEnabled != wantsEnglish {
+            engine.autocorrect.englishEnabled = wantsEnglish
+            engine.refreshSuggestions()
+        }
+        // Cache the German dictionary across language selection changes.
+        let wantsGerman = TyprSettings().autocorrectGerman
         if wantsGerman != (engine.autocorrect.german != nil) {
             if wantsGerman {
                 let instance = cachedGerman ?? GermanAutocorrect.system()
