@@ -70,13 +70,16 @@ it never accesses the microphone, speech model, or network.
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
     `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
     insertion spacing and repeating backspace.
-  - **Full keyboard Typr key (Experiments › Full keyboard):** A tap does
-    nothing, so a stray one while typing is harmless. A still hold of 0.35 s
-    starts dictation in a warm session (or opens Typr without one), with a
-    haptic. Moving more than 10 pt before then opens the style menu;
-    releasing over a row picks it, and releasing elsewhere leaves the menu
-    open for taps (`TyprKeyGesture`). VoiceOver activation dictates,
-    and the **Dictation styles** action opens the menu.
+  - **Full keyboard Typr key (Experiments › Full keyboard):** A quick tap
+    types a space, exactly like the space bar (autocorrect, double-space
+    period). A still hold of 0.35 s starts dictation in a warm session (or
+    opens Typr without one), with a haptic. Moving more than 10 pt before
+    then opens the style menu (up or sideways); releasing over a row picks
+    it, and releasing elsewhere leaves the menu open for taps. With
+    **Keyboard switch key** on, a mostly downward slide shows the compact
+    dictation bar instead (`TyprKeyGesture`). VoiceOver activation
+    dictates; the **Space**, **Dictation styles** and **Show dictation bar**
+    actions do the rest.
   - **Apple Intelligence cleanup (Experiments › Clean up with Apple
     Intelligence, iOS 26+):** Off by default. For every style but `Verbatim`,
     one on-device FoundationModels pass before formatting fixes clearly

@@ -54,7 +54,7 @@ final class KeyboardKeyPlaneView: UIView {
         for key in layout.keys {
             guard key.frame.intersects(rect) else { continue }
             switch key.kind {
-            case .typr, .compactSwitch:
+            case .typr:
                 continue
             case .character:
                 // The pressed key is drawn by its balloon in portrait.

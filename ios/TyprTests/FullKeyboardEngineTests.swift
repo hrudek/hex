@@ -127,6 +127,21 @@ final class FullKeyboardEngineTests: XCTestCase {
         XCTAssertEqual(target.text, "ok.  ", "a third space is just a space")
     }
 
+    // Typr: a tap on the Typr key types a space like the space bar.
+    func testTyprKeySpaceActsLikeTheSpaceBar() {
+        type("ok")
+        engine.typeSpaceFromTyprKey()
+        XCTAssertEqual(target.text, "ok ")
+        now += 0.2
+        engine.typeSpaceFromTyprKey()
+        XCTAssertEqual(target.text, "ok. ", "double space still types a period")
+        tap(.layerSwitch(.numbers))
+        tap(.character("4"))
+        engine.typeSpaceFromTyprKey()
+        XCTAssertEqual(engine.layout.layer, .letters, "back to letters after a space")
+        XCTAssertEqual(target.text, "ok. 4 ")
+    }
+
     func testSlowDoubleSpaceStaysTwoSpaces() {
         type("ok")
         tap(.space)

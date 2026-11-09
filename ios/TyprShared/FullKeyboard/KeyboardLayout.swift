@@ -30,8 +30,6 @@ nonisolated enum KeyKind: Equatable, Hashable, Sendable {
     case returnKey
     case typr
     case globe
-    /// Typr: hold to show the compact dictation bar (drawn by `KeyboardSwitchKeyControl`).
-    case compactSwitch
 }
 
 nonisolated struct KeyboardKey: Equatable, Sendable {
@@ -136,8 +134,6 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
     let layer: KeyboardLayer
     let field: KeyboardFieldKind
     let showsGlobe: Bool
-    /// Typr: the bottom row starts with the compact-bar switch key.
-    let showsCompactSwitch: Bool
     let horizontalInset: CGFloat
     let metrics: KeyboardMetrics
     let keys: [KeyboardKey]
@@ -148,15 +144,13 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         layer: KeyboardLayer = .letters,
         field: KeyboardFieldKind = .text,
         showsGlobe: Bool = false,
-        horizontalInset: CGFloat = 0,
-        showsCompactSwitch: Bool = false
+        horizontalInset: CGFloat = 0
     ) {
         self.width = width
         self.orientation = orientation
         self.layer = layer
         self.field = field
         self.showsGlobe = showsGlobe
-        self.showsCompactSwitch = showsCompactSwitch
         self.horizontalInset = max(0, horizontalInset)
         let innerWidth = width - 2 * self.horizontalInset
         let metrics = KeyboardMetrics.for(orientation, innerWidth: innerWidth)
@@ -167,7 +161,6 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
             layer: layer,
             field: field,
             showsGlobe: showsGlobe,
-            showsCompactSwitch: showsCompactSwitch,
             inset: self.horizontalInset
         )
     }
@@ -252,7 +245,6 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         layer: KeyboardLayer,
         field: KeyboardFieldKind,
         showsGlobe: Bool,
-        showsCompactSwitch: Bool,
         inset: CGFloat
     ) -> [KeyboardKey] {
         let innerWidth = width - 2 * inset
@@ -313,16 +305,10 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         add(.delete, row: 2, x: right - modW, w: modW, label: "delete")
 
         // Row 4: 123/ABC, globe?, space, field extras (@ . / . /), Typr, return.
-        let isCompactBottomRow = showsGlobe || showsCompactSwitch || field != .text
+        let isCompactBottomRow = showsGlobe || field != .text
         let switchW = isCompactBottomRow ? modW : lw * bottomSwitchWidthRatio
         let returnW = isCompactBottomRow ? (lw * compactReturnWidthRatio) : (lw * returnWidthRatio + m.gap)
-        var leading: [(KeyKind, CGFloat, String)] = []
-        if showsCompactSwitch { // Typr
-            // Letter-wide when the row also carries a globe or field keys, so space keeps room.
-            let crowded = showsGlobe || field != .text
-            leading.append((.compactSwitch, crowded ? lw : modW, "dictation bar"))
-        }
-        leading += [
+        var leading: [(KeyKind, CGFloat, String)] = [
             layer == .letters
                 ? (.layerSwitch(.numbers), switchW, "123")
                 : (.layerSwitch(.letters), switchW, "ABC"),

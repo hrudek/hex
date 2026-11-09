@@ -1,10 +1,12 @@
 import CoreGraphics
 import Foundation
 
-/// The full keyboard's Typr key as a pure state machine, so a stray tap while typing
-/// does nothing. A still hold of `holdDuration` fires the hold action (dictate, or open
-/// Typr); moving more than `slop` before that opens the style menu, and the release
-/// picks the row under the finger. Once the hold fires, moves and the release are ignored.
+/// The full keyboard's Typr key as a pure state machine. A tap (released before
+/// `holdDuration` without moving more than `slop`) types a space. A still hold of
+/// `holdDuration` fires the hold action (dictate, or open Typr). Moving more than `slop`
+/// before then opens the style menu, and the release picks the row under the finger;
+/// Typr: when the compact bar is allowed, a mostly downward move shows it instead.
+/// Once the hold fires or the bar is shown, moves and the release are ignored.
 nonisolated struct TyprKeyGesture: Equatable, Sendable {
     static let holdDuration: TimeInterval = 0.35
     static let slop: CGFloat = 10
@@ -18,10 +20,12 @@ nonisolated struct TyprKeyGesture: Equatable, Sendable {
 
     enum Output: Equatable, Sendable {
         case ignored
+        case tap
         case hold
         case openMenu
         case dragMenu
         case releaseMenu
+        case showCompactBar
     }
 
     private(set) var state: State = .idle
@@ -32,10 +36,17 @@ nonisolated struct TyprKeyGesture: Equatable, Sendable {
         origin = point
     }
 
-    mutating func touchMoved(to point: CGPoint) -> Output {
+    /// `allowsCompactBar`: a downward slide shows the compact dictation bar (Typr).
+    mutating func touchMoved(to point: CGPoint, allowsCompactBar: Bool = false) -> Output {
         switch state {
         case .pressing:
-            guard hypot(point.x - origin.x, point.y - origin.y) > Self.slop else { return .ignored }
+            let dx = point.x - origin.x
+            let dy = point.y - origin.y
+            guard hypot(dx, dy) > Self.slop else { return .ignored }
+            if allowsCompactBar && dy > abs(dx) {
+                state = .fired
+                return .showCompactBar
+            }
             state = .menu
             return .openMenu
         case .menu:
@@ -53,7 +64,11 @@ nonisolated struct TyprKeyGesture: Equatable, Sendable {
     }
 
     mutating func touchUp() -> Output {
-        let output: Output = state == .menu ? .releaseMenu : .ignored
+        let output: Output = switch state {
+        case .menu: .releaseMenu
+        case .pressing: .tap
+        case .idle, .fired: .ignored
+        }
         state = .idle
         return output
     }

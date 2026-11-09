@@ -19,16 +19,12 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     var allowsHaptics: () -> Bool = { false }
     /// Draws a stand-in backdrop where there is no system keyboard behind the view.
     var drawsBackdrop = false { didSet { applyAppearance() } }
-    /// Typr: the bottom row starts with a key that, held, shows the compact dictation bar.
-    var showsCompactSwitch: Bool {
-        get { engine.showsCompactSwitch }
-        set {
-            guard newValue != engine.showsCompactSwitch else { return }
-            engine.showsCompactSwitch = newValue
-            setNeedsLayout()
-        }
+    /// Typr: sliding down on the Typr key shows the compact dictation bar.
+    var allowsCompactBar: Bool {
+        get { typrKey.allowsCompactBar }
+        set { typrKey.allowsCompactBar = newValue }
     }
-    /// Typr: the switch key was held.
+    /// Typr: the Typr key was slid down.
     var onShowCompactBar: (() -> Void)?
 
     private let stripView = KeyboardStripView()
@@ -37,7 +33,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private let accentCallout = AccentCalloutView()
     private let typrKey = TyprKeyControl()
     private let globeButton = UIButton(type: .custom)
-    private let compactSwitchKey = KeyboardSwitchKeyControl() // Typr
     private var recordingPanel: TyprKeyRecordingPanel?
     private var styleMenu: TyprStyleMenuView?
     private var palette = FullKeyboardPalette(isDark: false)
@@ -63,8 +58,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         addSubview(plane)
         addSubview(typrKey)
         addSubview(globeButton)
-        addSubview(compactSwitchKey)
-        compactSwitchKey.isHidden = true
         addSubview(callout)
         addSubview(accentCallout)
         accentCallout.isHidden = true
@@ -80,7 +73,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         globeButton.isAccessibilityElement = true
 
         typrKey.onHold = { [weak self] in self?.typrKeyHeld() }
-        compactSwitchKey.onHold = { [weak self] in self?.compactSwitchHeld() }
+        typrKey.onTap = { [weak self] in self?.typrKeyTapped() }
+        typrKey.onShowCompactBar = { [weak self] in self?.typrKeySlidDown() }
         typrKey.onMenuOpen = { [weak self] point in
             guard let self else { return }
             self.showStyleMenu()
@@ -287,15 +281,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         } else {
             globeButton.isHidden = true
         }
-        if let switchKey = layout.key(.compactSwitch) {
-            compactSwitchKey.isHidden = showsRecording
-            compactSwitchKey.frame = switchKey.hitFrame
-            compactSwitchKey.keycapFrame = switchKey.frame.offsetBy(dx: -switchKey.hitFrame.minX, dy: -switchKey.hitFrame.minY)
-            compactSwitchKey.cornerRadius = layout.metrics.cornerRadius
-            compactSwitchKey.isLandscape = isLandscape
-        } else {
-            compactSwitchKey.isHidden = true
-        }
 
         if let panel = recordingPanel {
             panel.frame = bounds
@@ -328,7 +313,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         callout.setNeedsDisplay()
         accentCallout.palette = next
         typrKey.palette = next
-        compactSwitchKey.palette = next
         recordingPanel?.palette = next
         styleMenu?.palette = next
     }
@@ -422,10 +406,10 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             panel.frame = bounds
             refreshRecordingPanel()
             panel.isHidden = false
-            fade(in: [panel], out: [stripView, plane, typrKey, globeButton, compactSwitchKey, callout, accentCallout])
+            fade(in: [panel], out: [stripView, plane, typrKey, globeButton, callout, accentCallout])
         } else if let panel = recordingPanel {
             panel.scope.phase = .hidden
-            fade(in: [stripView, plane, typrKey, globeButton, compactSwitchKey, callout], out: [panel]) { [weak self, weak panel] in
+            fade(in: [stripView, plane, typrKey, globeButton, callout], out: [panel]) { [weak self, weak panel] in
                 guard let self, !self.showsRecording, let panel, panel === self.recordingPanel else { return }
                 panel.tearDown()
                 panel.removeFromSuperview()
@@ -437,7 +421,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private func fade(in shown: [UIView], out hidden: [UIView], after: (() -> Void)? = nil) {
         shown.forEach { $0.isHidden = false }
         let globeHidden = engine.layout.key(.globe) == nil
-        let switchHidden = engine.layout.key(.compactSwitch) == nil
         let accentHidden = engine.activeAccentMenu == nil
         let duration = window == nil ? 0 : 0.18
         if duration == 0 {
@@ -447,7 +430,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
                 $0.isHidden = true
             }
             if globeHidden { globeButton.isHidden = true }
-            if switchHidden { compactSwitchKey.isHidden = true }
             if accentHidden { accentCallout.isHidden = true }
             after?()
             return
@@ -460,7 +442,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
                 view.isHidden = true
             }
             if globeHidden { self.globeButton.isHidden = true }
-            if switchHidden { self.compactSwitchKey.isHidden = true }
             if accentHidden { self.accentCallout.isHidden = true }
             after?()
         }
@@ -485,8 +466,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         plane.setNeedsDisplay()
         updateCallout()
         refreshStrip()
-        if globeButton.isHidden != (engine.layout.key(.globe) == nil) || typrKey.frame != engine.layout.key(.typr)?.hitFrame
-            || compactSwitchKey.frame != (engine.layout.key(.compactSwitch)?.hitFrame ?? compactSwitchKey.frame) {
+        if globeButton.isHidden != (engine.layout.key(.globe) == nil) || typrKey.frame != engine.layout.key(.typr)?.hitFrame {
             setNeedsLayout()
         }
     }
@@ -523,7 +503,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
-    /// A still hold on the Typr key; a tap does nothing, so a stray one while typing is harmless.
+    /// A still hold on the Typr key: dictate, or open Typr.
     private func typrKeyHeld() {
         if allowsHaptics() { haptics.impactOccurred() }
         dismissStyleMenu()
@@ -534,9 +514,17 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
-    /// Typr: a hold on the switch key; a tap does nothing, so a stray one while typing is harmless.
-    private func compactSwitchHeld() {
+    /// Typr: a quick tap on the Typr key types a space, like the space bar.
+    private func typrKeyTapped() {
         guard !showsRecording else { return }
+        keyFeedback()
+        dismissStyleMenu()
+        engine.typeSpaceFromTyprKey()
+    }
+
+    /// Typr: sliding down on the Typr key shows the compact dictation bar.
+    private func typrKeySlidDown() {
+        guard !showsRecording, allowsCompactBar else { return }
         if allowsHaptics() { haptics.impactOccurred() }
         dismissStyleMenu()
         plane.cancelAllTouches()

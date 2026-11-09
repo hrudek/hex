@@ -112,7 +112,7 @@ struct TyprCard: View {
 
                 row(
                     "Keyboard switch key",
-                    detail: "A key on both keyboards switches between the full keyboard and the dictation bar. On the full keyboard, hold it briefly.",
+                    detail: "A key on the dictation bar shows the full keyboard. On the full keyboard, slide down on the Typr key for the dictation bar.",
                     isOn: $keyboardSwitchKey
                 )
                 .onChange(of: keyboardSwitchKey) { _, enabled in
