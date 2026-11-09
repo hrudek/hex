@@ -1,6 +1,6 @@
 # iOS test audio
 
-`term-hex-1.wav` is the synthetic fixture used by `HEXMobileTests`.
+`term-hex-1.wav` is the synthetic fixture used by `TyprTests`.
 It was adopted from `anomalyco/hex` at `cae389a833178c5e104e6d00db894078afc29ea0`,
 with provenance preserved from `tests/fixtures/vocabulary/README.md` and
 `manifest.json` at `split/base` (`6f19d87b`).

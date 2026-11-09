@@ -1,8 +1,8 @@
 {
   "app": "typr",
   "directory": "ios",
-  "scheme": "HEXMobile",
-  "project": "HEXMobile.xcodeproj",
+  "scheme": "Typr",
+  "project": "Typr.xcodeproj",
   "bundle_id": "dev.rudek.typr",
   "display_name": "Typr",
   "url_scheme": "typr",

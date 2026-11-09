@@ -7,8 +7,8 @@ set -euo pipefail
 : "${RUNNER_TEMP:?}"
 DEFAULT_SCENES=ready,keyboard-warm,keyboard-recording,full-keyboard-idle,full-keyboard-idle-dark
 udid=$(cat "$RUNNER_TEMP/simulator-udid")
-app=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -maxdepth 2 -path '*-iphonesimulator/HEX.app' -type d | head -1)
-[[ -n "$app" ]] || { echo 'No simulator build of HEX.app found'; exit 0; }
+app=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -maxdepth 2 -path '*-iphonesimulator/Typr.app' -type d | head -1)
+[[ -n "$app" ]] || { echo 'No simulator build of Typr.app found'; exit 0; }
 bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
 out="$RUNNER_TEMP/screenshots"
 mkdir -p "$out"

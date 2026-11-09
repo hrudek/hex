@@ -18,8 +18,8 @@ Typr is a standalone iPhone dictation keyboard. Read [TYPR.md](TYPR.md) first
 
 ## Layout and checks
 
-- `ios/`: XcodeGen's `project.yml`; app `HEXMobile`, keyboard `HEXKeyboard`,
-  widgets `HEXWidgets`, shared `HEXShared` / `HEXActivity`, tests `HEXMobileTests`,
+- `ios/`: XcodeGen's `project.yml`; app `Typr`, keyboard `TyprKeyboard`,
+  widgets `TyprWidgets`, shared `TyprShared` / `TyprActivity`, tests `TyprTests`,
   app icon and test fixtures.
 - `ios/tools/`: explicit, offline Python dictation-log tooling.
 - `.github/typr/`: build, test, archive, signing and CI helper scripts.
@@ -36,7 +36,7 @@ On macOS:
 
 ```sh
 bash .github/typr/agent-test.sh
-bash .github/typr/agent-test.sh HEXMobileTests/DictationControllerTests
+bash .github/typr/agent-test.sh TyprTests/DictationControllerTests
 ```
 
 On Linux (no Xcode build or simulator proof):

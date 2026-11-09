@@ -12,8 +12,8 @@ Upstream added its own *Clean up with Apple Intelligence* experiment (anomalyco/
 off by default) and *Custom vocabulary* (#1547). Typr keeps its own cleanup because it
 corrected more on the owner's iPhone: prewarmed session, 4 s deadline instead of 2 s,
 German examples and self-correction cues, and a visible last outcome. To avoid name clashes
-with upstream's `TranscriptCleanup.swift`, Typr's files and types carry a `HexPlus` prefix
-(`HexPlusCleanup.swift`, `HexPlusAppleCleaner`, `HexPlusTranscriptCleaning`).
+with upstream's `TranscriptCleanup.swift`, Typr's files and types carry a `Typr` prefix
+(`TyprCleanup.swift`, `TyprAppleCleaner`, `TyprTranscriptCleaning`).
 
 - **Precedence:** while the Typr switch is on, Typr cleanup runs and upstream's
   experiment is skipped, whatever its switch says. With the Typr switch off, upstream's
@@ -109,7 +109,7 @@ switch. Notification handling runs on the main actor and only reads; it does not
 write settings or invalidate the cache. Reading information never creates a
 session, prewarms, generates, or logs model work.
 
-`HexPlusModelInfoTests` adds deterministic coverage of all precedence combinations,
+`TyprModelInfoTests` adds deterministic coverage of all precedence combinations,
 exact available/unavailable/no-model strings, selected-path-only availability reads,
 isolated-defaults sibling-switch changes in both directions, and the independent
 default-on display switch. These new tests have **not run locally**: no Swift or
@@ -117,7 +117,7 @@ Xcode toolchain is installed on the implementation host. The SwiftUI notificatio
 subscription, foreground refresh and mounted-card updates have no automated UI
 wiring test. Production needs archive compilation; the test target needs a manual
 Typr CI run with distribution `simulator` (optionally
-`only_testing=HEXMobileTests/HexPlusModelInfoTests`). Neither is claimed here.
+`only_testing=TyprTests/TyprModelInfoTests`). Neither is claimed here.
 Suggested screenshot: the settings screen, checking multiline wrapping and
 VoiceOver readability with the display on/off and Typr/upstream/both-off paths.
 A real eligible iPhone is still needed to verify actual model availability and
@@ -247,7 +247,7 @@ session during accepted transcription/cleanup does not cancel delivery.
 
 ## Verification
 
-`AICleanupGuardCases`, `HexPlusCleanupTests`, `AICleanupControllerTests` and
+`AICleanupGuardCases`, `TyprCleanupTests`, `AICleanupControllerTests` and
 `CleanupDesktopAnalogyTests`
 exercise guard acceptance/rejection, sliding/splitting, protected tokens, Notes
 anchors, isolated defaults, reservations, late cancellation-ignoring models,
@@ -272,7 +272,7 @@ archive run `42467380855` (after retrying transient HTTP 504 downloads) and Typr
 review `42467379347`. These results do **not** prove the subsequent desktop-steering
 changes; the PR records their separate CI/review/test outcomes.
 Optional simulator run: Typr CI, distribution `simulator`,
-`only_testing=HEXMobileTests/AICleanupGuardCases,HEXMobileTests/HexPlusCleanupTests,HEXMobileTests/AICleanupControllerTests,HEXMobileTests/CleanupDesktopAnalogyTests`.
+`only_testing=TyprTests/AICleanupGuardCases,TyprTests/TyprCleanupTests,TyprTests/AICleanupControllerTests,TyprTests/CleanupDesktopAnalogyTests`.
 
 ## Owner hardware checklist / manual model evaluation
 
