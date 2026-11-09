@@ -1,5 +1,22 @@
 # Hex+ dictation archive and feedback
 
+## Explicit local analysis (C)
+
+Use the dependency-free [local Python importer/report](tools/dictation_log/README.md)
+with an explicit private store **outside Git**. It preserves raw export evidence,
+merges whole entries by archive UUID/entry UUID/revision and reports observational
+rating/reference/category/timing coverage. Default output has no dictated text or
+vocabulary; settings fingerprints use a private per-store HMAC (not encryption).
+Reference edit metrics are intended-final-output comparisons, **not ASR WER** or
+semantic quality. Unknown export scope stays unknown; absent entries never delete
+saved data. No upload, inference, replay, background job or automatic regression
+comparison. Python tests run locally, **not automatically in existing CI**.
+
+Export entries may contain the optional `keyboardFeedbackOffer` correlation IDs
+from B. They contain no text and are preserved as source evidence, never interpreted
+as permission to post feedback by the local tool. Export v1 dates have whole-second
+precision: the importer uses whole-entry revisions, never timestamp-only merges.
+
 The Hex+ **Dictation log** switch (`hexplus.dictationLog`, on by default)
 controls collection, not retention. **Off stops new collection and interrupts
 unfinished saved entries; it keeps existing history.** Read, rate, edit a

@@ -1,0 +1,86 @@
+{
+  "format": "hexplus.dictation-log",
+  "exportVersion": 1,
+  "exportedAt": "2026-11-08T12:30:00Z",
+  "archiveID": "77777777-7777-7777-7777-777777777777",
+  "appBuild": "164.1",
+  "unreadableFiles": 0,
+  "legacyMigrationPending": false,
+  "dateEncoding": "ISO-8601 UTC",
+  "evidenceLimits": "SYNTHETIC ONLY. No audio; not ASR ground truth.",
+  "entries": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "schemaVersion": 2,
+      "revision": 1,
+      "status": "finished",
+      "rating": "bad",
+      "issues": [
+        "misheard"
+      ],
+      "context": {
+        "createdAt": "2026-11-08T12:00:00Z",
+        "appVersion": "2.0",
+        "appBuild": "164.1",
+        "speechEngine": "synthetic",
+        "speechLanguage": "en-US",
+        "style": "Polished",
+        "cleanupPath": "hexPlus",
+        "vocabularyEnabled": true,
+        "upstreamCleanupEnabled": false,
+        "hexPlusCleanupEnabled": true,
+        "vocabularySnapshot": {
+          "text": "\"Hexopolis\"",
+          "truncated": false,
+          "originalUTF8Bytes": 11,
+          "wordCount": 1
+        }
+      },
+      "promptRevision": "synthetic-v1",
+      "guardRevision": "synthetic-v1",
+      "recognized": {
+        "text": "Synthetic red book.",
+        "truncated": false,
+        "originalUTF8Bytes": 19,
+        "wordCount": 3
+      },
+      "finalText": {
+        "text": "Synthetic red book.",
+        "truncated": false,
+        "originalUTF8Bytes": 19,
+        "wordCount": 3
+      },
+      "expectedText": {
+        "text": "Synthetic blue book.",
+        "truncated": false,
+        "originalUTF8Bytes": 20,
+        "wordCount": 3
+      },
+      "asrMilliseconds": 100,
+      "stopToFinalMilliseconds": 150
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "schemaVersion": 2,
+      "revision": 1,
+      "status": "finished",
+      "rating": "good",
+      "context": {
+        "createdAt": "2026-11-08T12:01:00Z",
+        "appVersion": "2.0",
+        "appBuild": "164.1",
+        "speechEngine": "synthetic",
+        "speechLanguage": "en-US",
+        "style": "Polished",
+        "cleanupPath": "none"
+      },
+      "finalText": {
+        "text": "Another synthetic sentence.",
+        "truncated": false,
+        "originalUTF8Bytes": 27,
+        "wordCount": 3
+      },
+      "asrMilliseconds": 200
+    }
+  ]
+}
