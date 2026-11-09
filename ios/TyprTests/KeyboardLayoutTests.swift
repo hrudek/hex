@@ -7,18 +7,31 @@ final class KeyboardLayoutTests: XCTestCase {
     private let layers: [KeyboardLayer] = [.letters, .numbers, .symbols]
     private let fields: [KeyboardFieldKind] = [.text, .url, .email]
 
-    private func everyPortraitLayout() -> [KeyboardLayout] {
+    private func everyPortraitLayout(showsStrip: Bool = true) -> [KeyboardLayout] {
         var layouts: [KeyboardLayout] = []
         for width in portraitWidths {
             for layer in layers {
                 for field in fields {
                     for globe in [false, true] {
-                        layouts.append(KeyboardLayout(width: width, layer: layer, field: field, showsGlobe: globe))
+                        layouts.append(KeyboardLayout(
+                            width: width, layer: layer, field: field, showsGlobe: globe, showsStrip: showsStrip
+                        ))
                     }
                 }
             }
         }
         return layouts
+    }
+
+    /// Every layout, with and without the suggestion bar.
+    private func everyLayout() -> [KeyboardLayout] {
+        everyPortraitLayout() + everyPortraitLayout(showsStrip: false) + landscapeLayouts()
+            + landscapeLayouts().map {
+                KeyboardLayout(
+                    width: $0.width, orientation: .landscape, layer: $0.layer, field: $0.field,
+                    horizontalInset: $0.horizontalInset, showsStrip: false
+                )
+            }
     }
 
     func testPortraitIs253PointsAndLandscapeIs176Points() {
@@ -27,6 +40,45 @@ final class KeyboardLayoutTests: XCTestCase {
         }
         XCTAssertEqual(KeyboardLayout.height(for: .portrait), 253)
         XCTAssertEqual(KeyboardLayout.height(for: .landscape), 176)
+    }
+
+    /// Typr: without the suggestion bar the keys move up to a small top margin.
+    func testWithoutTheBarTheKeyboardIsShorterAndKeysMoveUp() {
+        for width in portraitWidths {
+            let layout = KeyboardLayout(width: width, showsStrip: false)
+            XCTAssertEqual(layout.totalHeight, 224, "width \(width)")
+            XCTAssertEqual(layout.key(.character("q"))!.frame.minY, 6, accuracy: 0.001)
+            XCTAssertEqual(layout.stripFrame.height, 0)
+            XCTAssertEqual(layout.key(.character("q"))!.hitFrame.minY, 0, "the top margin still types")
+        }
+        XCTAssertEqual(KeyboardLayout.height(for: .portrait, showsStrip: false), 224)
+        XCTAssertEqual(KeyboardLayout.height(for: .landscape, showsStrip: false), 141)
+        // Same keys, same sizes.
+        let with = KeyboardLayout(width: 393)
+        let without = KeyboardLayout(width: 393, showsStrip: false)
+        XCTAssertEqual(with.keys.map(\.frame.size), without.keys.map(\.frame.size))
+        XCTAssertEqual(with.keys.map(\.frame.minX), without.keys.map(\.frame.minX))
+    }
+
+    func testTopRowBalloonsWidenTheKeyInPlaceWithoutTheBar() {
+        for layout in everyPortraitLayout(showsStrip: false) {
+            let bounds = CGRect(x: 0, y: 0, width: layout.width, height: layout.totalHeight)
+            for key in layout.keys where key.character != nil {
+                let balloon = layout.balloon(for: key)!
+                XCTAssertTrue(bounds.insetBy(dx: -0.001, dy: -0.001).contains(balloon.bounds), describe(layout))
+                XCTAssertEqual(balloon.isInline, key.row == 0, "\(describe(layout)) \(key.label)")
+                if balloon.isInline {
+                    XCTAssertEqual(balloon.bubble.maxY, key.frame.maxY, accuracy: 0.001)
+                    XCTAssertLessThan(balloon.bubble.minY, key.frame.minY)
+                }
+            }
+        }
+        // With the bar every balloon floats above its key, as before.
+        for layout in everyPortraitLayout() {
+            for key in layout.keys where key.character != nil {
+                XCTAssertFalse(layout.balloon(for: key)!.isInline, "\(describe(layout)) \(key.label)")
+            }
+        }
     }
 
     func testPortraitMetricsMatchAppleIOS26() {
@@ -42,7 +94,7 @@ final class KeyboardLayoutTests: XCTestCase {
 
     func testHitTargetsTileTheKeyAreaWithNoDeadZonesOrOverlaps() {
         var generator = SystemRandomNumberGenerator()
-        for layout in everyPortraitLayout() + landscapeLayouts() {
+        for layout in everyLayout() {
             let area = layout.keysAreaFrame
             var rowTop = area.minY
             for row in 0..<4 {
@@ -67,12 +119,16 @@ final class KeyboardLayoutTests: XCTestCase {
                 let hits = layout.keys.filter { $0.hitFrame.contains(point) }
                 XCTAssertEqual(hits.count, 1, "\(describe(layout)) at \(point): \(hits.map(\.label))")
             }
-            XCTAssertNil(layout.hitTest(CGPoint(x: 20, y: layout.stripFrame.midY)), "strip is not a key")
+            if layout.showsStrip {
+                XCTAssertNil(layout.hitTest(CGPoint(x: 20, y: layout.stripFrame.midY)), "strip is not a key")
+            } else {
+                XCTAssertEqual(area.minY, 0, "without the bar the keys reach the top edge")
+            }
         }
     }
 
     func testKeycapsSitInsideTheirTargetsAndNeverOverlap() {
-        for layout in everyPortraitLayout() + landscapeLayouts() {
+        for layout in everyLayout() {
             let bounds = CGRect(x: 0, y: 0, width: layout.width, height: layout.totalHeight)
             for key in layout.keys {
                 XCTAssertTrue(key.hitFrame.contains(key.frame), "\(describe(layout)) \(key.label)")
@@ -194,7 +250,7 @@ final class KeyboardLayoutTests: XCTestCase {
     }
 
     private func describe(_ layout: KeyboardLayout) -> String {
-        "\(layout.width)pt \(layout.orientation) \(layout.layer) \(layout.field) globe=\(layout.showsGlobe)"
+        "\(layout.width)pt \(layout.orientation) \(layout.layer) \(layout.field) globe=\(layout.showsGlobe) strip=\(layout.showsStrip)"
     }
 }
 

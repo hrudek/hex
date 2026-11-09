@@ -12,6 +12,7 @@ struct TyprCard: View {
     @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
     @State private var germanAutocorrect = TyprSettings().germanAutocorrect
     @State private var keyboardSwitchKey = TyprSettings().keyboardSwitchKey
+    @State private var hideSuggestionBar = TyprSettings().hideSuggestionBar
     @State private var feedbackStrip = TyprSettings().dictationFeedbackStrip
     @State private var log = DictationLogStore.shared
     @State private var showingLog = false
@@ -118,6 +119,19 @@ struct TyprCard: View {
                 .onChange(of: keyboardSwitchKey) { _, enabled in
                     TyprSettings().keyboardSwitchKey = enabled
                 }
+
+                Divider()
+                    .overlay(TyprTheme.borderWeak)
+                    .padding(.leading, 16)
+
+                row(
+                    "Hide suggestion bar",
+                    detail: "The full keyboard without the bar above the keys, so more of your text stays visible. Autocorrect still applies when you type a space.",
+                    isOn: $hideSuggestionBar
+                )
+                .onChange(of: hideSuggestionBar) { _, enabled in
+                    TyprSettings().hideSuggestionBar = enabled
+                }
             }
             .background(
                 TyprTheme.bgBase,
@@ -162,6 +176,7 @@ struct TyprCard: View {
             modelInfo = TyprModelInfoReader.production.read()
             germanAutocorrect = TyprSettings().germanAutocorrect
             keyboardSwitchKey = TyprSettings().keyboardSwitchKey
+            hideSuggestionBar = TyprSettings().hideSuggestionBar
         }
     }
 

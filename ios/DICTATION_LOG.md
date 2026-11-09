@@ -195,11 +195,13 @@ VoiceOver and on-device model quality still require hardware verification.
 
 Typr › Keyboard dictation feedback is **on by default** (independent of the
 archive collection switch). Good / Problem / dismiss use the existing compact
-tray or full-keyboard suggestion strip, on **both** surfaces. The full keyboard
-retains Undo dictation as a separate sibling; while feedback shows, Undo is an
-icon (same action and VoiceOver label) so every feedback action fits without
-scrolling. The full-keyboard bar lays out its items with explicit frames because
-it is created hidden and filled only when a result arrives.
+tray, or on the full keyboard a large panel that covers the keys after each
+dictation, like the recording panel. On the full keyboard Good and ✕ close the
+panel at once (the rating is queued in the background); Problem leaves only
+**Fix in Typr** and ✕, and closes itself after a few seconds. Only a rating that
+could not be queued brings the panel back, with Retry. The full keyboard no
+longer offers Undo dictation. The panel lays out its tiles with explicit frames
+because it is built only when a result arrives.
 
 After **Problem**, the keyboard shows **Fix in Typr** instead of issue categories:
 the keyboard cannot usefully show what was recognized and what AI made of it.
@@ -209,14 +211,16 @@ focused. The link never starts a dictation session. Categories remain available
 in the app under More details. No keyboard text editor, document inspection for
 feedback, clipboard copy or network request.
 The compact targets are at least 44 pt wide, **26 pt high**, matching the existing
-tray; they are not 44 pt tall. The full strip retains its existing 33 pt height.
+tray; they are not 44 pt tall. The full keyboard's tiles fill the key area.
 
 Only this keyboard instance's newly inserted, locally initiated result gets an
 offer. Entry/job/result IDs, archive lineage, generation and a ten-minute offer
 expiry match explicitly. A stored previous result alone never prompts. First
 editing, another recording, keyboard disappearance, dismiss, expiry, no Full
-Access, either switch off or generation revocation hide it. Style and next
-recording remain reachable. The opt-out preserves ordinary keyboard behavior.
+Access, either switch off or generation revocation hide it. On the compact tray
+style and next recording remain reachable; on the full keyboard the panel needs
+one tap (Good, Problem then ✕, or ✕) before the keys and the Typr key return.
+The opt-out preserves ordinary keyboard behavior.
 
 One protected, backup-excluded, text-free App Group JSON file per event carries
 rating, optional **whole category set**, IDs and creation time. At most 100 valid
@@ -248,9 +252,11 @@ No native iOS proof is claimed from Linux.
 Synthetic checks: `DictationKeyboardFeedbackTests` covers exact inserted matching,
 ordering, separate reference ownership, durable-write retry, replay, Off/Clear/
 Delete/opt-out, simultaneous writers/cap, malformed/expired events, unloaded
-entries, load-with-new-offer generation stability, and full-keyboard Undo/host
-text/typing dismissal, a feedback offer that arrives after the full keyboard was
-mounted (the on-device order), Fix in Typr opening the exact entry link, link
+entries, load-with-new-offer generation stability, the full-keyboard panel
+(Good closes at once without touching host text, ✕, Problem's timeout, Retry,
+Typr messages without the suggestion bar), a feedback offer that arrives after
+the full keyboard was mounted (the on-device order), Fix in Typr opening the
+exact entry link, link
 routing that never parses as a launch request, and reference saves that keep
 the note. Scene names: `keyboard-feedback`,
 `keyboard-feedback-problem`, `full-keyboard-feedback[-dark]` and

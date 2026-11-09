@@ -86,6 +86,14 @@ final class FullKeyboardEngine {
     var orientation: KeyboardOrientation = .portrait { didSet { if orientation != oldValue { rebuildLayout() } } }
     var showsGlobe = false { didSet { if showsGlobe != oldValue { rebuildLayout() } } }
     var horizontalInset: CGFloat = 0 { didSet { if horizontalInset != oldValue { rebuildLayout() } } }
+    /// Typr: without the suggestion bar the keys move up and no suggestions are computed.
+    var showsStrip = true {
+        didSet {
+            guard showsStrip != oldValue else { return }
+            rebuildLayout()
+            refreshSuggestions()
+        }
+    }
     private(set) var layout = KeyboardLayout(width: 375)
 
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
@@ -170,11 +178,11 @@ final class FullKeyboardEngine {
     }
 
     func refreshSuggestions() {
-        let next = autocorrect.suggestions(
+        let next = showsStrip ? autocorrect.suggestions(
             beforeInput: target.documentContextBeforeInput,
             field: field,
             autocorrectionType: target.autocorrectionType
-        )
+        ) : []
         if next != suggestions {
             suggestions = next
             onChange?()
@@ -543,7 +551,8 @@ final class FullKeyboardEngine {
             layer: layerState.layer,
             field: field,
             showsGlobe: showsGlobe,
-            horizontalInset: horizontalInset
+            horizontalInset: horizontalInset,
+            showsStrip: showsStrip
         )
     }
 }

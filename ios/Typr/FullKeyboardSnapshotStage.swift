@@ -27,6 +27,12 @@ struct FullKeyboardSnapshotStage: View {
         return name
     }
 
+    /// `typing` shows its suggestions; the other scenes follow Typr's *Hide suggestion bar* switch.
+    @MainActor
+    static func showsSuggestionBar(_ state: String) -> Bool {
+        state == "typing" || !TyprSettings().hideSuggestionBar
+    }
+
     private var draft: String {
         switch state {
         case "inserted", "feedback", "feedback-problem": "Running 10 min late, should be home by 7:30. Start without me."
@@ -59,7 +65,7 @@ struct FullKeyboardSnapshotStage: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 10)
             FullKeyboardFixture(state: state, draft: draft, darkKeyboard: darkApp || darkField)
-                .frame(height: KeyboardLayout.height(for: .portrait))
+                .frame(height: KeyboardLayout.height(for: .portrait, showsStrip: Self.showsSuggestionBar(state)))
                 .padding(.top, 12)
                 .background(Color(uiColor: backdrop).ignoresSafeArea(edges: .bottom))
         }
@@ -122,6 +128,7 @@ private struct FullKeyboardFixture: UIViewRepresentable {
         let view = FullKeyboardView(model: model, target: context.coordinator.target)
         view.appearanceOverride = darkKeyboard
         view.orientationOverride = .portrait
+        view.suggestionBarOverride = FullKeyboardSnapshotStage.showsSuggestionBar(state)
         view.drawsBackdrop = true
         view.prepareForField()
         view.warmUpTextCheckerAsync()
@@ -147,10 +154,11 @@ private struct FullKeyboardFixture: UIViewRepresentable {
                 view.engine.touchBegan(id: 903, at: center(of: .shift, in: view))
                 view.engine.touchEnded(id: 903, at: center(of: .shift, in: view))
             case "feedback", "feedback-problem":
-                view.didInsertDictation("should be home by 7:30. Start without me.", keepUndoFor: 180)
+                view.didInsertDictation()
+                view.problemPanelDuration = 600
                 model.feedback = .snapshotFixture(problem: state == "feedback-problem")
             case "inserted":
-                view.didInsertDictation("should be home by 7:30. Start without me.")
+                view.didInsertDictation()
             case "style":
                 view.debugShowStyleMenu()
             default:
