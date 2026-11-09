@@ -1,3 +1,5 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2034
 # Sourced by build.sh and test.sh: xcodebuild arguments that keep the Swift
 # package checkouts and Xcode 26's content-addressed compilation cache outside
 # DerivedData, where hexplus-ci.yml restores and saves them between runs.
