@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 
 /// Typr switches. They live in the App Group so the keyboard reads them too.
@@ -6,12 +5,8 @@ import SwiftUI
 struct TyprCard: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var aiCleanup = TyprSettings().aiCleanup
-    @State private var showCleanupModel = TyprSettings().showCleanupModel
-    @State private var modelInfo = TyprModelInfoReader.production.read()
     @State private var cleanupReason = TranscriptCleanupProduction.unavailableReason
     @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
-    @State private var germanAutocorrect = TyprSettings().germanAutocorrect
-    @State private var keyboardSwitchKey = TyprSettings().keyboardSwitchKey
     @State private var hideSuggestionBar = TyprSettings().hideSuggestionBar
     @State private var feedbackStrip = TyprSettings().dictationFeedbackStrip
     @State private var log = DictationLogStore.shared
@@ -42,24 +37,7 @@ struct TyprCard: View {
                 }
                 .onChange(of: aiCleanup) { _, enabled in
                     TyprSettings().aiCleanup = enabled
-                    modelInfo = TyprModelInfoReader.production.read()
                 }
-                Divider()
-                    .overlay(TyprTheme.borderWeak)
-                    .padding(.leading, 16)
-
-                row(
-                    "Show AI cleanup model",
-                    detail: showCleanupModel
-                        ? modelInfo.lines.joined(separator: "\n")
-                        : "Shows which Apple Intelligence model cleans up your dictations",
-                    isOn: $showCleanupModel
-                )
-                .onChange(of: showCleanupModel) { _, enabled in
-                    TyprSettings().showCleanupModel = enabled
-                    if enabled { modelInfo = TyprModelInfoReader.production.read() }
-                }
-
                 Divider()
                     .overlay(TyprTheme.borderWeak)
                     .padding(.leading, 16)
@@ -99,32 +77,6 @@ struct TyprCard: View {
                 Divider().overlay(TyprTheme.borderWeak).padding(.leading, 16)
 
                 row(
-                    "German autocorrect",
-                    detail: "Turns ae, oe, ue into ä, ö, ü and fixes German typos (full keyboard)",
-                    isOn: $germanAutocorrect
-                )
-                .onChange(of: germanAutocorrect) { _, enabled in
-                    TyprSettings().germanAutocorrect = enabled
-                }
-
-                Divider()
-                    .overlay(TyprTheme.borderWeak)
-                    .padding(.leading, 16)
-
-                row(
-                    "Keyboard switch key",
-                    detail: "A key on the dictation bar shows the full keyboard. On the full keyboard, slide down on the Typr key for the dictation bar.",
-                    isOn: $keyboardSwitchKey
-                )
-                .onChange(of: keyboardSwitchKey) { _, enabled in
-                    TyprSettings().keyboardSwitchKey = enabled
-                }
-
-                Divider()
-                    .overlay(TyprTheme.borderWeak)
-                    .padding(.leading, 16)
-
-                row(
                     "Hide suggestion bar",
                     detail: "The full keyboard without the bar above the keys, so more of your text stays visible. Autocorrect still applies when you type a space.",
                     isOn: $hideSuggestionBar
@@ -149,20 +101,8 @@ struct TyprCard: View {
                 TranscriptCleanupProduction.invalidateAvailability()
                 log.setEnabled(TyprSettings().dictationLog)
                 aiCleanup = TyprSettings().aiCleanup
-                showCleanupModel = TyprSettings().showCleanupModel
                 cleanupReason = TranscriptCleanupProduction.unavailableReason
                 cleanupLast = TranscriptCleanupProduction.lastSummary
-                modelInfo = TyprModelInfoReader.production.read()
-            }
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-                .receive(on: RunLoop.main)
-        ) { _ in
-            // Separate defaults instances back the sibling card; do not filter by object.
-            // Hop delivery to the main run loop without carrying Notification into a Task.
-            MainActor.assumeIsolated {
-                modelInfo = TyprModelInfoReader.production.read()
             }
         }
         .onAppear {
@@ -170,12 +110,8 @@ struct TyprCard: View {
             log.setEnabled(TyprSettings().dictationLog)
             TranscriptCleanupProduction.invalidateAvailability()
             aiCleanup = TyprSettings().aiCleanup
-            showCleanupModel = TyprSettings().showCleanupModel
             cleanupReason = TranscriptCleanupProduction.unavailableReason
             cleanupLast = TranscriptCleanupProduction.lastSummary
-            modelInfo = TyprModelInfoReader.production.read()
-            germanAutocorrect = TyprSettings().germanAutocorrect
-            keyboardSwitchKey = TyprSettings().keyboardSwitchKey
             hideSuggestionBar = TyprSettings().hideSuggestionBar
         }
     }

@@ -145,20 +145,18 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// The dictation bar, or the full keyboard when its experiment is on (iPhone only).
-    /// Typr: with the Keyboard switch key setting on, the compact bar when it was picked.
+    /// The compact bar is shown when it was picked; switching is always available.
     /// Only switches while idle.
     private func mountSurface() {
         let experimentOn = FullKeyboardSettings().isEnabled && UIDevice.current.userInterfaceIdiom == .phone
-        let switchKeyOn = experimentOn && TyprSettings().keyboardSwitchKey
         let wantsFull = KeyboardSurfaceChoice.wantsFullKeyboard(
             experimentOn: experimentOn,
-            switchKeyOn: switchKeyOn,
             compactChosen: KeyboardSurfaceChoice().showsCompactBar
         )
-        if viewModel.showsFullKeyboardSwitch != switchKeyOn {
-            viewModel.showsFullKeyboardSwitch = switchKeyOn
+        if viewModel.showsFullKeyboardSwitch != experimentOn {
+            viewModel.showsFullKeyboardSwitch = experimentOn
         }
-        fullKeyboard?.allowsCompactBar = switchKeyOn
+        fullKeyboard?.allowsCompactBar = experimentOn
         guard surface == nil || wantsFull != (fullKeyboard != nil) else { return }
         guard surface == nil || viewModel.stagePhase == .idle || viewModel.stagePhase == .failed else { return }
 
@@ -178,7 +176,7 @@ final class KeyboardViewController: UIInputViewController {
             )
             keyboard.hostController = self
             keyboard.allowsHaptics = { [weak self] in self?.hasFullAccess ?? false }
-            keyboard.allowsCompactBar = switchKeyOn
+            keyboard.allowsCompactBar = experimentOn
             keyboard.onShowCompactBar = { [weak self] in self?.switchSurface(toCompactBar: true) }
             fullKeyboard = keyboard
             mounted = keyboard
@@ -345,7 +343,7 @@ final class KeyboardViewController: UIInputViewController {
         schedulePoll(force: false)
     }
 
-    /// Picks up a changed keyboard setting (full keyboard, switch key) every 2 s.
+    /// Picks up a changed keyboard setting (full keyboard) every 2 s.
     private func remountIfNeeded(now: TimeInterval) {
         let bucket = Int(now / 2.0)
         guard bucket != lastRemountBucket else { return }

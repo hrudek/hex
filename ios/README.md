@@ -88,11 +88,17 @@ it never accesses the microphone, speech model, or network.
     period). A still hold of 0.35 s starts dictation in a warm session (or
     opens Typr without one), with a haptic. Moving more than 10 pt before
     then opens the style menu (up or sideways); releasing over a row picks
-    it, and releasing elsewhere leaves the menu open for taps. With
-    **Keyboard switch key** on, a mostly downward slide shows the compact
+    it, and releasing elsewhere leaves the menu open for taps. A mostly downward
+    slide always shows the compact
     dictation bar instead (`TyprKeyGesture`). VoiceOver activation
     dictates; the **Space**, **Dictation styles** and **Show dictation bar**
     actions do the rest.
+  - **Autocorrect (below Full keyboard):** **Deutsch** and **English** are
+    independently selectable when autocorrect is on; both default on. German
+    includes ae/oe/ue/ss → ä/ö/ü/ß and typo fixes. English includes contractions
+    and typo fixes. Turning autocorrect off keeps the language choices for later.
+    iOS Text Replacement and contact suggestions remain language-independent.
+    Retired German-autocorrect and keyboard-switch experiment values are ignored.
   - **Apple Intelligence cleanup (Experiments › Clean up with Apple
     Intelligence, iOS 26+):** Off by default. For every style but `Verbatim`,
     one on-device FoundationModels pass before formatting fixes clearly
