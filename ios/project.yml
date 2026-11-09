@@ -21,7 +21,7 @@ targets:
       - HEXMobile
       - HEXShared
       - HEXActivity
-      - path: ../app/AppIcon.icon
+      - path: AppIcon.icon
         buildPhase: resources
     dependencies:
       - package: FluidAudio
@@ -136,7 +136,7 @@ targets:
     platform: iOS
     sources:
       - HEXMobileTests
-      - path: ../tests/fixtures/vocabulary/audio/term-hex-1.wav
+      - path: TestFixtures/term-hex-1.wav
         buildPhase: resources
     dependencies:
       - target: HEXMobile
