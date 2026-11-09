@@ -37,6 +37,11 @@ the entry point for agents and for the owner.
     the toggles; create them with the first switch), never in upstream's
     `ExperimentsCard.swift` or `FullKeyboardSettings.swift`. The off position
     keeps today's behaviour exactly.
+  - Changes to an existing feature (tweaks, extensions, follow-ups): no new
+    switch, even when the work starts in a new Pi session or a new PR. The
+    change sits behind that feature's existing switch (if it still has one),
+    and its row in the feature table is updated. Add a separate switch only
+    for a genuinely new feature, or when the owner asks for one.
   - Make a proven feature permanent through a PR: remove the switch and the old
     code path, set its table status to `permanent`. The same optional-issue rule
     applies; no separate "Make … permanent" issue is required.
