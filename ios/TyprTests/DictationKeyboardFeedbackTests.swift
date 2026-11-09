@@ -370,11 +370,16 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
 
         view.problemPanelDuration = 0.05
         model.feedback = .snapshotFixture(problem: true)
-        pumpMainRunLoop()
-        XCTAssertEqual(view.shownPanelContent, .problem)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        // The panel's .problem content is covered by testFullKeyboardShowsFeedbackPanelThatArrivesAfterMount.
+        // Pumping for a fixed interval before asserting it here races the 50 ms close timer.
+        // Wait for both the timer's model update and the view's RunLoop-delivered update instead.
+        let closed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            MainActor.assumeIsolated {
+                model.feedback == nil && view.shownPanelContent == nil
+            }
+        }, object: nil)
+        wait(for: [closed], timeout: 5)
         XCTAssertNil(model.feedback, "Fix in Typr stays only for a moment")
-        pumpMainRunLoop()
         XCTAssertNil(view.shownPanelContent)
     }
 
