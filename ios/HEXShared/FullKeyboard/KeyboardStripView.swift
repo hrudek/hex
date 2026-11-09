@@ -53,6 +53,7 @@ final class KeyboardStripView: UIView {
         chip.background.cornerRadius = 15
         undoChip.configuration = chip
         undoChip.isHidden = true
+        undoChip.accessibilityLabel = "Undo dictation"
         undoChip.addTarget(self, action: #selector(handleUndo), for: .touchUpInside)
         addSubview(undoChip)
 
@@ -71,11 +72,25 @@ final class KeyboardStripView: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     func updateFeedback(_ feedback: DictationFeedbackPresentation?, onRating: ((String, [String]?) -> Void)?,
-                        onDismiss: @escaping () -> Void) {
+                        onDismiss: @escaping () -> Void, onOpenEntry: ((UUID) -> Void)? = nil) {
         self.feedback = feedback
-        feedbackBar.onRating = onRating; feedbackBar.onDismiss = onDismiss
+        feedbackBar.onRating = onRating; feedbackBar.onDismiss = onDismiss; feedbackBar.onOpenEntry = onOpenEntry
         feedbackBar.update(feedback, palette: palette)
+        applyUndoChipStyle()
         setNeedsLayout(); setNeedsDisplay()
+    }
+
+    /// Hex+: while feedback shows, Undo stays available as an icon so the feedback actions fit.
+    private func applyUndoChipStyle() {
+        let compact = !feedbackBar.isHidden
+        guard var chip = undoChip.configuration, (chip.title == nil) != compact else { return }
+        chip.title = compact ? nil : "Undo dictation"
+        chip.imagePadding = compact ? 0 : 6
+        chip.contentInsets = compact
+            ? NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12)
+            : NSDirectionalEdgeInsets(top: 0, leading: 13, bottom: 0, trailing: 13)
+        undoChip.configuration = chip
+        undoChip.accessibilityLabel = "Undo dictation"
     }
 
     func update(suggestions: [KeyboardSuggestion], showsUndo: Bool, statusText: String?) {
@@ -142,7 +157,7 @@ final class KeyboardStripView: UIView {
         if !feedbackBar.isHidden {
             if showsUndo {
                 undoChip.frame.origin.x = 4
-                undoChip.frame.size.width = min(chipSize.width, bounds.width * 0.45)
+                undoChip.frame.size.width = max(44, min(chipSize.width, bounds.width * 0.45))
             }
             let x = showsUndo ? undoChip.frame.maxX + 6 : 4
             feedbackBar.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - 4), height: bounds.height)

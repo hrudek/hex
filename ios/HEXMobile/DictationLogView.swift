@@ -112,15 +112,19 @@ extension DictationLogEntry {
 
 struct DictationLogView: View {
     let store: DictationLogStore
+    /// Hex+: "Fix in Hex" from the keyboard opens this entry with "What I said" focused.
+    var router: HexPlusFeedbackRouter? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingClear = false
     @State private var filter = "All"
+    @State private var path: [UUID] = []
+    @State private var focusedEntry: UUID?
 
     private var rows: [DictationLogMetadata] {
         store.metadata.filter { filter == "All" || (filter == "Unrated" ? $0.rating == "unrated" : $0.rating == "bad") }
     }
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
                     Text("Retained on this iPhone until you delete it. Off stops collection and keeps saved logs. App removal or device loss is not covered. Export JSON to keep a copy.")
@@ -159,7 +163,13 @@ struct DictationLogView: View {
                 }
             }
             .navigationTitle("Dictation log")
-            .navigationDestination(for: UUID.self) { id in DictationLogDetail(store: store, entryID: id) }
+            .navigationDestination(for: UUID.self) { id in
+                DictationLogDetail(store: store, entryID: id, focusesReference: focusedEntry == id)
+            }
+            .onAppear { openRequestedEntry() }
+            .onChange(of: router?.requestedEntry) { _, _ in openRequestedEntry() }
+            // The deep-link focus is one-time: back in the list, rows open without focusing.
+            .onChange(of: path) { _, newPath in if newPath.isEmpty { focusedEntry = nil } }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -175,10 +185,24 @@ struct DictationLogView: View {
     }
 }
 
-private struct DictationLogDetail: View {
+extension DictationLogView {
+    fileprivate func openRequestedEntry() {
+        guard let id = router?.consume() else { return }
+        filter = "All"
+        focusedEntry = id
+        path = [id]
+    }
+}
+
+/// Hex+: the everyday feedback view. Recognized text and the AI correction, each with Copy,
+/// then one field for what was actually said/expected. Everything else is still recorded and
+/// exported, but stays behind "More details".
+struct DictationLogDetail: View {
     let store: DictationLogStore
     let entryID: UUID
+    var focusesReference = false
     @State private var editingFeedback = false
+    @State private var showsDetails = false
 
     private var entry: DictationLogEntry? { store.entry(entryID) }
 
@@ -186,49 +210,18 @@ private struct DictationLogDetail: View {
         Group {
             if let entry {
                 List {
-                    Section("Quick feedback") { DictationRatingButtons(store: store, entry: entry) }
-                    Section("Recognition & cleanup") {
-                        ForEach(entry.improvementLines, id: \.self) { Text($0).font(.subheadline).textSelection(.enabled) }
-                    }
-                    textSection("Recognized (raw speech recognition)", field: entry.recognized)
-                    textSection("Cleanup input (after vocabulary)", field: entry.aiInput ?? entry.recognized,
-                        comparedTo: entry.recognized)
-                    textSection("AI answer — \(entry.answerLabel)", field: entry.aiAnswer,
-                        comparedTo: entry.aiInput ?? entry.recognized)
-                    textSection("Cleanup output actually used", field: entry.cleanupOutput,
-                        comparedTo: entry.aiAnswer ?? entry.aiInput ?? entry.recognized)
-                    textSection("After style formatting", field: entry.formattedText, comparedTo: entry.cleanupOutput)
-                    textSection("Final text provided", field: entry.finalText, comparedTo: entry.formattedText)
-                    Section("Human reference") {
-                        Text(entry.expectedText?.text ?? "No desired text supplied yet. Without a reference, this is diagnostic evidence, not a labelled training example.")
-                            .textSelection(.enabled)
-                        if let note = entry.feedbackNote { Text(note.text).textSelection(.enabled) }
-                        if entry.expectedText?.truncated == true || entry.feedbackNote?.truncated == true {
-                            Text("Human reference or feedback is TRUNCATED. Do not use as a complete training label.")
-                                .font(.footnote).foregroundStyle(.red)
-                        }
-                        Button("Edit desired text & feedback") { editingFeedback = true }
-                        Text("Enter the intended final text, including intended names and self-corrections. Optional note: what was wrong? Saving does not train or change a model.")
-                            .font(.footnote).foregroundStyle(HexTheme.textMuted)
-                    }
-                    vocabularySection("Vocabulary before cleanup", entry: entry, pass: entry.firstSpellingPass)
-                    vocabularySection("Vocabulary after formatting", entry: entry, pass: entry.secondSpellingPass)
-                    if let input = entry.aiInput ?? entry.recognized, let answer = entry.aiAnswer {
-                        DictationLogDiff(title: "AI input → AI answer", before: input, after: answer)
-                    }
-                    if let input = entry.recognized, let final = entry.finalText {
-                        DictationLogDiff(title: "Recognized → Final", before: input, after: final)
-                    }
+                    DictationCopyableTextSection(title: "Recognized", field: entry.recognized,
+                        accessibilityName: "recognized text")
+                    DictationCopyableTextSection(title: "AI correction", field: entry.finalText,
+                        accessibilityName: "AI correction",
+                        footer: entry.context.cleanupPath == .none ? "No AI pass ran; this is the final text provided." : nil)
+                    DictationReferenceEditor(store: store, entry: entry, focusesOnAppear: focusesReference)
+                    Section { DictationRatingButtons(store: store, entry: entry, mode: .rating) }
                     Section {
-                        DisclosureGroup("Technical diagnostics") {
-                            ForEach(Array(entry.detailLines.enumerated()), id: \.offset) { _, line in
-                                Text(line).font(.footnote).textSelection(.enabled)
-                            }
-                        }
+                        Toggle("More details", isOn: $showsDetails.animation())
+                            .accessibilityHint("Shows categories, notes, processing stages and diagnostics")
                     }
-                    Section {
-                        Text(DictationLogExport.limitations).font(.footnote)
-                    }
+                    if showsDetails { details(entry) }
                 }
                 .toolbar {
                     DictationJSONExportMenu(store: store, ids: [entryID])
@@ -245,8 +238,58 @@ private struct DictationLogDetail: View {
                     description: Text("It may still be loading, could not be read, or was explicitly deleted."))
             }
         }
-        .navigationTitle("Dictation details")
+        .navigationTitle("Dictation")
+        .navigationBarTitleDisplayMode(.inline)
         .task { store.loadEntry(entryID, pin: true) }
+        // Opened from the keyboard while the archive was still loading: try again once it is ready.
+        .onChange(of: store.isLoading) { _, loading in if !loading { store.loadEntry(entryID, pin: true) } }
+    }
+
+    @ViewBuilder
+    private func details(_ entry: DictationLogEntry) -> some View {
+        Section("Problem categories") { DictationRatingButtons(store: store, entry: entry, mode: .categories) }
+        Section("Recognition & cleanup") {
+            ForEach(entry.improvementLines, id: \.self) { Text($0).font(.subheadline).textSelection(.enabled) }
+        }
+        textSection("Recognized (raw speech recognition)", field: entry.recognized)
+        textSection("Cleanup input (after vocabulary)", field: entry.aiInput ?? entry.recognized,
+            comparedTo: entry.recognized)
+        textSection("AI answer — \(entry.answerLabel)", field: entry.aiAnswer,
+            comparedTo: entry.aiInput ?? entry.recognized)
+        textSection("Cleanup output actually used", field: entry.cleanupOutput,
+            comparedTo: entry.aiAnswer ?? entry.aiInput ?? entry.recognized)
+        textSection("After style formatting", field: entry.formattedText, comparedTo: entry.cleanupOutput)
+        textSection("Final text provided", field: entry.finalText, comparedTo: entry.formattedText)
+        Section("Human reference") {
+            Text(entry.expectedText?.text ?? "No desired text supplied yet. Without a reference, this is diagnostic evidence, not a labelled training example.")
+                .textSelection(.enabled)
+            if let note = entry.feedbackNote { Text(note.text).textSelection(.enabled) }
+            if entry.expectedText?.truncated == true || entry.feedbackNote?.truncated == true {
+                Text("Human reference or feedback is TRUNCATED. Do not use as a complete training label.")
+                    .font(.footnote).foregroundStyle(.red)
+            }
+            Button("Edit desired text & note") { editingFeedback = true }
+            Text("Enter the intended final text, including intended names and self-corrections. Optional note: what was wrong? Saving does not train or change a model.")
+                .font(.footnote).foregroundStyle(HexTheme.textMuted)
+        }
+        vocabularySection("Vocabulary before cleanup", entry: entry, pass: entry.firstSpellingPass)
+        vocabularySection("Vocabulary after formatting", entry: entry, pass: entry.secondSpellingPass)
+        if let input = entry.aiInput ?? entry.recognized, let answer = entry.aiAnswer {
+            DictationLogDiff(title: "AI input → AI answer", before: input, after: answer)
+        }
+        if let input = entry.recognized, let final = entry.finalText {
+            DictationLogDiff(title: "Recognized → Final", before: input, after: final)
+        }
+        Section {
+            DisclosureGroup("Technical diagnostics") {
+                ForEach(Array(entry.detailLines.enumerated()), id: \.offset) { _, line in
+                    Text(line).font(.footnote).textSelection(.enabled)
+                }
+            }
+        }
+        Section {
+            Text(DictationLogExport.limitations).font(.footnote)
+        }
     }
 
     @ViewBuilder

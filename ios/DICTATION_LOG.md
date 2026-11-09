@@ -26,12 +26,29 @@ There is no automatic count, age or aggregate byte eviction.
 
 ## Everyday feedback
 
-Open **Hex+ → Show dictation log**. The list uses metadata, a 120-character
-preview and All / Unrated / Problems filters. Leading Good and trailing Problem
-swipes have explicit VoiceOver equivalents. The detail begins with Good and
-Problem buttons. Problem saves immediately; optional issue choices can follow:
+Open **Hex+ → Show dictation log**, or tap **Fix in Hex** on the keyboard after
+Problem (see below). The list uses metadata, a 120-character preview and All /
+Unrated / Problems filters. Leading Good and trailing Problem swipes have explicit
+VoiceOver equivalents.
+
+The detail is built for daily feedback and shows only:
+
+1. **Recognized**: the raw speech-recognition text, with a **Copy** button.
+2. **AI correction**: the final text provided (after AI cleanup, formatting and
+   vocabulary), with a **Copy** button. Without an AI pass it says so.
+3. **What I said / expected**: an inline field for the human reference
+   (`expectedText`). Copy a text above, paste it and correct it instead of
+   retyping. **Save** (also on Done and when leaving the detail) owns only this
+   field; the separate note is never touched by it.
+4. Good / Problem buttons.
+
+Everything else is still recorded and exported, but hidden behind **More
+details** (off each time the detail opens): issue categories, the note editor,
+every processing stage, vocabulary replacements, diffs and technical
+diagnostics. Problem saves immediately; optional issue choices are:
 `misheard`, `missing_or_shortened`, `unwanted_rewrite`, `punctuation_formatting`,
 `vocabulary_name`, `too_slow`, `other`. Rating does not require an editor.
+Copy writes to the clipboard only on an explicit tap.
 
 Good does not manufacture a reference. Removing a rating preserves reference,
 notes and categories. Clearing categories is explicit. **Desired final text**
@@ -174,9 +191,19 @@ VoiceOver and on-device model quality still require hardware verification.
 
 Hex+ › Keyboard dictation feedback is **on by default** (independent of the
 archive collection switch). Good / Problem / dismiss use the existing compact
-tray or full-keyboard suggestion strip. The full keyboard retains Undo dictation
-as a separate sibling. Optional categories scroll horizontally; no keyboard text
-editor, document inspection for feedback, clipboard copy or network request.
+tray or full-keyboard suggestion strip, on **both** surfaces. The full keyboard
+retains Undo dictation as a separate sibling; while feedback shows, Undo is an
+icon (same action and VoiceOver label) so every feedback action fits without
+scrolling. The full-keyboard bar lays out its items with explicit frames because
+it is created hidden and filled only when a result arrives.
+
+After **Problem**, the keyboard shows **Fix in Hex** instead of issue categories:
+the keyboard cannot usefully show what was recognized and what AI made of it.
+Fix in Hex opens `hex-dictation://hexplus/feedback?entry=<UUID>` (the entry ID
+only, never text); the app opens the log on that entry with **What I said**
+focused. The link never starts a dictation session. Categories remain available
+in the app under More details. No keyboard text editor, document inspection for
+feedback, clipboard copy or network request.
 The compact targets are at least 44 pt wide, **26 pt high**, matching the existing
 tray; they are not 44 pt tall. The full strip retains its existing 33 pt height.
 
@@ -218,7 +245,10 @@ Synthetic checks: `DictationKeyboardFeedbackTests` covers exact inserted matchin
 ordering, separate reference ownership, durable-write retry, replay, Off/Clear/
 Delete/opt-out, simultaneous writers/cap, malformed/expired events, unloaded
 entries, load-with-new-offer generation stability, and full-keyboard Undo/host
-text/typing dismissal. New scene names: `keyboard-feedback`,
+text/typing dismissal, a feedback offer that arrives after the full keyboard was
+mounted (the on-device order), Fix in Hex opening the exact entry link, link
+routing that never parses as a launch request, and reference saves that keep
+the note. Scene names: `keyboard-feedback`,
 `keyboard-feedback-problem`, `full-keyboard-feedback[-dark]` and
 `full-keyboard-feedback-problem[-dark]`. Fixtures are synthetic, not real extension
 or device proof. Linux strict Swift 6 typechecking uses platform stubs; all eight

@@ -390,7 +390,11 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             nil
         }
         stripView.updateFeedback(model.hasFullAccess ? model.feedback : nil, onRating: model.onFeedbackRating,
-                                 onDismiss: { [weak model] in model?.dismissFeedback() })
+                                 onDismiss: { [weak model] in model?.dismissFeedback() },
+                                 onOpenEntry: { [weak model] entryID in
+                                     model?.dismissFeedback()
+                                     model?.onOpenURL?(HexPlusFeedbackLink.url(entryID: entryID))
+                                 })
         stripView.update(
             suggestions: engine.suggestions,
             showsUndo: lastDictation != nil,
