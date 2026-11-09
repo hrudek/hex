@@ -32,8 +32,7 @@ final class AICleanupGuardCases: XCTestCase {
             ("Schreib an kit@example.com", "Schreib an kat@example.com", .newValue),
             ("Was ist die Hauptstadt von Frankreich", "Die Hauptstadt von Frankreich ist Paris, eine Stadt an der Seine.", .grew),
             ("Schreib mir eine Mail an Anna wegen morgen", "Liebe Anna, ich wollte dich wegen morgen fragen, ob es dabei bleibt.", .grew),
-            ("Wie geht es dir", "Mir geht es gut, danke", .newWords),
-            ("Bitte kauf Milch und Brot", "Okay, notiert: Einkauf erledigt", .newWords)
+            ("Erstelle bitte einen Pull Request für den Branch", "Erstelle bitte einen Pull Request für den Branch. Erstelle bitte einen Pull Request für den Branch.", .duplicated)
         ]
         for (input, output, rule) in cases {
             XCTAssertEqual(CleanupGuard.rejection(input: input, output: output, style: .polished), rule, "\(input) => \(output)")
@@ -61,11 +60,11 @@ final class AICleanupGuardCases: XCTestCase {
     /// Every example the model is shown must be one the guard accepts.
     func testPromptExamplesPassTheGuard() {
         let examples = CleanupPrompt.instructions.split(separator: "\n").compactMap { line -> (String, String)? in
-            guard !line.hasPrefix("Examples") else { return nil }
+            guard !line.hasPrefix("EXAMPLES") else { return nil }
             let parts = line.components(separatedBy: " => ")
             return parts.count == 2 ? (parts[0].trimmingCharacters(in: .whitespaces), parts[1]) : nil
         }
-        XCTAssertGreaterThanOrEqual(examples.count, 8)
+        XCTAssertGreaterThanOrEqual(examples.count, 10)
         for (input, output) in examples {
             XCTAssertTrue(CleanupGuard.accepts(input: input, output: output, style: .polished), "\(input) => \(output)")
         }

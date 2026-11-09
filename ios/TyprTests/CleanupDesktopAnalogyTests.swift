@@ -140,7 +140,7 @@ final class CleanupDesktopAnalogyTests: XCTestCase {
             let deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: session), language: CleanupTestLanguage(allowed: reason != .language),
                 background: bg, isEnabled: { true }, observer: observer)
             let coordinator = CleanupCoordinator(), job = CleanupJob(session: session, background: bg); job.begin()
-            let input = reason == .budget ? String(repeating: "word ", count: 251) : raw
+            let input = reason == .budget ? String(repeating: "word ", count: CleanupCoordinator.maximumWords + 1) : raw
             let value = await coordinator.clean(input, style: .polished, job: job, dependencies: deps)
             XCTAssertEqual(value, input)
             XCTAssertEqual(observer.events.map(\.outcome), [.skipped(reason)])

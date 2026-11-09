@@ -70,6 +70,11 @@ it never accesses the microphone, speech model, or network.
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
     `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
     insertion spacing and repeating backspace.
+  - **Language (Automatic / Deutsch / English):** picks the Apple Speech locale
+    and tells Typr AI cleanup which language to write (English terms in German
+    speech stay English). A warm-session start also sends up to 300 characters
+    of the field's text before the cursor to the app as cleanup context (never
+    logged); see [AI_CLEANUP.md](AI_CLEANUP.md#language-context-and-hyphens).
   - **Full keyboard Typr key (Experiments › Full keyboard):** A quick tap
     types a space, exactly like the space bar (autocorrect, double-space
     period). A still hold of 0.35 s starts dictation in a warm session (or

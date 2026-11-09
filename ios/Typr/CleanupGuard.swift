@@ -1,12 +1,14 @@
 import Foundation
 
-/// A light plausibility check on the model's answer, like other on-device dictation cleaners (Yap
-/// accepts an answer when most of its words were already spoken). Cleanup only deletes, fixes or
-/// re-punctuates the speaker's words, so an answer that grows, brings new numbers or links, or is
-/// mostly new words is the model answering or inventing; the plain transcript is pasted instead.
-/// Not a semantic guarantee: a wrong word swap or a dropped clause can still pass.
+/// A light plausibility check on the model's answer. Cleanup may rewrite freely into good written
+/// language (every style except Verbatim), so the guard no longer counts new words. It rejects only
+/// what a cleanup never does: an answer much longer than what was said (answering or inventing), a
+/// number, link or address nobody said, a transcript repeated twice (OpenWhispr's duplicated-transcript
+/// check, MIT, see PORTS.md), or changed Notes markers. Empty answers and Notes line breaks are checked
+/// by the coordinator. Not a semantic guarantee: a wrong word, a dropped clause or a short answer to
+/// a dictated question can pass.
 enum CleanupGuard {
-    static let revision = "2026-11-08a"
+    static let revision = "2026-11-09a"
 
     static func wordCount(_ text: String) -> Int {
         words(text).count
@@ -50,26 +52,53 @@ enum CleanupGuard {
     }
 
     /// Why an answer is implausible, or nil when it is accepted.
-    /// `vocabulary`: the owner's Custom vocabulary. Its words and values count as spoken, so a
-    /// misheard name the model fixes to a listed spelling is not a "new word".
+    /// `vocabulary`: the spellings listed in the prompt. Their values count as spoken, so a listed
+    /// "iPhone 17" is not an invented number.
     static func rejection(input: String, output: String, style: DictationStyle,
                           vocabulary: [String] = []) -> CleanupGuardRule? {
+        if duplicatesTranscript(input: input, output: output) { return .duplicated }
         let inputWords = words(input), outputWords = words(output)
         // Cleanup never needs many more words than were spoken.
         if outputWords.count > inputWords.count + max(2, inputWords.count / 5) { return .grew }
         // Every number, link and address must have been spoken; dropping a corrected one is fine.
         let listed = vocabulary.joined(separator: " \n ")
         if !values(output).isSubset(of: values(input).union(values(listed))) { return .newValue }
-        // Mostly the speaker's own words: at most a few misheard-word fixes (30 %, at least one).
-        let spoken = Set(inputWords), listedWords = Set(words(listed))
-        let unspoken = outputWords.filter { !spoken.contains($0) }
-        let new = unspoken.filter { !listedWords.contains($0) }.count
-        if new > max(1, outputWords.count * 3 / 10) { return .newWords }
-        // Listed spellings replace misheard words; they never make up most of the answer, so a
-        // vocabulary entry cannot turn the transcript into something else.
-        if unspoken.count > max(1, outputWords.count / 2) { return .newWords }
         if style == .notes, markerCounts(input) != markerCounts(output) { return .notesMarkers }
         return nil
+    }
+
+    /// OpenWhispr's `assertValidCleanupOutput`: the answer is one text of at least six words written
+    /// twice in a row, and the speaker did not say most of those words twice. Stutters ("the the") in
+    /// the transcript are collapsed first; a "Cleaned transcript:" label line is ignored.
+    static func duplicatesTranscript(input: String, output: String) -> Bool {
+        func tokens(_ text: String) -> [String] {
+            words(text.precomposedStringWithCompatibilityMapping
+                .replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "\u{2019}", with: ""))
+        }
+        var spoken: [String] = []
+        for token in tokens(input) where token != spoken.last { spoken.append(token) }
+        let answer = output.components(separatedBy: .newlines)
+            .filter { !isCleanupLabel($0) }
+            .flatMap { tokens($0) }
+        guard answer.count % 2 == 0, answer.count / 2 >= 6 else { return false }
+        let half = answer.count / 2
+        let copy = Array(answer[..<half])
+        guard copy == Array(answer[half...]) else { return false }
+        var counts: [String: Int] = [:]
+        for token in spoken { counts[token, default: 0] += 1 }
+        var saidTwice = 0
+        for token in copy {
+            let remaining = counts[token] ?? 0
+            guard remaining >= 2 else { continue }
+            counts[token] = remaining - 2
+            saidTwice += 1
+        }
+        return saidTwice * 2 <= half
+    }
+
+    private static func isCleanupLabel(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces).lowercased()
+        return ["cleaned transcript:", "**cleaned transcript:**", "**cleaned transcript**:"].contains(trimmed)
     }
 
     static func accepts(input: String, output: String, style: DictationStyle) -> Bool {

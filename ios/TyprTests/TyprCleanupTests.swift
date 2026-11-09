@@ -244,7 +244,8 @@ final class TyprCleanupTests: XCTestCase {
 
     func testInputAndLanguageAdmissionSkipModel() async {
         let session = CleanupTestSession(), bg = CleanupTestBackground()
-        for text in [String(repeating: "a", count: 1501), String(repeating: "word ", count: 251), raw] {
+        for text in [String(repeating: "ab ", count: CleanupCoordinator.maximumUTF8Bytes / 3 + 1),
+                     String(repeating: "word ", count: CleanupCoordinator.maximumWords + 1), "zwei Worte", raw] {
             let deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: session), language: CleanupTestLanguage(allowed: false),
                 background: bg, isEnabled: { true })
             let job = CleanupJob(session: session, background: bg); job.begin()

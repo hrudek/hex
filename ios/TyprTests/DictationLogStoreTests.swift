@@ -349,7 +349,7 @@ final class DictationLogStoreTests: XCTestCase {
             XCTAssertEqual(late.modelMilliseconds, 6_000)
             XCTAssertEqual(late.aiAnswer?.text, "late answer")
             XCTAssertEqual(late.answerLabel, failure == .deadline
-                ? "arrived after the 4 s deadline; not used"
+                ? "arrived after the cleanup deadline; not used"
                 : "arrived after iOS ended the background time; not used")
             recording.modelAnswer("not late", use: .accepted, modelMilliseconds: 7_000)
             XCTAssertEqual(env.store.entries.first, late)

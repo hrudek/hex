@@ -162,7 +162,12 @@ Every entry freezes the complete saved Custom vocabulary as `context.vocabularyT
 (a JSON string array, in saved order, max 100 terms × 64 characters), even while
 the experiment is off; `vocabularyEnabled` says whether the terms were applied and
 `vocabularyCount` counts the applied ones. Older entries may instead carry the
-legacy joined `vocabularySnapshot` (active terms only, capped to 4,000 bytes). Each spelling pass
+legacy joined `vocabularySnapshot` (active terms only, capped to 4,000 bytes). Entries
+since prompt revision `2026-11-09a` also record `context.dictationLanguage`
+(`automatic`, `de`, `en`) and, when Typr cleanup was offered preceding text, only its
+source (`cleanupContextSource`: `keyboard` or `previous-dictations`) and length
+(`cleanupContextCharacters`), **never the context text** (see
+[AI cleanup](AI_CLEANUP.md#language-context-and-hyphens)). Missing fields mean not recorded. Each spelling pass
 keeps the first 20 replacements plus total count. Per-field truncation, original
 byte/word counts and bounded 400-token comparisons remain explicit. Speech hints
 are best effort; counts are not correctness scores. Selected model configuration

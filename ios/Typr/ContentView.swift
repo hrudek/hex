@@ -469,6 +469,32 @@ struct ContentView: View {
 
             rowDivider
 
+            // Speech recognition locale and the AI cleanup's writing language.
+            HStack(spacing: 12) {
+                rowTitle("Language")
+                Spacer(minLength: 8)
+                Menu {
+                    ForEach(DictationLanguage.allCases, id: \.self) { candidate in
+                        Button {
+                            dictation.setDictationLanguage(candidate)
+                        } label: {
+                            if dictation.dictationLanguage == candidate {
+                                Label(candidate.label, systemImage: "checkmark")
+                            } else {
+                                Text(candidate.label)
+                            }
+                        }
+                    }
+                } label: {
+                    menuValueLabel(dictation.dictationLanguage.label)
+                }
+                .accessibilityLabel("Dictation language: \(dictation.dictationLanguage.label)")
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 48)
+
+            rowDivider
+
             Toggle(
                 isOn: Binding(
                     get: { dictation.allowBluetoothMic },

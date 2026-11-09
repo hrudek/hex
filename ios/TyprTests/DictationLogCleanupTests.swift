@@ -89,7 +89,7 @@ final class DictationLogCleanupTests: XCTestCase {
             XCTAssertEqual(late.cleanupOutcome, finished.cleanupOutcome)
             XCTAssertEqual(late.answerLabel, expire
                 ? "arrived after iOS ended the background time; not used"
-                : "arrived after the 4 s deadline; not used")
+                : "arrived after the cleanup deadline; not used")
             XCTAssertEqual(env.store.entries.first, bBefore)
             XCTAssertEqual(bBefore?.cleanupOutcome, "skipped(busy)")
             XCTAssertEqual(observer.events.count, 2) // Late text is not a second resolution.
