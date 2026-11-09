@@ -215,9 +215,11 @@ struct TyprDotMatrixBadge: View {
     var rows: Int = 7
     var pitch: CGFloat = 2.6
     var cooling: Bool = false
+    /// Set when the badge is centered in its region (Dynamic Island minimal).
+    var opticallyCentered: Bool = false
 
     var body: some View {
-        TyprWordmark()
+        TyprWordmark(opticallyCentered: opticallyCentered)
             .fill(cooling ? TyprTheme.agentBlue : TyprTheme.warmPearl)
             .frame(
                 width: CGFloat(columns - 1) * pitch + 8,

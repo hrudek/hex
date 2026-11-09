@@ -61,12 +61,13 @@ struct FullKeyboardPalette: Equatable {
     static let cornerRadius: CGFloat = 8.5
 }
 
-/// The same outlined Typr wordmark used by SwiftUI and the app icon.
+/// The same outlined Typr wordmark used by SwiftUI and the app icon, optically
+/// centered like the icon because the keyboard key centers it on the keycap.
 enum TyprMarkPath {
     static func draw(in context: CGContext, rect: CGRect, color: UIColor, coreColor: UIColor?) {
         context.saveGState()
         context.setFillColor((coreColor ?? color).cgColor)
-        context.addPath(TyprWordmark().path(in: rect).cgPath)
+        context.addPath(TyprWordmark(opticallyCentered: true).path(in: rect).cgPath)
         context.fillPath()
         context.restoreGState()
     }

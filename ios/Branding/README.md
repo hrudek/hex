@@ -13,8 +13,14 @@ python3 ios/Branding/generate.py --check
 
 Rendering requires `rsvg-convert` (librsvg); `--check` uses only Python's standard
 library. The generator centers the visible wordmark while preserving its source
-proportions. The PNG has no baked-in background or rounded corners. Icon Composer
-provides the solid `#040000` background and iOS mask. Its 0.5 layer scale maps the
+proportions, then applies `OPTICAL_OFFSET` (39, 12 SVG units, right and down):
+the light period widens the bounds so the heavy "typr" would look left, and the
+descenders lift the x-height. The offset is baked into the PNG, so `icon.json`
+keeps `translation-in-points` at `[0, 0]`. `TyprWordmark(opticallyCentered: true)`
+applies the same offset where the mark is centered in a surface (keyboard key,
+Dynamic Island minimal); header and leading-aligned marks stay unshifted.
+The PNG has no baked-in background or rounded corners. Icon Composer provides
+the solid `#040000` background and iOS mask. Its 0.5 layer scale maps the
 2048-pixel artwork to the 1024-point composition; shadows and translucency are
 disabled. The same white-on-dark artwork works in dark/tinted appearances.
 
