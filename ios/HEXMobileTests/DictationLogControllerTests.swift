@@ -348,10 +348,13 @@ final class DictationLogControllerTests: XCTestCase {
 
     func testUnwritableStorageDoesNotAffectDelivery() async throws {
         let f = LogControllerFixture()
-        try FileManager.default.createDirectory(at: f.env.directory, withIntermediateDirectories: true)
-        // A regular file where the log's parent directory belongs fails even as an admin.
-        try FileManager.default.removeItem(at: f.env.directory)
-        try Data("not a directory".utf8).write(to: f.env.directory)
+        // Let startup finish before changing its storage. Removing the whole fixture
+        // directory races the archive's asynchronous initialization on the simulator.
+        try await LogTestEnvironment.waitUntilLoaded(f.env.store)
+        let entries = f.env.storage.root.appendingPathComponent("entries", isDirectory: false)
+        // A regular file where entries must be written fails even as an admin.
+        try FileManager.default.removeItem(at: entries)
+        try Data("not a directory".utf8).write(to: entries)
         try await f.start()
         f.controller.finishRecording(); try await f.settle()
         await f.env.storage.flush(); try await f.settle()
