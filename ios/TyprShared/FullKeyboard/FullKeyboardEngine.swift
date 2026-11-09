@@ -85,7 +85,6 @@ final class FullKeyboardEngine {
     var width: CGFloat = 375 { didSet { if width != oldValue { rebuildLayout() } } }
     var orientation: KeyboardOrientation = .portrait { didSet { if orientation != oldValue { rebuildLayout() } } }
     var showsGlobe = false { didSet { if showsGlobe != oldValue { rebuildLayout() } } }
-    /// Typr: the bottom row starts with the compact-bar switch key.
     var horizontalInset: CGFloat = 0 { didSet { if horizontalInset != oldValue { rebuildLayout() } } }
     private(set) var layout = KeyboardLayout(width: 375)
 
