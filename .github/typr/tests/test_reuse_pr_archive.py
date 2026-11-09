@@ -24,7 +24,7 @@ class ReuseTests(unittest.TestCase):
         self.config = config_module.load()
         self.pr = {
             'state': 'open', 'draft': False,
-            'base': {'repo': {'full_name': REPO}, 'ref': 'hex-plus'},
+            'base': {'repo': {'full_name': REPO}, 'ref': 'main'},
             'head': {'repo': {'full_name': REPO}, 'ref': 'feature/example', 'sha': SHA},
         }
         self.run = {
@@ -52,7 +52,7 @@ class ReuseTests(unittest.TestCase):
         for change in (
             {'draft': True}, {'state': 'closed'},
             {'base': {'repo': {'full_name': REPO}, 'ref': 'dev'}},
-            {'base': {'repo': {'full_name': 'other/hex'}, 'ref': 'hex-plus'}},
+            {'base': {'repo': {'full_name': 'other/hex'}, 'ref': 'main'}},
             {'head': {**self.pr['head'], 'repo': {'full_name': 'other/hex'}}},
             {'head': {**self.pr['head'], 'repo': None}},
             {'head': {**self.pr['head'], 'ref': 'infra/x'}},

@@ -13,7 +13,7 @@ def job(name):
 
 
 def condition(name, event, distribution='', changed='true', only_testing='', draft=False,
-              ref='refs/heads/hex-plus'):
+              ref='refs/heads/main'):
     # Evaluate the actual single-line scheduling expression, not a copied policy.
     expression = re.search(r'^    if: (.+)$', job(name), re.M).group(1)
     values = {
@@ -58,9 +58,9 @@ class FastLaneContracts(unittest.TestCase):
         self.assertFalse(condition('test', 'workflow_dispatch', 'simulator', only_testing='none'))
         self.assertIn('unsigned|simulator) ;;', job('decide'))
 
-    def test_only_hex_plus_pushes_and_required_job_names_stay_stable(self):
+    def test_only_main_pushes_and_required_job_names_stay_stable(self):
         push = re.search(r'^  push:\n(.*?)(?=^  \S)', SOURCE, re.M | re.S).group(1)
-        self.assertEqual(push.strip(), 'branches: [hex-plus]')
+        self.assertEqual(push.strip(), 'branches: [main]')
         spec = importlib.util.spec_from_file_location(
             'reuse', ROOT / '.github/typr/reuse-pr-archive.py')
         reuse = importlib.util.module_from_spec(spec)
@@ -93,8 +93,8 @@ class FastLaneContracts(unittest.TestCase):
         self.assertIn("if: needs.decide.outputs.sign != '' && needs.build.result == 'success'", job('sign'))
         self.assertNotIn('typr-fix', SOURCE)
         status = job('status')
-        self.assertIn("&& github.ref == 'refs/heads/hex-plus'", status)
-        self.assertIn('gh workflow run typr-status.yml --ref hex-plus', status)
+        self.assertIn("&& github.ref == 'refs/heads/main'", status)
+        self.assertIn('gh workflow run typr-status.yml --ref main', status)
 
 
 if __name__ == '__main__':

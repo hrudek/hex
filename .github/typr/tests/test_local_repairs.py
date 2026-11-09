@@ -24,7 +24,7 @@ class StatusReportsRedRuns(unittest.TestCase):
     def test_each_red_run_needs_the_owner(self):
         items = status.red_runs(run('failure'))
         self.assertEqual(len(items), 1)
-        self.assertIn('hex-plus CI failed', items[0])
+        self.assertIn('main CI failed', items[0])
         self.assertIn('fix/<name>', items[0])
 
     def test_cancelled_is_not_red(self):

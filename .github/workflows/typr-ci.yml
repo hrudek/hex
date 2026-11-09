@@ -1,8 +1,8 @@
 # Typr CI for the iPhone app.
 # Fast lane: PRs run Linux checks and compile only. Simulator tests run after
-# merging to hex-plus, beside the TestFlight build (no nightly run). Screenshots and
+# merging to main, beside the TestFlight build (no nightly run). Screenshots and
 # pre-merge tests are opt-in via the manual simulator distribution.
-#   push hex-plus       → app changed? archive → TestFlight at once; tests in parallel
+#   push main       → app changed? archive → TestFlight at once; tests in parallel
 #   pull_request        → feature/fix PRs: checks, scope, labels, archive (required); no simulator
 #   workflow_dispatch   → simulator preview (tests + screenshots, no archive), or a device build
 name: Typr CI
@@ -10,9 +10,9 @@ run-name: "Typr CI · ${{ github.event_name == 'pull_request' && format('PR #{0}
 
 on:
   push:
-    branches: [hex-plus]
+    branches: [main]
   pull_request:
-    branches: [hex-plus]
+    branches: [main]
     # As OpenCode's checks: no label events, so a label never starts a macOS run. Adding
     # "infra" re-runs the failed jobs instead (typr-recheck.yml); Scope reads labels live.
     # drafts get only the Linux checks until marked ready.
@@ -73,7 +73,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          base=${BASE:-$(git rev-parse origin/hex-plus)}
+          base=${BASE:-$(git rev-parse origin/main)}
           # The PR's labels now, not the event's: a re-run after adding "infra" must see it.
           LABELS=''
           if [[ -n "$PR" ]]; then
@@ -149,10 +149,10 @@ jobs:
             workflow_dispatch)
               case "$DISTRIBUTION" in
                 unsigned|simulator) ;;
-                ad-hoc) [[ "$REF" == refs/heads/hex-plus || "$REF" == refs/heads/feature/* ]] \
-                          || { echo 'Ad-hoc signing only from hex-plus or feature/*'; exit 1; }
+                ad-hoc) [[ "$REF" == refs/heads/main || "$REF" == refs/heads/feature/* ]] \
+                          || { echo 'Ad-hoc signing only from main or feature/*'; exit 1; }
                         sign=ad-hoc ;;
-                testflight) [[ "$REF" == refs/heads/hex-plus ]] || { echo 'TestFlight only from hex-plus'; exit 1; }
+                testflight) [[ "$REF" == refs/heads/main ]] || { echo 'TestFlight only from main'; exit 1; }
                             sign=testflight ;;
               esac ;;
           esac
@@ -182,7 +182,7 @@ jobs:
     name: Simulator tests
     needs: decide
     # No simulator allocation for PRs; manual branch runs remain available.
-    if: github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref == 'refs/heads/hex-plus') && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
+    if: github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
@@ -243,7 +243,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       # Saved from pushes, schedules and manual runs only, never from a PR, so a PR
-      # cannot plant anything that a hex-plus (TestFlight) build later restores.
+      # cannot plant anything that a main (TestFlight) build later restores.
       - name: Save Swift package checkouts
         if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && github.event_name != 'pull_request' && steps.spm-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -303,7 +303,7 @@ jobs:
         id: archive
         run: bash .github/typr/build.sh
       # Saved from pushes, schedules and manual runs only, never from a PR, so a PR
-      # cannot plant anything that a hex-plus (TestFlight) build later restores.
+      # cannot plant anything that a main (TestFlight) build later restores.
       - name: Save Swift package checkouts
         if: ${{ !cancelled() && steps.archive.outcome != 'skipped' && github.event_name != 'pull_request' && steps.spm-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -409,10 +409,10 @@ jobs:
   status:
     name: Refresh status
     needs: [linux, decide, test, build, sign]
-    # The status issue reports hex-plus; red runs are fixed locally.
+    # The status issue reports main; red runs are fixed locally.
     if: >-
       always() && !cancelled() && github.event_name == 'push'
-      && github.ref == 'refs/heads/hex-plus'
+      && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -422,4 +422,4 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Refresh the status issue
-        run: gh workflow run typr-status.yml --ref hex-plus
+        run: gh workflow run typr-status.yml --ref main

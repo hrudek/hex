@@ -135,7 +135,7 @@ xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=
   Parakeet's batch path gets no hint.
 - **Typr CI:** PRs compile an unsigned device archive (app, keyboard and
   widgets); they do not build the test bundle or automatically run simulator
-  tests. App changes on `hex-plus` run simulator tests after merge, beside
+  tests. App changes on `main` run simulator tests after merge, beside
   TestFlight. Manual `distribution=simulator` runs are available before merge;
   see [TYPR.md](../TYPR.md). These checks do not prove physical-iPhone
   behavior; a test's presence is not evidence of a passing run.

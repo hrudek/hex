@@ -8,9 +8,9 @@ Typr is a standalone iPhone dictation keyboard. Read [TYPR.md](TYPR.md) first
 ## One worktree per development task
 
 - Before a new feature, bug fix or refactor, create a task-specific branch and
-  Git worktree. Start from `hex-plus` unless the owner requests another base.
+  Git worktree. Start from `main` unless the owner requests another base.
 - Keep worktrees as sibling directories under the canonical repository root
-  containing `.bare/`. Do not develop directly on `hex-plus`.
+  containing `.bare/`. Do not develop directly on `main`.
 - Run `git worktree list` and check the relevant worktree's status before
   making changes. Never overwrite or move another task's uncommitted work.
 - Resume an existing task in its own worktree; a new session does not require

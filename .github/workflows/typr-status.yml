@@ -1,6 +1,6 @@
 # Typr: keep the pinned issue "Typr status" current.
-# Dispatched after each hex-plus CI run, weekly for renewal warnings, or by hand.
-# gh only; runs Typr's status.py from hex-plus, never branch code.
+# Dispatched after each main CI run, weekly for renewal warnings, or by hand.
+# gh only; runs Typr's status.py from main, never branch code.
 name: Typr status
 run-name: "Typr status · ${{ github.event_name }}"
 

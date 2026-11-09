@@ -47,7 +47,7 @@ def runs(workflow: str, **filters: str) -> list[dict]:
 
 
 def last_testflight(repo: str) -> str:
-    for run in runs("typr-ci.yml", branch="hex-plus", event="push"):
+    for run in runs("typr-ci.yml", branch="main", event="push"):
         jobs = gh_json("api", f"repos/{repo}/actions/runs/{run['databaseId']}/jobs",
                        "--jq", "[.jobs[] | {name, conclusion}]") or []
         sign = next((j for j in jobs if j["name"].startswith("Sign (testflight")), None)
@@ -57,9 +57,9 @@ def last_testflight(repo: str) -> str:
 
 
 def red_runs(push: dict | None) -> list[str]:
-    """Failed hex-plus CI runs the owner fixes locally (no repair agent in CI)."""
+    """Failed main CI runs the owner fixes locally (no repair agent in CI)."""
     if push and push["status"] == "completed" and push["conclusion"] == "failure":
-        return [f"- ❌ [hex-plus CI failed]({push['url']}) ({push['displayTitle']}): fix locally on a "
+        return [f"- ❌ [main CI failed]({push['url']}) ({push['displayTitle']}): fix locally on a "
                 "`fix/<name>` branch through a PR (`gh run view <id> --log-failed`)"]
     return []
 
@@ -97,7 +97,7 @@ def main() -> None:
         if days <= WARN_DAYS:
             attention.append(f"- 🔴 **{item['name']}** expires {item['expires']}: {item['renew']}")
 
-    ci = runs("typr-ci.yml", branch="hex-plus")
+    ci = runs("typr-ci.yml", branch="main")
     push = next((r for r in ci if r["event"] == "push"), None)
     attention += red_runs(push)
 
@@ -109,7 +109,7 @@ def main() -> None:
             lines.append(f"| {name} | {icon(run['conclusion'], run['status'])} | [{ago(run['createdAt'])}]({run['url']}) |")
         else:
             lines.append(f"| {name} | – | never |")
-    row("hex-plus (last merge)", push)
+    row("main (last merge)", push)
     lines.append(f"| TestFlight upload | {last_testflight(repo)} | |")
     lines.append("")
 
