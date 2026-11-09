@@ -29,7 +29,7 @@ struct FullKeyboardSnapshotStage: View {
 
     private var draft: String {
         switch state {
-        case "inserted": "Running 10 min late, should be home by 7:30. Start without me."
+        case "inserted", "feedback", "feedback-problem": "Running 10 min late, should be home by 7:30. Start without me."
         case "numbers": "Running 10 min late, home by 7:3"
         case "shift": "Running 10 min late. "
         case "typing": "Running 10 min teh"
@@ -146,6 +146,9 @@ private struct FullKeyboardFixture: UIViewRepresentable {
                 view.engine.touchEnded(id: 902, at: center(of: .shift, in: view))
                 view.engine.touchBegan(id: 903, at: center(of: .shift, in: view))
                 view.engine.touchEnded(id: 903, at: center(of: .shift, in: view))
+            case "feedback", "feedback-problem":
+                view.didInsertDictation("should be home by 7:30. Start without me.", keepUndoFor: 180)
+                model.feedback = .snapshotFixture(problem: state == "feedback-problem")
             case "inserted":
                 view.didInsertDictation("should be home by 7:30. Start without me.")
             case "style":

@@ -231,6 +231,7 @@ nonisolated struct KeyboardSnapshot: Codable, Equatable, Sendable {
     let resultExpiresAt: TimeInterval?
     let transcript: String?
     let message: String?
+    let feedbackOffer: DictationFeedbackOffer?
 
     init(
         state: KeyboardDictationState,
@@ -243,7 +244,8 @@ nonisolated struct KeyboardSnapshot: Codable, Equatable, Sendable {
         resultID: String? = nil,
         resultExpiresAt: TimeInterval? = nil,
         transcript: String? = nil,
-        message: String? = nil
+        message: String? = nil,
+        feedbackOffer: DictationFeedbackOffer? = nil
     ) {
         self.state = state
         self.heartbeat = heartbeat
@@ -256,6 +258,7 @@ nonisolated struct KeyboardSnapshot: Codable, Equatable, Sendable {
         self.resultExpiresAt = resultExpiresAt
         self.transcript = transcript
         self.message = message
+        self.feedbackOffer = feedbackOffer
     }
 
     var effectiveLoudnessDB: Float {

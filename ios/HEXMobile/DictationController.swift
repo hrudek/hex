@@ -110,6 +110,7 @@ final class DictationController {
     private var lastHandledLaunchJobID: String?
     private var activeKeyboardJobID: String?
     private var keyboardResultID: String?
+    private var keyboardFeedbackOffer: DictationFeedbackOffer?
     private var keyboardResultExpiresAt: TimeInterval?
     private var keyboardResult: String?
     private var keyboardMessage: String?
@@ -983,6 +984,11 @@ final class DictationController {
                     self.keyboardResultID = UUID().uuidString
                     self.keyboardResult = formatted
                     self.keyboardResultExpiresAt = self.now() + Self.resultDeliveryTTL
+                    if let recording, let resultID = self.keyboardResultID, let keyboardJobID {
+                        self.keyboardFeedbackOffer = self.dictationLog?.makeKeyboardFeedbackOffer(
+                            recording: recording, jobID: keyboardJobID, resultID: resultID,
+                            expiresAt: Date(timeIntervalSince1970: self.now() + 600))
+                    }
                     self.keyboardMessage = nil
                 }
                 self.activeKeyboardJobID = nil
@@ -1152,6 +1158,7 @@ final class DictationController {
     }
 
     private func consumeKeyboardCommand() {
+        dictationLog?.drainKeyboardFeedback()
         guard let command = keyboardBridge.latestCommand(),
               command.id != lastKeyboardCommandID else { return }
         lastKeyboardCommandID = command.id
@@ -1183,6 +1190,7 @@ final class DictationController {
 
         if let expires = keyboardResultExpiresAt, expires <= currentTime {
             keyboardResultID = nil
+            keyboardFeedbackOffer = nil
             keyboardResult = nil
             keyboardResultExpiresAt = nil
         }
@@ -1241,7 +1249,8 @@ final class DictationController {
                 resultID: keyboardResultID,
                 resultExpiresAt: keyboardResultExpiresAt,
                 transcript: keyboardResult,
-                message: failureMessage
+                message: failureMessage,
+                feedbackOffer: keyboardFeedbackOffer?.resultID == keyboardResultID ? keyboardFeedbackOffer : nil
             )
         )
     }

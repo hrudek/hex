@@ -181,6 +181,7 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
     var issues: [String]?
     var ratingOrder: DictationFeedbackOrder?
     var referenceOrder: DictationFeedbackOrder?
+    var keyboardFeedbackOffer: DictationFeedbackOffer?
     var status: DictationLogStatus = .transcribing
     var asrFailure: DictationLogASRFailure?
     var asrErrorType: String?
@@ -257,7 +258,7 @@ struct DictationLogToken: Equatable, Sendable {
 @Observable
 final class DictationLogStore {
     static let shared = DictationLogStore(storage: DictationLogStorage(url: URL.applicationSupportDirectory
-        .appendingPathComponent("HexPlus", isDirectory: true).appendingPathComponent("dictation-log.json")))
+        .appendingPathComponent("HexPlus", isDirectory: true).appendingPathComponent("dictation-log.json")), feedbackBridge: .shared)
     static let maximumEntries = 50 // full-entry cache, NOT archive retention
     private(set) var entries: [DictationLogEntry] = []
     private(set) var metadata: [DictationLogMetadata] = []
@@ -266,7 +267,15 @@ final class DictationLogStore {
     private(set) var archiveID = UUID()
     private(set) var isEnabled: Bool
     private(set) var isLoading = true
+    private(set) var isClearing = false
+    private var feedbackPermission: DictationFeedbackPermission?
+    private let feedbackBridge: DictationFeedbackBridge?
+    private var feedbackInFlight = Set<UUID>()
+    private var feedbackPolling = false
+    private var lastFeedbackPoll = Date.distantPast
     private(set) var storageProblem: String?
+    private(set) var keyboardFeedbackNotice: String?
+    func retryKeyboardFeedback() { keyboardFeedbackNotice = nil; drainKeyboardFeedback(force: true) }
     private(set) var exporting = false
     private(set) var exportURL: URL?
     private var exportIDs: [UUID]?
@@ -284,8 +293,10 @@ final class DictationLogStore {
     }
     private static let problem = "Some dictation log files could not be read, saved or deleted. Originals are preserved when possible. Retry; dictation still works."
 
-    init(storage: DictationLogStorage, settings: HexPlusSettings = HexPlusSettings()) {
-        self.storage = storage; self.settings = settings; isEnabled = settings.dictationLog
+    init(storage: DictationLogStorage, settings: HexPlusSettings = HexPlusSettings(),
+         feedbackBridge: DictationFeedbackBridge? = nil) {
+        self.storage = storage; self.settings = settings; self.feedbackBridge = feedbackBridge
+        isEnabled = settings.dictationLog
         reload()
     }
     func reload() {
@@ -303,9 +314,96 @@ final class DictationLogStore {
                 if result.problem { self.storageProblem = Self.problem }
                 else { self.clearResolvedProblem() }
                 self.loadRecent()
+                self.syncFeedbackPermission()
+                self.drainKeyboardFeedback(force: true)
             }
         }
     }
+    func feedbackSettingsChanged() {
+        syncFeedbackPermission(revoke: true)
+        feedbackBridge?.discardRevoked()
+    }
+    private func syncFeedbackPermission(revoke: Bool = false) {
+        guard let feedbackBridge else { return }
+        guard !isLoading || revoke else { return } // Loading is not consent revocation.
+        let previousPermission = feedbackPermission ?? feedbackBridge.permission
+        if !revoke, lastLoadProblem, let previousPermission, previousPermission.archiveID != archiveID {
+            feedbackPermission = previousPermission; return // Unknown lineage: retain queued evidence for Retry.
+        }
+        let identity = isLoading ? previousPermission?.archiveID ?? archiveID : archiveID
+        let enabled = isEnabled && settings.dictationFeedbackStrip && !isClearing
+        if !revoke, let previous = feedbackPermission ?? feedbackBridge.permission,
+           previous.archiveID == identity, previous.enabled == enabled {
+            feedbackPermission = previous; return
+        }
+        let permission = DictationFeedbackPermission(archiveID: identity, generation: UUID(), enabled: enabled)
+        feedbackPermission = permission; feedbackBridge.publish(permission)
+    }
+    func makeKeyboardFeedbackOffer(recording: DictationLogRecording, jobID: String, resultID: String,
+                                   expiresAt: Date) -> DictationFeedbackOffer? {
+        guard !isLoading, !isClearing else { return nil }
+        syncFeedbackPermission()
+        guard recording.epoch == epoch,
+              let permission = feedbackPermission, permission.enabled, permission.archiveID == archiveID,
+              var entry = entry(recording.entryID), entry.status == .finished, entry.context.keyboardJob else { return nil }
+        let offer = DictationFeedbackOffer(resultID: resultID, jobID: jobID, entryID: entry.id,
+            archiveID: archiveID, generation: permission.generation, expiresAt: expiresAt)
+        entry.keyboardFeedbackOffer = offer; entry.revision = (entry.revision ?? 1) + 1
+        put(entry) // Queue before publishing the result; never await I/O on the output path.
+        return offer
+    }
+    func drainKeyboardFeedback(force: Bool = false) {
+        guard let bridge = feedbackBridge, !isLoading, !isClearing else { return }
+        syncFeedbackPermission()
+        guard feedbackPermission?.enabled == true, !feedbackPolling,
+              force || Date().timeIntervalSince(lastFeedbackPoll) >= 1 else { return }
+        feedbackPolling = true; lastFeedbackPoll = Date()
+        let generation = storageGeneration
+        bridge.pending { [weak self] events, problem in
+            Task { @MainActor [weak self] in
+                guard let self else { return }; self.feedbackPolling = false
+                guard generation == self.storageGeneration else { return }
+                if problem { self.keyboardFeedbackNotice = "Some queued keyboard feedback expired or could not be read. It was not reported as saved." }
+                for event in events where self.feedbackInFlight.insert(event.eventID).inserted {
+                    self.consumeKeyboardFeedback(event, bridge: bridge, generation: generation)
+                }
+            }
+        }
+    }
+    private func consumeKeyboardFeedback(_ event: DictationFeedbackEvent, bridge: DictationFeedbackBridge,
+                                         generation: UInt64) {
+        guard event.isValid(at: Date()), let permission = feedbackPermission, permission.enabled,
+              permission.archiveID == event.offer.archiveID, permission.generation == event.offer.generation,
+              !deleted.contains(event.offer.entryID) else {
+            bridge.remove(event.eventID); feedbackInFlight.remove(event.eventID); return
+        }
+        storage.read(event.offer.entryID) { [weak self] persisted in
+            Task { @MainActor [weak self] in
+                guard let self, self.storageGeneration == generation else { return }
+                defer { self.feedbackInFlight.remove(event.eventID) }
+                guard self.feedbackPermission == permission, self.isEnabled,
+                      self.settings.dictationFeedbackStrip, !self.deleted.contains(event.offer.entryID) else { return }
+                guard var entry = self.entry(event.offer.entryID) ?? persisted else {
+                    // Startup finished before this read. A corrupt/unreadable archive keeps events
+                    // pending for Retry; a definitively absent entry is rejected, never recreated.
+                    if !self.lastLoadProblem { bridge.remove(event.eventID) }
+                    return
+                }
+                guard entry.keyboardFeedbackOffer == event.offer else { bridge.remove(event.eventID); return }
+                if let order = entry.ratingOrder, order >= event.order {
+                    // Crash between source commit and event removal is idempotent. The cache alone
+                    // is not an ACK: only the already durable order permits removing this event.
+                    if let durable = persisted?.ratingOrder, durable >= event.order { bridge.remove(event.eventID) }
+                    return
+                }
+                entry.rating = event.rating
+                if let issues = event.issues { entry.issues = issues }
+                entry.ratingOrder = event.order; entry.revision = (entry.revision ?? 1) + 1
+                self.put(entry) { success in if success { bridge.remove(event.eventID) } }
+            }
+        }
+    }
+
     func token() -> DictationLogToken { DictationLogToken(enabled: isEnabled, epoch: epoch) }
     func begin(token: DictationLogToken, context: DictationLogContext,
                stoppedAt: ContinuousClock.Instant? = nil,
@@ -324,17 +422,21 @@ final class DictationLogStore {
             entry.status = .interrupted; entry.revision = (entry.revision ?? 1) + 1; put(entry)
         }
         isEnabled = enabled; epoch &+= 1; active = []
+        syncFeedbackPermission(revoke: true); feedbackBridge?.discardRevoked()
     }
     func clear() {
         epoch &+= 1; storageGeneration &+= 1
         let generation = storageGeneration; let identity = UUID()
         exportURL = nil; exporting = false; active = []; pinned = nil
+        isClearing = true; feedbackInFlight = []
+        syncFeedbackPermission(revoke: true); feedbackBridge?.discardRevoked()
         // Keep visible evidence on failure. Fresh post-clear captures are separate and survive.
         let oldIDs = Set(metadata.map(\.id))
         deleted.formUnion(oldIDs)
         storage.clear(archiveID: identity) { [weak self] success in
             Task { @MainActor [weak self] in
                 guard let self, self.storageGeneration == generation else { return }
+                self.isClearing = false
                 if success {
                     self.archiveID = identity
                     self.entries.removeAll { oldIDs.contains($0.id) }
@@ -346,6 +448,7 @@ final class DictationLogStore {
                     self.storageProblem = Self.problem
                     self.reload()
                 }
+                self.syncFeedbackPermission(revoke: true)
             }
         }
     }
@@ -420,8 +523,8 @@ final class DictationLogStore {
             count += 1; return count <= Self.maximumEntries
         }
     }
-    private func put(_ entry: DictationLogEntry) {
-        guard !deleted.contains(entry.id) else { return }
+    private func put(_ entry: DictationLogEntry, completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
+        guard !deleted.contains(entry.id) else { completion?(false); return }
         entries.removeAll { $0.id == entry.id }; entries.insert(entry, at: 0)
         let fields = [entry.recognized, entry.aiInput, entry.aiAnswer, entry.cleanupOutput,
                       entry.formattedText, entry.finalText, entry.expectedText, entry.feedbackNote,
@@ -442,6 +545,7 @@ final class DictationLogStore {
                 if !success { self.storageProblem = Self.problem }
                 else { self.clearResolvedProblem() }
                 self.trimCache()
+                completion?(success)
             }
         }
     }
@@ -479,7 +583,7 @@ final class DictationLogStore {
 @MainActor
 final class DictationLogRecording: CleanupTextDiagnostics {
     let entryID: UUID
-    private let epoch: UInt64
+    fileprivate let epoch: UInt64
     private weak var store: DictationLogStore?
     private let clock: @MainActor () -> ContinuousClock.Instant
     private let stopped: ContinuousClock.Instant
