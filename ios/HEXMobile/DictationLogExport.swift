@@ -33,7 +33,7 @@ extension DictationLogEntry {
             vocabularyLabel
         ]
         if let failure = asrFailure { lines.append("ASR failure: \(failure.rawValue)") }
-        if context.cleanupPath == .hexPlus {
+        if context.cleanupPath == .typr {
             lines.append("Typr: \(cleanupOutcome ?? "not recorded"); answer: \(answerLabel)")
             lines.append("Prompt: \(promptRevision); guard: \(guardRevision)")
             lines.append("Cleanup model: on-device Apple FoundationModels (exact model version unavailable)")

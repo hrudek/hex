@@ -26,7 +26,7 @@ def settings(entry: dict, secret: bytes) -> dict:
     context = entry["context"]
     result = {key: context.get(key) if context.get(key) is not None else "unknown" for key in
               ("speechEngine", "speechLanguage", "style", "cleanupPath", "vocabularyEnabled",
-               "upstreamCleanupEnabled", "hexPlusCleanupEnabled")}
+               "upstreamCleanupEnabled", "typrCleanupEnabled")}
     for key in ("promptRevision", "guardRevision"):
         result[key] = entry.get(key) if entry.get(key) is not None else "unknown"
     vocab = context.get("vocabularySnapshot")

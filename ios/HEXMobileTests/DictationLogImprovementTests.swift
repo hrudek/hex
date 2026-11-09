@@ -6,7 +6,7 @@ final class DictationLogImprovementTests: XCTestCase {
     func testImprovementExportSeparatesModelFormattingAndVocabularyErrors() async throws {
         let env = LogTestEnvironment()
         var context = DictationLogContext()
-        context.cleanupPath = .hexPlus
+        context.cleanupPath = .typr
         let recording = env.begin(context: context)
         let raw = "Treffen wir uns um 14:00 Uhr nein besser um 16:00 Uhr."
         let answer = "Treffen wir uns um 14:00 Uhr um 16:00 Uhr."

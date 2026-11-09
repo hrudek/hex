@@ -75,7 +75,7 @@ def validate_entry(entry: dict, field: str) -> None:
     context = entry.get("context")
     require(isinstance(context, dict), field + ".context")
     utc(context.get("createdAt"), field + ".context.createdAt")
-    for name in ("vocabularyEnabled", "upstreamCleanupEnabled", "hexPlusCleanupEnabled"):
+    for name in ("vocabularyEnabled", "upstreamCleanupEnabled", "typrCleanupEnabled"):
         require(context.get(name) is None or type(context[name]) is bool, field + ".context." + name)
     for name in ("speechEngine", "speechLanguage", "style", "cleanupPath", "appBuild", "appVersion"):
         require(context.get(name) is None or isinstance(context[name], str), field + ".context." + name)

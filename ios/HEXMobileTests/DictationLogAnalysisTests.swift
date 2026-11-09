@@ -43,7 +43,7 @@ final class DictationLogAnalysisTests: XCTestCase {
         entry.context.vocabularyCount = 3
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
         var context = try XCTUnwrap(object["context"] as? [String: Any])
-        for key in ["vocabularyEnabled", "upstreamCleanupEnabled", "hexPlusCleanupEnabled"] { context.removeValue(forKey: key) }
+        for key in ["vocabularyEnabled", "upstreamCleanupEnabled", "typrCleanupEnabled"] { context.removeValue(forKey: key) }
         object["context"] = context
         object.removeValue(forKey: "firstSpellingPass")
         object.removeValue(forKey: "secondSpellingPass")
@@ -58,8 +58,8 @@ final class DictationLogAnalysisTests: XCTestCase {
     func testSettingsAndTwoPassEvidenceSurviveStorageAndExport() async throws {
         let env = LogTestEnvironment()
         var context = DictationLogContext()
-        context.cleanupPath = .hexPlus
-        context.hexPlusCleanupEnabled = true
+        context.cleanupPath = .typr
+        context.typrCleanupEnabled = true
         context.upstreamCleanupEnabled = true
         context.vocabularyEnabled = true
         context.vocabularyCount = 1
@@ -83,7 +83,7 @@ final class DictationLogAnalysisTests: XCTestCase {
     }
 
     func testEverySelectedPathAndVocabularyStateHasAnExplicitLabel() {
-        for (path, label) in [(DictationLogCleanupPath.hexPlus, "AI: Typr"), (.upstream, "AI: Upstream"), (.none, "AI: None")] {
+        for (path, label) in [(DictationLogCleanupPath.typr, "AI: Typr"), (.upstream, "AI: Upstream"), (.none, "AI: None")] {
             var context = DictationLogContext()
             context.cleanupPath = path
             context.vocabularyEnabled = false

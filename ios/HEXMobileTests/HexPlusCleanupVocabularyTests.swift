@@ -138,7 +138,7 @@ final class HexPlusCleanupVocabularyTests: XCTestCase {
     /// Typr on: its cleanup runs with the Custom vocabulary and upstream's experiment does not.
     /// Typr off: upstream's experiment runs exactly as upstream wired it.
     func testHexPlusCleanupReplacesUpstreamExperimentWhileOn() async throws {
-        for hexPlusOn in [true, false] {
+        for typrOn in [true, false] {
             let suite = "cleanup.vocabulary.\(UUID().uuidString)"
             let defaults = UserDefaults(suiteName: suite)!
             defer { defaults.removePersistentDomain(forName: suite) }
@@ -151,7 +151,7 @@ final class HexPlusCleanupVocabularyTests: XCTestCase {
             let session = VocabularySession(), upstream = UpstreamCleanerSpy()
             let bg = CleanupTestBackground(), clock = CleanupTestSleeper()
             let deps = TranscriptCleanupDependencies(cleaner: VocabularyCleaner(session: session), language: CleanupTestLanguage(),
-                background: bg, isEnabled: { hexPlusOn }, sleep: clock.sleep)
+                background: bg, isEnabled: { typrOn }, sleep: clock.sleep)
             let asr = VocabularyASR()
             let controller = DictationController(audio: VocabularyAudio(), keyboardBridge: KeyboardBridge(defaults: defaults),
                 transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false, cleaner: upstream,
@@ -161,7 +161,7 @@ final class HexPlusCleanupVocabularyTests: XCTestCase {
             try await settle()
             controller.finishRecording(); try await settle()
 
-            if hexPlusOn {
+            if typrOn {
                 XCTAssertEqual(session.vocabularies, [["Rudek", "Mayer"]])
                 XCTAssertEqual(upstream.inputs, [])
                 XCTAssertEqual(controller.transcript, "Grüße an Rudek und Mayer.")

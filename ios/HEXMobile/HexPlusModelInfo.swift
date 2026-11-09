@@ -2,14 +2,14 @@ import Foundation
 
 /// Configured precedence for new recordings, not per-recording cleanup admission.
 nonisolated enum HexPlusCleanupPath: Equatable, Sendable {
-    case hexPlus
+    case typr
     case upstreamExperiment
     case none
     case unsupportedOS
 
-    static func resolve(frameworkAvailable: Bool, hexPlusOn: Bool, upstreamOn: Bool) -> Self {
+    static func resolve(frameworkAvailable: Bool, typrOn: Bool, upstreamOn: Bool) -> Self {
         guard frameworkAvailable else { return .unsupportedOS }
-        if hexPlusOn { return .hexPlus }
+        if typrOn { return .typr }
         if upstreamOn { return .upstreamExperiment }
         return .none
     }
@@ -23,7 +23,7 @@ nonisolated struct HexPlusModelInfo: Equatable, Sendable {
     var lines: [String] {
         let configuration: String
         switch path {
-        case .hexPlus:
+        case .typr:
             configuration = "Typr AI cleanup (general use, permissive content transformations)"
         case .upstreamExperiment:
             configuration = "Clean up with Apple Intelligence (Experiments) (general use, default guardrails)"
@@ -47,21 +47,21 @@ nonisolated struct HexPlusModelInfo: Equatable, Sendable {
 @MainActor
 struct HexPlusModelInfoReader {
     let frameworkAvailable: () -> Bool
-    let hexPlusOn: () -> Bool
+    let typrOn: () -> Bool
     let upstreamOn: () -> Bool
-    let hexPlusReason: () -> String?
+    let typrReason: () -> String?
     let upstreamReason: () -> String?
     let osVersion: () -> String
 
     func read() -> HexPlusModelInfo {
         let path = HexPlusCleanupPath.resolve(
             frameworkAvailable: frameworkAvailable(),
-            hexPlusOn: hexPlusOn(),
+            typrOn: typrOn(),
             upstreamOn: upstreamOn()
         )
         let reason: String?
         switch path {
-        case .hexPlus: reason = hexPlusReason()
+        case .typr: reason = typrReason()
         case .upstreamExperiment: reason = upstreamReason()
         case .none, .unsupportedOS: reason = nil
         }
@@ -75,9 +75,9 @@ struct HexPlusModelInfoReader {
             #endif
             return false
         },
-        hexPlusOn: { HexPlusSettings().aiCleanup },
+        typrOn: { HexPlusSettings().aiCleanup },
         upstreamOn: { AppleIntelligenceCleanupSettings().isEnabled },
-        hexPlusReason: { TranscriptCleanupProduction.unavailableReason },
+        typrReason: { TranscriptCleanupProduction.unavailableReason },
         upstreamReason: { AppleIntelligenceCleanupAvailability.current.reason },
         osVersion: {
             let version = ProcessInfo.processInfo.operatingSystemVersion

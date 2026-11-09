@@ -6,7 +6,7 @@ extension DictationLogEntry {
     /// audio, device names or error descriptions. Text and vocabulary may be private.
     var aiPathLabel: String {
         switch context.cleanupPath {
-        case .hexPlus: "AI: Typr"
+        case .typr: "AI: Typr"
         case .upstream: "AI: Upstream"
         case .none: "AI: None"
         }
@@ -23,7 +23,7 @@ extension DictationLogEntry {
     var processingResultLabel: String {
         let ai = context.cleanupPath == .upstream
             ? "Upstream: \(upstreamOutcome ?? "pending / not run")"
-            : (context.cleanupPath == .hexPlus ? "Typr: \(cleanupOutcome ?? "pending / not run")" : "No AI pass")
+            : (context.cleanupPath == .typr ? "Typr: \(cleanupOutcome ?? "pending / not run")" : "No AI pass")
         let spelling: String
         if let first = firstSpellingPass, let second = secondSpellingPass {
             spelling = "Vocabulary: \(first.totalChanges + second.totalChanges) replacements"
@@ -36,7 +36,7 @@ extension DictationLogEntry {
     var settingsLines: [String] {
         func state(_ value: Bool?) -> String { value.map { $0 ? "On" : "Off" } ?? "Not recorded" }
         return [aiPathLabel + " (selected path; not proof of a model call)",
-                "Typr AI setting: \(state(context.hexPlusCleanupEnabled))",
+                "Typr AI setting: \(state(context.typrCleanupEnabled))",
                 "Upstream AI setting: \(state(context.upstreamCleanupEnabled)) (overridden while Typr is on)",
                 vocabularyLabel, "Style: \(context.style)"]
     }

@@ -295,8 +295,10 @@ TestFlight build as before. Archive selection, provenance, digest and ZIP checks
 have Linux unit tests; these do not prove Xcode export or installation on a real
 iPhone.
 
-All builds share one bundle ID: an ad-hoc install replaces the TestFlight
-version on the iPhone (data stays). If GitHub's macOS runners are short on
+All Typr builds share one bundle ID: an ad-hoc install replaces the Typr
+TestFlight version on the iPhone (data stays). Typr has a new bundle ID and
+App Group, so it installs separately from Hex+; this rebrand does not copy the
+old app's settings, dictation logs or keyboard feedback into Typr. If GitHub's macOS runners are short on
 capacity, set the variable `MACOS_RUNNER` (now `macos-15-intel`; the default
 is `macos-26`). The only configured remote is `origin` = `hrudek/typr`.
 External code is adopted deliberately through [PORTS.md](PORTS.md), not synced.

@@ -31,8 +31,8 @@ def entry(**changes):
     value = {"id": ENTRY, "schemaVersion": 2, "revision": 1, "status": "finished", "rating": "bad",
              "context": {"createdAt": "2026-11-08T12:00:00Z", "appVersion": "2.0", "appBuild": "164.1",
                          "speechEngine": "synthetic", "speechLanguage": "de-DE", "style": "Polished",
-                         "cleanupPath": "hexPlus", "vocabularyEnabled": True, "upstreamCleanupEnabled": False,
-                         "hexPlusCleanupEnabled": True, "vocabularySnapshot": text(SECRET)},
+                         "cleanupPath": "typr", "vocabularyEnabled": True, "upstreamCleanupEnabled": False,
+                         "typrCleanupEnabled": True, "vocabularySnapshot": text(SECRET)},
              "promptRevision": "synthetic-v1", "guardRevision": "synthetic-v1", "issues": ["misheard"],
              "recognized": text(SECRET), "finalText": text("a c"), "expectedText": text("a b"),
              "asrMilliseconds": 10, "stopToFinalMilliseconds": 20}
@@ -196,7 +196,7 @@ class ToolTests(unittest.TestCase):
         value = entry()
         baseline = settings(value, b"x" * 32)
         for field in ("speechEngine", "speechLanguage", "style", "cleanupPath", "vocabularyEnabled",
-                      "upstreamCleanupEnabled", "hexPlusCleanupEnabled", "vocabularySnapshot"):
+                      "upstreamCleanupEnabled", "typrCleanupEnabled", "vocabularySnapshot"):
             changed = copy.deepcopy(value); changed["context"].pop(field)
             self.assertNotEqual(settings(changed, b"x" * 32), baseline)
         for field in ("promptRevision", "guardRevision"):

@@ -25,10 +25,10 @@
         "speechEngine": "synthetic",
         "speechLanguage": "en-US",
         "style": "Polished",
-        "cleanupPath": "hexPlus",
+        "cleanupPath": "typr",
         "vocabularyEnabled": true,
         "upstreamCleanupEnabled": false,
-        "hexPlusCleanupEnabled": true,
+        "typrCleanupEnabled": true,
         "vocabularySnapshot": {
           "text": "\"Hexopolis\"",
           "truncated": false,

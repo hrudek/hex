@@ -59,7 +59,7 @@ enum DictationLogStatus: String, Codable, Sendable {
     }
 }
 
-enum DictationLogCleanupPath: String, Codable, Sendable { case hexPlus, upstream, none }
+enum DictationLogCleanupPath: String, Codable, Sendable { case typr, upstream, none }
 
 enum DictationLogASRFailure: String, Codable, Sendable {
     case modelNotReady, cancelled, noSpeech, other
@@ -103,7 +103,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     // Optional additions keep schema-1 history readable; nil means not recorded, never off.
     var vocabularyEnabled: Bool?
     var upstreamCleanupEnabled: Bool?
-    var hexPlusCleanupEnabled: Bool?
+    var typrCleanupEnabled: Bool?
     var vocabularySnapshot: DictationLogText?
 
     @MainActor
@@ -111,7 +111,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
                         engine: String, language: String, duration: TimeInterval,
                         loudestAverage: Float?, cleanupPath: DictationLogCleanupPath,
                         vocabularyCount: Int, vocabularyEnabled: Bool? = nil,
-                        upstreamCleanupEnabled: Bool? = nil, hexPlusCleanupEnabled: Bool? = nil,
+                        upstreamCleanupEnabled: Bool? = nil, typrCleanupEnabled: Bool? = nil,
                         vocabularyTerms: [String]? = nil) -> Self {
         var context = Self()
         context.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
@@ -133,7 +133,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.vocabularyCount = vocabularyCount
         context.vocabularyEnabled = vocabularyEnabled
         context.upstreamCleanupEnabled = upstreamCleanupEnabled
-        context.hexPlusCleanupEnabled = hexPlusCleanupEnabled
+        context.typrCleanupEnabled = typrCleanupEnabled
         context.vocabularySnapshot = vocabularyTerms.map {
             DictationLogText($0.prefix(100).map { String(reflecting: $0) }.joined(separator: ", "))
         }
