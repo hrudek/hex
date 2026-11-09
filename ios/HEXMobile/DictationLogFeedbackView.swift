@@ -48,7 +48,7 @@ struct DictationRatingButtons: View {
     }
 }
 
-/// Hex+: one dictation text with an explicit Copy button, so it can be pasted into
+/// Typr: one dictation text with an explicit Copy button, so it can be pasted into
 /// "What I said" and corrected instead of retyped. Copying happens only on tap.
 struct DictationCopyableTextSection: View {
     let title: String
@@ -95,7 +95,7 @@ struct DictationCopyableTextSection: View {
     }
 }
 
-/// Hex+: "What I said" — the human reference (`expectedText`), edited inline. Starts empty for a
+/// Typr: "What I said" — the human reference (`expectedText`), edited inline. Starts empty for a
 /// new entry: model output never becomes a label without the owner pasting it on purpose.
 /// Saving keeps the separate note untouched.
 struct DictationReferenceEditor: View {

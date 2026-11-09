@@ -20,7 +20,7 @@ from archive import bundles, validate
 def required_entitlements(config, bundle_id):
     if bundle_id not in config['bundle_ids']:
         raise ValueError('Unexpected bundle ID')
-    if config['app'] != 'hex':
+    if config['app'] != 'typr':
         raise ValueError('Review signing entitlements before signing another app')
     # The widget extension does not access shared storage; app + keyboard do.
     if bundle_id == f'{config["bundle_id"]}.widgets':

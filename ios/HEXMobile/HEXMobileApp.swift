@@ -36,7 +36,7 @@ struct HEXMobileApp: App {
                     showSetup: $showSetup
                 )
                 .onOpenURL { url in
-                    // Hex+: "Fix in Hex" from the keyboard opens the dictation log, not a session.
+                    // Typr: "Fix in Typr" from the keyboard opens the dictation log, not a session.
                     if HexPlusFeedbackRouter.shared.handle(url) {
                         openedFromKeyboard = false
                         return

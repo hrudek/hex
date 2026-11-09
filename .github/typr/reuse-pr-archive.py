@@ -56,7 +56,7 @@ def validate_run(run, pr, repo):
     require(run['repository']['full_name'] == repo
             and run['head_repository']['full_name'] == repo, 'Run must belong to this repository')
     require(run['event'] == 'pull_request'
-            and run['path'] == '.github/workflows/hexplus-ci.yml', 'Expected a Hex+ CI PR run')
+            and run['path'] == '.github/workflows/typr-ci.yml', 'Expected a Typr CI PR run')
     require(run['head_sha'] == pr['head']['sha'] and run['head_branch'] == pr['head']['ref'],
             'PR changed since this run; wait for CI on the current commit')
     # Tests/screenshots may still run or fail; only the required jobs gate reuse.
@@ -74,7 +74,7 @@ def validate_jobs(jobs):
 
 
 def validate_artifact(artifacts, run):
-    matching = [item for item in artifacts if item['name'] == f'hexplus-unsigned-{run["id"]}']
+    matching = [item for item in artifacts if item['name'] == f'typr-unsigned-{run["id"]}']
     require(len(matching) == 1, 'Expected exactly one unsigned archive artifact')
     artifact = matching[0]
     require(not artifact['expired'], 'Archive expired; rerun the PR CI to create a new one')
@@ -88,7 +88,7 @@ def validate_artifact(artifacts, run):
 def validate_metadata(metadata, run, config):
     require(metadata['source_sha'] == run['head_sha'], 'Archive source commit mismatch')
     require(str(metadata['run']) == str(run['id']), 'Archive run mismatch')
-    require(metadata['app'] == config, 'Archive identity differs from current Hex+ identity')
+    require(metadata['app'] == config, 'Archive identity differs from current Typr identity')
     require(re.fullmatch(r'[0-9a-f]{40}', metadata.get('workflow_sha') or ''),
             'Missing archive workflow commit')
 
@@ -128,7 +128,7 @@ def main():
     if args.run:
         run = api(repo, f'actions/runs/{args.run}')
     else:
-        runs = pages(repo, 'actions/workflows/hexplus-ci.yml/runs'
+        runs = pages(repo, 'actions/workflows/typr-ci.yml/runs'
                      f'?event=pull_request&head_sha={pr["head"]["sha"]}', 'workflow_runs')
         matching = [run for run in runs if run['head_branch'] == pr['head']['ref']]
         require(matching, 'No PR CI run for the current commit; open the PR and wait for CI')

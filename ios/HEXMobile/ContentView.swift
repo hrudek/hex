@@ -197,7 +197,7 @@ struct ContentView: View {
                 color: showRecordingPill ? HexTheme.warmPearl : HexTheme.textBase
             )
 
-            Text("Hex")
+            Text("Typr")
                 .font(.system(size: 17, weight: .semibold))
                 .tracking(-0.2)
                 .foregroundStyle(HexTheme.textBase)
@@ -382,7 +382,7 @@ struct ContentView: View {
                     }
                 }.buttonStyle(.bordered).frame(minHeight: 44)
                 if entry.rating == "bad" {
-                    Text("Optional categories and reference: Hex+ → Dictation log")
+                    Text("Optional categories and reference: Typr → Dictation log")
                         .font(.footnote).foregroundStyle(HexTheme.textMuted)
                 }
             }
@@ -619,7 +619,7 @@ struct ContentView: View {
                             color: showRecordingControls ? HexTheme.warmPearl : HexTheme.textBase
                         )
 
-                        Text("Hex")
+                        Text("Typr")
                             .font(.system(size: 17, weight: .semibold))
                             .tracking(-0.2)
                             .foregroundStyle(HexTheme.textBase)

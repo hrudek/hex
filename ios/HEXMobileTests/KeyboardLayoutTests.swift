@@ -209,9 +209,9 @@ final class FullKeyboardSettingsTests: XCTestCase {
         XCTAssertFalse(settings.isEnabled)
         XCTAssertTrue(settings.autocorrect)
 
-        settings.applyLaunchArguments(["HEX"])
+        settings.applyLaunchArguments(["Typr"])
         XCTAssertFalse(settings.isEnabled)
-        settings.applyLaunchArguments(["HEX", FullKeyboardSettings.launchArgument])
+        settings.applyLaunchArguments(["Typr", FullKeyboardSettings.launchArgument])
         XCTAssertTrue(settings.isEnabled)
 
         settings.autocorrect = false

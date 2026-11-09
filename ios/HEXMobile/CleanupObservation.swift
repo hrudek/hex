@@ -72,10 +72,10 @@ extension CleanupObserving {
     func recordLate(latencyMilliseconds: Int64) {}
 }
 
-/// The last dictation's outcome for the Hex+ card: a fixed English summary, latency and time, never text.
+/// The last dictation's outcome for the Typr card: a fixed English summary, latency and time, never text.
 @MainActor
 final class CleanupDiagnostics: CleanupObserving {
-    static let key = "hexplus.aiCleanup.last"
+    static let key = "typr.aiCleanup.last"
     private let defaults: UserDefaults?
     private var changed: Bool?
 
@@ -152,7 +152,7 @@ final class CleanupDiagnostics: CleanupObserving {
     }
 }
 
-/// Logs and keeps the last outcome for the Hex+ card.
+/// Logs and keeps the last outcome for the Typr card.
 @MainActor
 struct CleanupObservers: CleanupObserving {
     let observers: [any CleanupObserving]
@@ -163,7 +163,7 @@ struct CleanupObservers: CleanupObserving {
 
 @MainActor
 struct CleanupLogger: CleanupObserving {
-    private static let logger = Logger(subsystem: "hexplus", category: "ai-cleanup")
+    private static let logger = Logger(subsystem: "typr", category: "ai-cleanup")
     func record(_ observation: CleanupObservation) {
         let latency = observation.latencyMilliseconds
         switch observation.outcome {

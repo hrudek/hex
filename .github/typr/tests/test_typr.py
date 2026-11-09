@@ -1,5 +1,6 @@
-"""Linux-runnable checks for Hex+'s CI scripts: python3 -m unittest discover -s .github/hexplus/tests"""
+"""Linux-runnable checks for Typr's CI scripts: python3 -m unittest discover -s .github/typr/tests"""
 import importlib.util
+import json
 from pathlib import Path
 import plistlib
 import re
@@ -21,31 +22,43 @@ def module(name, filename):
     return result
 
 
-config_module = module('hexplus_config', 'config.py')
-identity = module('hexplus_identity', 'identity.py')
-signing = module('hexplus_signing', 'signing-entitlements.py')
-TEAM = 'TEAM123456'
+config_module = module('typr_config', 'config.py')
+identity = module('typr_identity', 'identity.py')
+signing = module('typr_signing', 'signing-entitlements.py')
 
 
 class ConfigTests(unittest.TestCase):
     def test_bundle_ids(self):
         config = config_module.load()
-        self.assertEqual(config['bundle_ids'], ['com.bearylabs.hex', 'com.bearylabs.hex.keyboard',
-                                                'com.bearylabs.hex.widgets'])
-        self.assertEqual(config['display_name'], 'Hex+')
+        self.assertEqual(config['bundle_ids'], ['dev.rudek.typr', 'dev.rudek.typr.keyboard',
+                                                'dev.rudek.typr.widgets'])
+        self.assertEqual(config['display_name'], 'Typr')
+
+    def test_apple_configuration_matches_committed_identity(self):
+        config = config_module.load()
+        asc = json.loads((REPO / 'ios/appstoreconnect.json').read_text())
+        self.assertEqual(asc['bundleId'], config['bundle_id'])
+        self.assertEqual(asc['teamId'], identity.TEAM_ID)
+        self.assertEqual(asc['project'], config['project'])
+        self.assertEqual(asc['scheme'], config['scheme'])
+        self.assertEqual(asc['name'], 'Typr Keyboard')
+        self.assertEqual(asc['appId'], '6832515139')
+        self.assertEqual(asc['internalGroup'], 'Typr Internal')
+        export = plistlib.loads((REPO / 'ios/ExportOptions.plist').read_bytes())
+        self.assertEqual(export['teamID'], identity.TEAM_ID)
 
     def test_entitlements_per_target(self):
         config = config_module.load()
-        group = {'com.apple.security.application-groups': ['group.com.bearylabs.hex']}
-        self.assertEqual(signing.required_entitlements(config, 'com.bearylabs.hex'), group)
-        self.assertEqual(signing.required_entitlements(config, 'com.bearylabs.hex.keyboard'), group)
-        self.assertEqual(signing.required_entitlements(config, 'com.bearylabs.hex.widgets'), {})
+        group = {'com.apple.security.application-groups': ['group.dev.rudek.typr']}
+        self.assertEqual(signing.required_entitlements(config, 'dev.rudek.typr'), group)
+        self.assertEqual(signing.required_entitlements(config, 'dev.rudek.typr.keyboard'), group)
+        self.assertEqual(signing.required_entitlements(config, 'dev.rudek.typr.widgets'), {})
         with self.assertRaises(ValueError):
             signing.required_entitlements(config, 'com.unreviewed.app')
 
 
 class IdentityTests(unittest.TestCase):
-    """Check identity rewrites against the real committed ios/ tree."""
+    """Validate the real committed ios/ tree without mutating it."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -56,34 +69,53 @@ class IdentityTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_rewrites_real_checkout(self):
-        identity.apply(self.ios, self.config, TEAM)
+    def test_validates_real_checkout_without_changes(self):
+        before = {p.relative_to(self.ios): p.read_bytes()
+                  for p in self.ios.rglob('*') if p.is_file()}
+        identity.validate(self.ios, self.config, identity.TEAM_ID)
+        after = {p.relative_to(self.ios): p.read_bytes()
+                 for p in self.ios.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_fails_closed_when_committed_identity_changes(self):
+        for marker in ('2ZNGF24932', 'dev.rudek.typr.keyboard',
+                       'CFBundleDisplayName: Typr', '- typr'):
+            with self.subTest(marker=marker):
+                project = self.ios / 'project.yml'
+                original = project.read_text()
+                project.write_text(original.replace(marker, 'invalid'))
+                with self.assertRaises(ValueError):
+                    identity.validate(self.ios, self.config, identity.TEAM_ID)
+                project.write_text(original)
+
+    def test_rejects_invalid_or_different_team(self):
+        for team in ('bad\\nTEAM', 'TEAM123456'):
+            with self.subTest(team=team), self.assertRaises(ValueError):
+                identity.validate(self.ios, self.config, team)
+
+    def test_rejects_drift_in_build_config(self):
+        for key, value in (('bundle_id', 'dev.other.app'), ('url_scheme', 'other'),
+                           ('display_name', 'Other'), ('scheme', 'Other'),
+                           ('project', 'Other.xcodeproj')):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                identity.validate(self.ios, {**self.config, key: value}, identity.TEAM_ID)
+
+    def test_rejects_plist_or_entitlement_drift(self):
         project = (self.ios / 'project.yml').read_text()
-        self.assertIn(f'DEVELOPMENT_TEAM: {TEAM}', project)
-        self.assertIn('bundleIdPrefix: com.bearylabs.hex\n', project)
-        for target in ('com.bearylabs.hex', 'com.bearylabs.hex.keyboard', 'com.bearylabs.hex.widgets'):
-            self.assertIn(f'PRODUCT_BUNDLE_IDENTIFIER: {target}\n', project)
-        self.assertEqual(project.count('CFBundleDisplayName: Hex+\n'), 2)
-        self.assertEqual(project.count('CFBundleDisplayName: Hex+ Keyboard\n'), 1)
-        self.assertIn('- bearylabs-hex\n', project)
-        for name in ('HEXMobile/HEXMobile.entitlements', 'HEXKeyboard/HEXKeyboard.entitlements'):
-            entitlements = plistlib.loads((self.ios / name).read_bytes())
-            self.assertEqual(entitlements['com.apple.security.application-groups'], ['group.com.bearylabs.hex'])
-        bridge = (self.ios / 'HEXShared/KeyboardBridge.swift').read_text()
-        self.assertIn('"group.com.bearylabs.hex"', bridge)
-        setup = (self.ios / 'HEXMobile/KeyboardSetup.swift').read_text()
-        self.assertIn('"com.bearylabs.hex.keyboard"', setup)
-
-    def test_fails_closed_when_upstream_identity_changes(self):
-        project = self.ios / 'project.yml'
-        project.write_text(project.read_text().replace('QC99C9JE59', 'NEWTEAM123'))
-        with self.assertRaises(ValueError):
-            identity.apply(self.ios, self.config, TEAM)
-
-    def test_rejects_invalid_team(self):
-        with self.assertRaises(ValueError):
-            identity.apply(self.ios, self.config, 'bad\nTEAM')
-
+        paths = re.findall(r'^\s+(?:path|CODE_SIGN_ENTITLEMENTS): (.+(?:Info.plist|entitlements))$',
+                           project, re.MULTILINE)
+        self.assertTrue(paths)
+        for raw in paths:
+            path = self.ios / raw
+            original = path.read_bytes()
+            value = plistlib.loads(original)
+            key = ('com.apple.security.application-groups' if path.suffix == '.entitlements'
+                   else 'CFBundleDisplayName')
+            value[key] = ['group.invalid'] if path.suffix == '.entitlements' else 'Other'
+            path.write_bytes(plistlib.dumps(value))
+            with self.subTest(path=raw), self.assertRaises(ValueError):
+                identity.validate(self.ios, self.config, identity.TEAM_ID)
+            path.write_bytes(original)
 
 class ScopeTests(unittest.TestCase):
     """All paths may change; every .github/ change needs the infra label."""
@@ -104,12 +136,12 @@ class ScopeTests(unittest.TestCase):
                                   capture_output=True, text=True).returncode
 
     def test_non_automation_paths_pass(self):
-        for path in ('ios/HEXShared/A.swift', 'HEXPLUS.md', 'README.md', 'src/main.rs'):
+        for path in ('ios/HEXShared/A.swift', 'TYPR.md', 'README.md', 'src/main.rs'):
             with self.subTest(path=path):
                 self.assertEqual(self.run_scope([path]), 0)
 
     def test_all_automation_needs_infra_label(self):
-        for path in ('.github/hexplus/x.sh', '.github/workflows/x.yml',
+        for path in ('.github/typr/x.sh', '.github/workflows/x.yml',
                      '.github/ISSUE_TEMPLATE/x.yml', '.github/other.txt'):
             with self.subTest(path=path):
                 self.assertEqual(self.run_scope([path]), 1)
@@ -164,14 +196,14 @@ class InfraLabelTests(unittest.TestCase):
     WORKFLOWS = HERE.parent / 'workflows'
 
     def test_scope_reads_live_labels_not_the_event_payload(self):
-        ci = (self.WORKFLOWS / 'hexplus-ci.yml').read_text()
+        ci = (self.WORKFLOWS / 'typr-ci.yml').read_text()
         self.assertNotIn('github.event.pull_request.labels', ci)
         self.assertIn('gh api "repos/$GH_REPO/pulls/$PR"', ci)
         self.assertIn('pull-requests: read', ci)
         self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', ci)
 
     def test_infra_label_reruns_failed_ci_without_running_pr_code(self):
-        recheck = (self.WORKFLOWS / 'hexplus-recheck.yml').read_text()
+        recheck = (self.WORKFLOWS / 'typr-recheck.yml').read_text()
         self.assertIn('types: [labeled]', recheck)
         self.assertIn("if: github.event.label.name == 'infra'", recheck)
         self.assertIn('gh run rerun "$id" --failed', recheck)

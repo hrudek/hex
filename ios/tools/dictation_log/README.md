@@ -8,21 +8,21 @@ Nothing under this directory is added to Xcode targets or `project.yml`.
 
 ## Use
 
-Export JSON from Hex+ › Dictation log, then explicitly choose a private,
+Export JSON from Typr › Dictation log, then explicitly choose a private,
 **non-synced directory outside every Git checkout**, including linked worktrees:
 
 ```sh
-python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/hex-feedback" import /path/to/export.json
-python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/hex-feedback" report
-python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/hex-feedback" report --json
+python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/typr-feedback" import /path/to/export.json
+python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/typr-feedback" report
+python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/typr-feedback" report --json
 # Deliberately exposes private stages/reference/note/vocabulary on stdout:
-python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/hex-feedback" report --json --show-text
+python3 ios/tools/dictation_log/cli.py --store "$HOME/.local/share/typr-feedback" report --json --show-text
 ```
 
 `--store` is required; there is no automatic data discovery. Paths are resolved
 through symlinks, then all ancestors are checked for `.git` directories **or
 files**. The tool refuses a checkout rather than risking a committed dataset.
-An existing nonempty directory must already contain a recognized Hex+ store; otherwise
+An existing nonempty directory must already contain a recognized Typr store; otherwise
 it is rejected **before chmod or file creation**, so a mistaken `--store ~` or
 Documents path is untouched. New/empty directories are accepted for import.
 Report refuses a nonexistent store instead of silently creating an empty one.
@@ -33,7 +33,7 @@ and counters must be read; success is not proof of a complete export.
 Synthetic smoke check (contains only invented sentences and vocabulary):
 
 ```sh
-STORE=$(mktemp -d /tmp/hex-feedback-example.XXXXXX)
+STORE=$(mktemp -d /tmp/typr-feedback-example.XXXXXX)
 python3 ios/tools/dictation_log/cli.py --store "$STORE" import ios/tools/dictation_log/examples/synthetic.json --json
 python3 ios/tools/dictation_log/cli.py --store "$STORE" report --json
 # Exactly two records: good=1, bad=1, references=1, Good without reference=1;
@@ -75,7 +75,7 @@ and delete that directory and all its contents, e.g.:
 
 ```sh
 # DESTRUCTIVE: substitute and verify your actual local store path first.
-rm -rf -- /your/verified/private/hex-feedback-store
+rm -rf -- /your/verified/private/typr-feedback-store
 ```
 
 This removes SQLite, journals, HMAC key and **all** raw copies/orphans in that
@@ -85,7 +85,7 @@ command at the repository or a directory containing other work.
 
 ## Import contract and conservative merge
 
-Supports envelope `format=hexplus.dictation-log`, `exportVersion=1`,
+Supports envelope `format=typr.dictation-log`, `exportVersion=1`,
 `dateEncoding=ISO-8601 UTC`, UTC exported/context/order dates, UUIDs, source
 schema 1/2, nonnegative finite timings, positive integer revisions and bounded
 4000-UTF-8-byte text fields with explicit truncation/original-byte evidence.

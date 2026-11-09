@@ -12,8 +12,8 @@ import time
 from urllib.parse import quote
 
 WORKFLOWS = {
-    '.github/workflows/hexplus-ci.yml',
-    '.github/workflows/hexplus-ad-hoc.yml',
+    '.github/workflows/typr-ci.yml',
+    '.github/workflows/typr-ad-hoc.yml',
 }
 DELAYS = (300, 600, 1200)
 CAPACITY_ERROR = 'The job was not acquired by Runner of type hosted even after multiple attempts'

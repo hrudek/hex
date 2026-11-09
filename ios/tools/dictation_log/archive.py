@@ -134,7 +134,7 @@ def read_export(path: Path) -> Export:
     except (UnicodeError, RecursionError):
         raise Invalid("Invalid UTF-8 or excessively nested JSON") from None
     require(isinstance(value, dict), "envelope")
-    require(value.get("format") == "hexplus.dictation-log", "format (unsupported)")
+    require(value.get("format") == "typr.dictation-log", "format (unsupported)")
     require(type(value.get("exportVersion")) is int and value["exportVersion"] == 1, "exportVersion (unsupported)")
     identifier(value.get("archiveID"), "archiveID")
     utc(value.get("exportedAt"), "exportedAt")

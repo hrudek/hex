@@ -1,7 +1,7 @@
 import Combine
 import SwiftUI
 
-/// Hex+ switches. They live in the App Group so the keyboard reads them too.
+/// Typr switches. They live in the App Group so the keyboard reads them too.
 @MainActor
 struct HexPlusCard: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -19,7 +19,7 @@ struct HexPlusCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Hex+")
+            Text("Typr")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(HexTheme.textMuted)
                 .padding(.leading, 16)
@@ -125,7 +125,7 @@ struct HexPlusCard: View {
             )
         }
         .sheet(isPresented: $showingLog) { DictationLogView(store: log, router: feedbackRouter) }
-        // "Fix in Hex" from the keyboard: the log opens the requested entry itself.
+        // "Fix in Typr" from the keyboard: the log opens the requested entry itself.
         .onChange(of: feedbackRouter.requestedEntry) { _, id in
             if id != nil { showingLog = true }
         }

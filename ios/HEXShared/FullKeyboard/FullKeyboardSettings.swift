@@ -19,7 +19,7 @@ struct FullKeyboardSettings {
         self.defaults = defaults
     }
 
-    /// Experiment: Hex shows a full QWERTY keyboard instead of the dictation bar. Off by default.
+    /// Experiment: Typr shows a full QWERTY keyboard instead of the dictation bar. Off by default.
     var isEnabled: Bool {
         get { defaults?.bool(forKey: Key.fullKeyboard) ?? false }
         nonmutating set { defaults?.set(newValue, forKey: Key.fullKeyboard) }

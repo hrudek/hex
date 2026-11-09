@@ -5,7 +5,7 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE = (ROOT / '.github/workflows/hexplus-ci.yml').read_text()
+SOURCE = (ROOT / '.github/workflows/typr-ci.yml').read_text()
 
 
 def job(name):
@@ -49,8 +49,8 @@ class FastLaneContracts(unittest.TestCase):
         workflows = ROOT / '.github/workflows'
         scheduled = sorted(p.name for p in workflows.glob('*.yml')
                            if re.search(r'^  schedule:', p.read_text(), re.M))
-        self.assertEqual(scheduled, ['hexplus-status.yml'])
-        status = (workflows / 'hexplus-status.yml').read_text()
+        self.assertEqual(scheduled, ['typr-status.yml'])
+        status = (workflows / 'typr-status.yml').read_text()
         self.assertIn("cron: '17 6 * * 1'", status)
         self.assertIn("if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'", status)
         self.assertTrue(condition('test', 'workflow_dispatch', 'simulator'))
@@ -62,7 +62,7 @@ class FastLaneContracts(unittest.TestCase):
         push = re.search(r'^  push:\n(.*?)(?=^  \S)', SOURCE, re.M | re.S).group(1)
         self.assertEqual(push.strip(), 'branches: [hex-plus]')
         spec = importlib.util.spec_from_file_location(
-            'reuse', ROOT / '.github/hexplus/reuse-pr-archive.py')
+            'reuse', ROOT / '.github/typr/reuse-pr-archive.py')
         reuse = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(reuse)
         names = set()
@@ -84,17 +84,17 @@ class FastLaneContracts(unittest.TestCase):
         simulator = job('test')
         self.assertIn("inputs.distribution == 'simulator' && !cancelled()", simulator)
         self.assertIn('SCENES: ${{ inputs.scenes }}', simulator)
-        self.assertIn('name: hexplus-screenshots-${{ github.run_id }}', simulator)
+        self.assertIn('name: typr-screenshots-${{ github.run_id }}', simulator)
         self.assertNotIn('\n  screenshots:\n', SOURCE)
         self.assertNotIn('contents: write', SOURCE)
 
     def test_tests_never_hold_up_testflight_and_no_repair_agent_runs(self):
         # TestFlight follows the archive alone; red tests are fixed locally afterwards.
         self.assertIn("if: needs.decide.outputs.sign != '' && needs.build.result == 'success'", job('sign'))
-        self.assertNotIn('hexplus-fix', SOURCE)
+        self.assertNotIn('typr-fix', SOURCE)
         status = job('status')
         self.assertIn("&& github.ref == 'refs/heads/hex-plus'", status)
-        self.assertIn('gh workflow run hexplus-status.yml --ref hex-plus', status)
+        self.assertIn('gh workflow run typr-status.yml --ref hex-plus', status)
 
 
 if __name__ == '__main__':

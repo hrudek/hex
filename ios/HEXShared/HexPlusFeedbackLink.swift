@@ -1,11 +1,11 @@
 import Foundation
 
-/// Hex+: opens the app's dictation log on one entry's feedback editor.
+/// Typr: opens the app's dictation log on one entry's feedback editor.
 /// The link carries only the archive entry UUID, never dictated text. Any app could open it;
 /// it can only show an existing local entry, so no other check is needed.
 nonisolated enum HexPlusFeedbackLink {
-    static let scheme = "hex-dictation"
-    static let host = "hexplus"
+    static let scheme = "typr"
+    static let host = "typr"
     static let path = "/feedback"
 
     static func url(entryID: UUID) -> URL {

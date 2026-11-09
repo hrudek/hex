@@ -775,7 +775,7 @@ final class DictationController {
             }
 
             let captureURL = fileManager.temporaryDirectory
-                .appendingPathComponent("hex-dictation-\(captureGeneration)-\(UUID().uuidString)")
+                .appendingPathComponent("typr-\(captureGeneration)-\(UUID().uuidString)")
                 .appendingPathExtension("wav")
 
             do {
@@ -936,7 +936,7 @@ final class DictationController {
                 recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds, spellingPass: firstPass)
                 var text = spelled
                 if let cleanup = self.cleanup, session.cleanupSkipReason != .off {
-                    // Hex+ AI cleanup is on: it replaces upstream's cleanup experiment.
+                    // Typr AI cleanup is on: it replaces upstream's cleanup experiment.
                     if session.cleanupSkipReason == .verbatim {
                         // Verbatim remains synchronous: no prepare, model call, lease or await.
                         self.cleanupCoordinator.recordSkip(.verbatim, dependencies: cleanup, diagnostics: recording)

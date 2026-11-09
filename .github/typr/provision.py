@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Local only: create or reuse Hex+'s provisioning profiles and store them as a secret.
+"""Local only: create or reuse Typr's provisioning profiles and store them as a secret.
 
-Usage: python3 .github/hexplus/provision.py ad-hoc|testflight
+Usage: python3 .github/typr/provision.py ad-hoc|testflight
 
 Uses the private Apple API helper in ~/.local/share/ios-build-signing (never in
 Git). Reuses an ACTIVE profile with the expected name, else creates one (a new
 "revision N" name when an older one went INVALID). Never deletes or revokes
 anything. Ad Hoc profiles use exactly the devices of the existing Ad Hoc
 profiles. Checks team, bundle ID and App Group before uploading the profile ZIP
-to the environment hexplus-<distribution> of hrudek/hex.
+to the environment typr-<distribution> of hrudek/typr.
 """
 import base64
 import importlib.util
@@ -24,8 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import load  # noqa: E402
 
 ROOT = Path.home() / '.local/share/ios-build-signing'
-REPO = 'hrudek/hex'
-TYPES = {'ad-hoc': ('IOS_APP_ADHOC', 'Hex Ad Hoc'), 'testflight': ('IOS_APP_STORE', 'Hex+ App Store')}
+REPO = 'hrudek/typr'
+TYPES = {'ad-hoc': ('IOS_APP_ADHOC', 'Typr Ad Hoc'), 'testflight': ('IOS_APP_STORE', 'Typr App Store')}
 
 
 def decode(path):
@@ -45,13 +45,13 @@ def main(distribution):
     certificate = (ROOT / 'distribution-certificate-id.txt').read_text().strip()
     devices = []
     if distribution == 'ad-hoc':
-        old = decode(sorted((ROOT / 'hex-ad-hoc').glob('*.mobileprovision'))[0])
+        old = decode(sorted((ROOT / 'typr-ad-hoc').glob('*.mobileprovision'))[0])
         listed = apple.request('GET', '/v1/devices?filter[platform]=IOS&limit=200')['data']
         devices = [d['id'] for d in listed if d['attributes']['udid'] in old['ProvisionedDevices']
                    and d['attributes']['status'] == 'ENABLED']
         if len(devices) != len(old['ProvisionedDevices']):
             raise SystemExit('A registered test device is missing or disabled')
-    destination = ROOT / f'hexplus-{distribution}'
+    destination = ROOT / f'typr-{distribution}'
     destination.mkdir(mode=0o700, exist_ok=True)
     paths = []
     for bundle in config['bundle_ids']:
@@ -99,14 +99,14 @@ def main(distribution):
         if not bundle.endswith('.widgets') and group != ['group.' + config['bundle_id']]:
             raise SystemExit(f'App Group missing in {name}; assign it in the portal and rerun')
         paths.append(path)
-    archive = ROOT / f'hexplus-{distribution}-profiles.zip'
+    archive = ROOT / f'typr-{distribution}-profiles.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
         for path in paths:
             output.write(path, path.name)
     subprocess.run(['gh', 'secret', 'set', 'IOS_PROFILES_ZIP_BASE64', '--repo', REPO,
-                    '--env', f'hexplus-{distribution}'],
+                    '--env', f'typr-{distribution}'],
                    input=base64.b64encode(archive.read_bytes()), check=True)
-    print(f'Uploaded {len(paths)} validated profiles to environment hexplus-{distribution}.')
+    print(f'Uploaded {len(paths)} validated profiles to environment typr-{distribution}.')
 
 
 if __name__ == '__main__':

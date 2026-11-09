@@ -286,7 +286,7 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         XCTAssertEqual(HexPlusFeedbackLink.entryID(from: url), id)
         XCTAssertNil(KeyboardLaunchRequest(url: url), "must never start a dictation session")
         XCTAssertNil(HexPlusFeedbackLink.entryID(from: KeyboardLaunchRequest.setup.url))
-        XCTAssertNil(HexPlusFeedbackLink.entryID(from: URL(string: "hex-dictation://hexplus/feedback?entry=nope")!))
+        XCTAssertNil(HexPlusFeedbackLink.entryID(from: URL(string: "typr://typr/feedback?entry=nope")!))
         let router = HexPlusFeedbackRouter()
         XCTAssertFalse(router.handle(KeyboardLaunchRequest.setup.url))
         XCTAssertNil(router.requestedEntry)

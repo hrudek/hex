@@ -1,7 +1,7 @@
 import UIKit
 
-/// The Hex key right of space. Warm session: an orange core, and a hold records here.
-/// Otherwise the mark is faded with ↗, and a hold leaves for Hex to start one.
+/// The Typr key right of space. Warm session: an orange core, and a hold records here.
+/// Otherwise the mark is faded with ↗, and a hold leaves for Typr to start one.
 /// A tap does nothing; holding and sliding opens the style menu (`HexKeyGesture`).
 @MainActor
 final class HexKeyControl: UIControl {
@@ -11,7 +11,7 @@ final class HexKeyControl: UIControl {
     /// The drawn keycap inside the control's (larger) touch target.
     var keycapFrame: CGRect = .zero { didSet { if keycapFrame != oldValue { setNeedsDisplay() } } }
 
-    /// A still hold: dictate, or open Hex.
+    /// A still hold: dictate, or open Typr.
     var onHold: (() -> Void)?
     /// Points are in this control's coordinates.
     var onMenuOpen: ((CGPoint) -> Void)?
@@ -46,7 +46,7 @@ final class HexKeyControl: UIControl {
     }
 
     private func updateAccessibility() {
-        accessibilityLabel = isWarm ? "Dictate with Hex" : "Open Hex to dictate"
+        accessibilityLabel = isWarm ? "Dictate with Typr" : "Open Typr to dictate"
         accessibilityHint = "Hold to dictate, hold and slide for styles"
     }
 
@@ -319,7 +319,7 @@ final class PanelKeyButton: UIControl {
     }
 }
 
-/// Holding the Hex key: dictation styles, then "Return to" for the app Hex goes back to.
+/// Holding the Typr key: dictation styles, then "Return to" for the app Typr goes back to.
 @MainActor
 final class HexStyleMenuView: UIView {
     enum Page { case styles, returnApps }
@@ -332,7 +332,7 @@ final class HexStyleMenuView: UIView {
     var onReturnApp: ((String?) -> Void)?
     var onDismiss: (() -> Void)?
     var onHoverChanged: (() -> Void)?
-    /// The Hex key's keycap, in this view's coordinates; the panel opens above it.
+    /// The Typr key's keycap, in this view's coordinates; the panel opens above it.
     var anchor: CGRect = .zero { didSet { setNeedsLayout() } }
 
     private var page: Page = .styles
@@ -363,7 +363,7 @@ final class HexStyleMenuView: UIView {
         rebuild()
     }
 
-    /// Updates row highlight while the user holds the Hex key and slides into the menu (`point` in this view's coordinates).
+    /// Updates row highlight while the user holds the Typr key and slides into the menu (`point` in this view's coordinates).
     func updateDrag(at point: CGPoint) {
         let local = convert(point, to: panel)
         let nextIndex = rows.firstIndex { $0.frame.contains(local) }
@@ -459,7 +459,7 @@ final class HexStyleMenuView: UIView {
         let available = max(80, anchor.minY - 6 - 4)
         let rowH = min(36, (available - 2 * padding) / CGFloat(max(1, rows.count)))
         let height = CGFloat(rows.count) * rowH + 2 * padding
-        // Opens toward the middle of the keyboard: the Hex key sits right of space.
+        // Opens toward the middle of the keyboard: the Typr key sits right of space.
         let x = min(bounds.width - 6 - width, max(6, anchor.maxX - width))
         panel.frame = CGRect(x: x, y: max(2, anchor.minY - 6 - height), width: width, height: height)
         for (i, row) in rows.enumerated() {

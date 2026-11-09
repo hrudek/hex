@@ -80,7 +80,7 @@ final class KeyboardStripView: UIView {
         setNeedsLayout(); setNeedsDisplay()
     }
 
-    /// Hex+: while feedback shows, Undo stays available as an icon so the feedback actions fit.
+    /// Typr: while feedback shows, Undo stays available as an icon so the feedback actions fit.
     private func applyUndoChipStyle() {
         let compact = !feedbackBar.isHidden
         guard var chip = undoChip.configuration, (chip.title == nil) != compact else { return }

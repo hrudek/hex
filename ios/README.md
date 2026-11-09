@@ -1,4 +1,6 @@
-# Hex for iPhone
+# Typr for iPhone
+
+Typr is a standalone iPhone dictation keyboard.
 
 **Status:** Internal TestFlight app (`HEXMobile`), custom keyboard extension
 (`HEXKeyboard`), and Live Activity + Control Center widget extension
@@ -6,24 +8,24 @@
 transcribes on-device with Apple Speech (`SpeechTranscriber` on iOS 26+) or
 FluidAudio Parakeet V2 (iOS 18+), and removes each capture's file after
 inference, cancellation, or failure. The keyboard extension sends commands and
-inserts completed text over the shared App Group (`group.com.kitlangton.hex.mobile`);
+inserts completed text over the shared App Group (`group.dev.rudek.typr`);
 it never accesses the microphone, speech model, or network.
 
 ## Capabilities
 
 - **One-tap keyboard dictation (`HEXKeyboard`):**
-  - **Setup:** The keyboard needs Full Access to reach Hex through the App
-    Group. Without it, the keyboard shows the Settings path and an **Open Hex
-    setup** button (`hex-dictation://keyboard/setup`). The app's setup card
+  - **Setup:** The keyboard needs Full Access to reach Typr through the App
+    Group. Without it, the keyboard shows the Settings path and an **Open Typr
+    setup** button (`typr://keyboard/setup`). The app's setup card
     shows live status for the keyboard, Full Access, the microphone, and the
-    speech model, and opens Hex's page in Settings. Full Access shows as on
+    speech model, and opens Typr's page in Settings. Full Access shows as on
     once the keyboard has run with it (`keyboard.fullAccessSeenAt`).
-  - **Opening Hex:** SwiftUI `Link`, `openURL`, and `extensionContext.open`
-    do nothing in a keyboard extension, so the keyboard opens Hex through
+  - **Opening Typr:** SwiftUI `Link`, `openURL`, and `extensionContext.open`
+    do nothing in a keyboard extension, so the keyboard opens Typr through
     the `UIApplication` at the end of its responder chain
     (`ContainingAppOpener`).
   - **Cold start:** Tapping **Dictate** opens the containing app
-    (`hex-dictation://keyboard/record?...`) with a 10-second
+    (`typr://keyboard/record?...`) with a 10-second
     handoff window, starts recording, and opens the selected host app's URL
     scheme (`messages://`, `slack://`, `claude://`, `chatgpt://`,
     `mobilenotes://`, `discord://`, `mail://`, `x-web-search://`, etc.) using
@@ -50,15 +52,15 @@ it never accesses the microphone, speech model, or network.
     keyboard with zero app switches; picking `Off` or tapping the header timer
     ends it. Captures record from that running input (a tap writing a 16 kHz
     WAV) instead of switching to a recorder, so the input never stops between
-    dictations: iOS won't start microphone input while Hex is in the
+    dictations: iOS won't start microphone input while Typr is in the
     background, and restarting it there ended the session after each one.
   - **Styles:** `Polished` (sentence case + punctuation + filler trim),
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
     `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
     insertion spacing and repeating backspace.
-  - **Full keyboard Hex key (Experiments › Full keyboard):** A tap does
+  - **Full keyboard Typr key (Experiments › Full keyboard):** A tap does
     nothing, so a stray one while typing is harmless. A still hold of 0.35 s
-    starts dictation in a warm session (or opens Hex without one), with a
+    starts dictation in a warm session (or opens Typr without one), with a
     haptic. Moving more than 10 pt before then opens the style and **Return
     to** menu; releasing over a row picks it, and releasing elsewhere leaves
     the menu open for taps (`HexKeyGesture`). VoiceOver activation dictates,
@@ -128,12 +130,12 @@ xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=
   that condition through `ActiveAudioCapture`.
 - **Apple Speech hint:** Custom vocabulary is covered by unit tests only.
   Its contextual strings are best effort and unverified on a physical iPhone.
-  Apple documents contextual strings only for `DictationTranscriber`, Hex sets
+  Apple documents contextual strings only for `DictationTranscriber`, Typr sets
   them on `SpeechTranscriber`, and
   Parakeet's batch path gets no hint.
-- **Hex+ CI:** PRs compile an unsigned device archive (app, keyboard and
+- **Typr CI:** PRs compile an unsigned device archive (app, keyboard and
   widgets); they do not build the test bundle or automatically run simulator
   tests. App changes on `hex-plus` run simulator tests after merge, beside
   TestFlight. Manual `distribution=simulator` runs are available before merge;
-  see [HEXPLUS.md](../HEXPLUS.md). These checks do not prove physical-iPhone
+  see [TYPR.md](../TYPR.md). These checks do not prove physical-iPhone
   behavior; a test's presence is not evidence of a passing run.

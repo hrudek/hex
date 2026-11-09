@@ -1,6 +1,6 @@
 import UIKit
 
-/// Hex+: German layer for `AutocorrectEngine` (umlaut digraphs, ß, German typo fixes).
+/// Typr: German layer for `AutocorrectEngine` (umlaut digraphs, ß, German typo fixes).
 /// All German logic lives here so the upstream engine file only carries small hooks.
 @MainActor
 final class GermanAutocorrect {

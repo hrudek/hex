@@ -12,10 +12,10 @@ from unittest.mock import patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_hexplus import config_module, module
+from test_typr import config_module, module
 
-reuse = module('hexplus_reuse', 'reuse-pr-archive.py')
-REPO = 'hrudek/hex'
+reuse = module('typr_reuse', 'reuse-pr-archive.py')
+REPO = 'hrudek/typr'
 SHA = 'a' * 40
 
 
@@ -29,13 +29,13 @@ class ReuseTests(unittest.TestCase):
         }
         self.run = {
             'id': 123, 'repository': {'full_name': REPO}, 'head_repository': {'full_name': REPO},
-            'event': 'pull_request', 'path': '.github/workflows/hexplus-ci.yml',
+            'event': 'pull_request', 'path': '.github/workflows/typr-ci.yml',
             'head_sha': SHA, 'head_branch': 'feature/example',
             'status': 'completed', 'conclusion': 'success',
         }
         self.jobs = [{'name': name, 'conclusion': 'success'} for name in reuse.REQUIRED_JOBS]
         self.artifact = {
-            'id': 456, 'name': 'hexplus-unsigned-123', 'expired': False,
+            'id': 456, 'name': 'typr-unsigned-123', 'expired': False,
             'workflow_run': {'id': 123, 'head_sha': SHA}, 'digest': 'sha256:' + 'b' * 64,
         }
         self.metadata = {'source_sha': SHA, 'workflow_sha': 'c' * 40,

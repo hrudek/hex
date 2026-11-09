@@ -26,7 +26,7 @@ final class HexPlusModelInfoTests: XCTestCase {
         let info = HexPlusModelInfo(path: .hexPlus, osVersion: "26.1.0", availabilityReason: nil)
         XCTAssertEqual(info.lines, [
             "Apple on-device foundation model · running on iOS 26.1.0",
-            "Used for new recordings by Hex+ AI cleanup (general use, permissive content transformations)",
+            "Used for new recordings by Typr AI cleanup (general use, permissive content transformations)",
             "Model availability: available. Model version managed by Apple. Never used in Verbatim."
         ])
     }
@@ -47,7 +47,7 @@ final class HexPlusModelInfoTests: XCTestCase {
         )
         XCTAssertEqual(info.lines, [
             "Apple on-device foundation model · running on iOS 26.1.0",
-            "Used for new recordings by Hex+ AI cleanup (general use, permissive content transformations)",
+            "Used for new recordings by Typr AI cleanup (general use, permissive content transformations)",
             "Model availability: Turn on Apple Intelligence in Settings to use this"
         ])
     }
@@ -84,7 +84,7 @@ final class HexPlusModelInfoTests: XCTestCase {
                         frameworkAvailable: { framework },
                         hexPlusOn: { hexPlus },
                         upstreamOn: { upstream },
-                        hexPlusReason: { hexPlusCalls += 1; return "Hex+ unavailable" },
+                        hexPlusReason: { hexPlusCalls += 1; return "Typr unavailable" },
                         upstreamReason: { upstreamCalls += 1; return "Upstream unavailable" },
                         osVersion: { "26.1.0" }
                     )
@@ -95,7 +95,7 @@ final class HexPlusModelInfoTests: XCTestCase {
                         XCTAssertNil(info.availabilityReason)
                     } else if hexPlus {
                         XCTAssertEqual(info.path, .hexPlus)
-                        XCTAssertEqual(info.availabilityReason, "Hex+ unavailable")
+                        XCTAssertEqual(info.availabilityReason, "Typr unavailable")
                     } else if upstream {
                         XCTAssertEqual(info.path, .upstreamExperiment)
                         XCTAssertEqual(info.availabilityReason, "Upstream unavailable")
@@ -121,7 +121,7 @@ final class HexPlusModelInfoTests: XCTestCase {
             frameworkAvailable: { true },
             hexPlusOn: { HexPlusSettings(defaults: defaults).aiCleanup },
             upstreamOn: { AppleIntelligenceCleanupSettings(defaults: defaults).isEnabled },
-            hexPlusReason: { XCTFail("Hex+ is off"); return nil },
+            hexPlusReason: { XCTFail("Typr is off"); return nil },
             upstreamReason: { nil },
             osVersion: { "26.1.0" }
         )
@@ -131,19 +131,19 @@ final class HexPlusModelInfoTests: XCTestCase {
         upstream.isEnabled = false
         XCTAssertEqual(reader.read().path, .none)
 
-        // Restoring Hex+ takes priority even when upstream is on.
+        // Restoring Typr takes priority even when upstream is on.
         upstream.isEnabled = true
         settings.aiCleanup = true
         let prioritized = HexPlusModelInfoReader(
             frameworkAvailable: { true },
             hexPlusOn: { settings.aiCleanup },
             upstreamOn: { upstream.isEnabled },
-            hexPlusReason: { "Hex+ unavailable" },
-            upstreamReason: { XCTFail("Unavailable Hex+ must not fall through"); return nil },
+            hexPlusReason: { "Typr unavailable" },
+            upstreamReason: { XCTFail("Unavailable Typr must not fall through"); return nil },
             osVersion: { "26.1.0" }
         )
         XCTAssertEqual(prioritized.read().path, .hexPlus)
-        XCTAssertEqual(prioritized.read().availabilityReason, "Hex+ unavailable")
+        XCTAssertEqual(prioritized.read().availabilityReason, "Typr unavailable")
     }
 
     func testDisplaySwitchDefaultsOnAndPersistsWithoutChangingCleanupSettings() throws {
@@ -157,8 +157,8 @@ final class HexPlusModelInfoTests: XCTestCase {
         XCTAssertFalse(upstream.isEnabled)
         settings.showCleanupModel = false
         XCTAssertFalse(HexPlusSettings(defaults: defaults).showCleanupModel)
-        XCTAssertEqual(defaults.object(forKey: "hexplus.showCleanupModel") as? Bool, false)
-        XCTAssertNil(defaults.object(forKey: "hexplus.aiCleanup"))
+        XCTAssertEqual(defaults.object(forKey: "typr.showCleanupModel") as? Bool, false)
+        XCTAssertNil(defaults.object(forKey: "typr.aiCleanup"))
         XCTAssertNil(defaults.object(forKey: "experiments.appleIntelligenceCleanup"))
 
         for hexPlusOn in [false, true] {

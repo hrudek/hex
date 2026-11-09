@@ -41,7 +41,7 @@ def entry(**changes):
 
 
 def envelope(entries=None, **changes):
-    value = {"format": "hexplus.dictation-log", "exportVersion": 1, "dateEncoding": "ISO-8601 UTC",
+    value = {"format": "typr.dictation-log", "exportVersion": 1, "dateEncoding": "ISO-8601 UTC",
              "exportedAt": "2026-11-08T12:30:00Z", "archiveID": ARCHIVE, "appBuild": "164.1",
              "unreadableFiles": 0, "legacyMigrationPending": False, "entries": entries if entries is not None else [entry()]}
     value.update(changes)

@@ -42,7 +42,7 @@ nonisolated enum WarmSessionDuration: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// Curated App Store-safe URL schemes for returning from Hex after a cold-start handoff.
+/// Curated App Store-safe URL schemes for returning from Typr after a cold-start handoff.
 /// Apps without a registered scheme (or when unset) use the bottom-edge swipe fallback.
 nonisolated struct HostApp: Identifiable, Equatable, Codable, Sendable {
     let id: String
@@ -112,7 +112,7 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
     /// Any cold-start recording handoff older than 10 seconds warms the session instead of surprise-recording.
     static let handoffWindow: TimeInterval = 10.0
 
-    /// Opens Hex's keyboard setup screen without starting a session.
+    /// Opens Typr's keyboard setup screen without starting a session.
     case setup
     case startSession(requestedAt: TimeInterval?, returnAppID: String?)
     case startRecording(
@@ -123,7 +123,7 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
     )
 
     init?(url: URL) {
-        guard url.scheme == "hex-dictation", url.host == "keyboard" else { return nil }
+        guard url.scheme == "typr", url.host == "keyboard" else { return nil }
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let query = components?.queryItems ?? []
 
@@ -181,7 +181,7 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
 
     var url: URL {
         var components = URLComponents()
-        components.scheme = "hex-dictation"
+        components.scheme = "typr"
         components.host = "keyboard"
 
         var items: [URLQueryItem] = []
@@ -305,7 +305,7 @@ nonisolated struct KeyboardSnapshot: Codable, Equatable, Sendable {
 
 @MainActor
 struct KeyboardBridge {
-    nonisolated static let appGroup = "group.com.kitlangton.hex.mobile"
+    nonisolated static let appGroup = "group.dev.rudek.typr"
 
     private enum Key {
         static let command = "keyboard.command"

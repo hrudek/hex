@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite the pinned Hex+ status issue from GitHub data (gh only). Env: GH_REPO."""
+"""Rewrite the pinned Typr status issue from GitHub data (gh only). Env: GH_REPO."""
 from __future__ import annotations
 
 import datetime as dt
@@ -8,8 +8,8 @@ import os
 import subprocess
 from pathlib import Path
 
-TITLE = "Hex+ status"
-MARKER = "<!-- hexplus-status -->"
+TITLE = "Typr status"
+MARKER = "<!-- typr-status -->"
 WARN_DAYS = 30
 
 
@@ -47,7 +47,7 @@ def runs(workflow: str, **filters: str) -> list[dict]:
 
 
 def last_testflight(repo: str) -> str:
-    for run in runs("hexplus-ci.yml", branch="hex-plus", event="push"):
+    for run in runs("typr-ci.yml", branch="hex-plus", event="push"):
         jobs = gh_json("api", f"repos/{repo}/actions/runs/{run['databaseId']}/jobs",
                        "--jq", "[.jobs[] | {name, conclusion}]") or []
         sign = next((j for j in jobs if j["name"].startswith("Sign (testflight")), None)
@@ -69,7 +69,7 @@ def main() -> None:
     issue = next((i for i in gh_json("issue", "list", "--state", "open", "--search", f'in:title "{TITLE}"',
                                      "--json", "number,title,body") or [] if i["title"] == TITLE), None)
     lines = [MARKER,
-             "_Updated by the Hex+ status workflow. Nothing here needs you unless it says so._", ""]
+             "_Updated by the Typr status workflow. Nothing here needs you unless it says so._", ""]
 
     attention: list[str] = []
     human = gh_json("issue", "list", "--state", "open", "--label", "needs-human", "--json", "number,title,url") or []
@@ -86,7 +86,7 @@ def main() -> None:
         if days <= WARN_DAYS:
             attention.append(f"- 🔴 **{item['name']}** expires {item['expires']}: {item['renew']}")
 
-    ci = runs("hexplus-ci.yml", branch="hex-plus")
+    ci = runs("typr-ci.yml", branch="hex-plus")
     push = next((r for r in ci if r["event"] == "push"), None)
     attention += red_runs(push)
 

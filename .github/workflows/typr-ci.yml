@@ -1,12 +1,12 @@
-# Hex+ CI for the iPhone app.
+# Typr CI for the iPhone app.
 # Fast lane: PRs run Linux checks and compile only. Simulator tests run after
 # merging to hex-plus, beside the TestFlight build (no nightly run). Screenshots and
 # pre-merge tests are opt-in via the manual simulator distribution.
 #   push hex-plus       → app changed? archive → TestFlight at once; tests in parallel
 #   pull_request        → feature/fix PRs: checks, scope, labels, archive (required); no simulator
 #   workflow_dispatch   → simulator preview (tests + screenshots, no archive), or a device build
-name: Hex+ CI
-run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event.action || github.event_name }}"
+name: Typr CI
+run-name: "Typr CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event.action || github.event_name }}"
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
   pull_request:
     branches: [hex-plus]
     # As OpenCode's checks: no label events, so a label never starts a macOS run. Adding
-    # "infra" re-runs the failed jobs instead (hexplus-recheck.yml); Scope reads labels live.
+    # "infra" re-runs the failed jobs instead (typr-recheck.yml); Scope reads labels live.
     # drafts get only the Linux checks until marked ready.
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
@@ -38,7 +38,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: hexplus-ci-${{ github.event_name }}-${{ github.ref }}-${{ inputs.distribution || '' }}
+  group: typr-ci-${{ github.event_name }}-${{ github.ref }}-${{ inputs.distribution || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -55,15 +55,15 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - name: Hex+ script tests
-        run: python3 -m unittest discover -s .github/hexplus/tests -v
+      - name: Typr script tests
+        run: python3 -m unittest discover -s .github/typr/tests -v
       - name: Offline dictation log tests
         run: python3 -m unittest discover -s ios/tools/dictation_log/tests -v
       - name: Shell syntax
-        run: for script in .github/hexplus/*.sh; do bash -n "$script"; done
-      - name: Lint Hex+ workflows
+        run: for script in .github/typr/*.sh; do bash -n "$script"; done
+      - name: Lint Typr workflows
         # SC2016/SC2129: Markdown backticks in single quotes and one-line-per-fact outputs are intended.
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color -ignore SC2016 -ignore SC2129 .github/workflows/hexplus-*.yml
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color -ignore SC2016 -ignore SC2129 .github/workflows/typr-*.yml
       - name: Scope (what this change may touch)
         if: github.event_name == 'pull_request'
         env:
@@ -80,7 +80,7 @@ jobs:
             LABELS=$(gh api "repos/$GH_REPO/pulls/$PR" --jq '[.labels[].name] | join(",")')
           fi
           export LABELS
-          bash .github/hexplus/scope.sh "$base" "$HEAD"
+          bash .github/typr/scope.sh "$base" "$HEAD"
 
   labels:
     name: Label PR
@@ -120,11 +120,11 @@ jobs:
           [[ "$ARTIFACT_AGE_RECIPIENT" =~ ^age1[0-9a-z]{58}$ ]] || { echo 'Set repository variable ARTIFACT_AGE_RECIPIENT'; exit 1; }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          sparse-checkout: .github/hexplus
+          sparse-checkout: .github/typr
           persist-credentials: false
-      - name: Load Hex+ identity
+      - name: Load Typr identity
         id: config
-        run: python3 .github/hexplus/config.py
+        run: python3 .github/typr/config.py
       - name: Did anything the iOS build reads change, and what gets signed?
         id: decide
         env:
@@ -160,8 +160,8 @@ jobs:
           if [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
             git init -q "$RUNNER_TEMP/fp"
             if git -C "$RUNNER_TEMP/fp" fetch -q --depth=1 --filter=blob:none "$REPO" "$base" "$head"; then
-              a=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$base" "$mode")
-              b=$(bash .github/hexplus/fingerprint.sh "$RUNNER_TEMP/fp" "$head" "$mode")
+              a=$(bash .github/typr/fingerprint.sh "$RUNNER_TEMP/fp" "$base" "$mode")
+              b=$(bash .github/typr/fingerprint.sh "$RUNNER_TEMP/fp" "$head" "$mode")
               diff <(echo "$a") <(echo "$b") || true
               [[ "$a" != "$b" ]] || run=false
             fi
@@ -170,7 +170,7 @@ jobs:
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "sign=$sign" >> "$GITHUB_OUTPUT"
           {
-            echo '### Hex+ CI'
+            echo '### Typr CI'
             echo "| | |"; echo "|---|---|"
             echo "| Commit | \`${head:0:8}\` |"
             echo "| Compared with | \`${base:0:8}\` |"
@@ -195,14 +195,14 @@ jobs:
       - name: Select and verify Xcode
         env:
           XCODE_PATH: ${{ vars.XCODE_PATH }}
-        run: bash .github/hexplus/select-xcode.sh
+        run: bash .github/typr/select-xcode.sh
       - name: Cache keys (Xcode, month)
         id: cache-keys
         run: |
           xcode=$(xcodebuild -version | awk 'NR==1{v=$2} NR==2{b=$3} END{print v "-" b}')
-          echo "spm=hexplus-spm-$xcode-${{ hashFiles('ios/project.yml') }}" >> "$GITHUB_OUTPUT"
+          echo "spm=typr-spm-$xcode-${{ hashFiles('ios/project.yml') }}" >> "$GITHUB_OUTPUT"
           # A new compilation cache each month, so it never grows without bound.
-          echo "cas=hexplus-cas-test-${{ runner.arch }}-$xcode-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
+          echo "cas=typr-cas-test-${{ runner.arch }}-$xcode-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
       - name: Restore Swift package checkouts
         id: spm-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -219,18 +219,18 @@ jobs:
         id: tests
         env:
           ONLY_TESTING: ${{ inputs.only_testing }}
-        run: bash .github/hexplus/test.sh
+        run: bash .github/typr/test.sh
       - name: Screenshots of the app's scenes (same build, no second compile)
         if: github.event_name == 'workflow_dispatch' && inputs.distribution == 'simulator' && !cancelled() && steps.tests.outcome != 'skipped'
         continue-on-error: true
         env:
           SCENES: ${{ inputs.scenes }}
-        run: bash .github/hexplus/screenshots.sh
+        run: bash .github/typr/screenshots.sh
       - name: Upload screenshots
         if: github.event_name == 'workflow_dispatch' && inputs.distribution == 'simulator' && !cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: hexplus-screenshots-${{ github.run_id }}
+          name: typr-screenshots-${{ github.run_id }}
           path: ${{ runner.temp }}/screenshots
           if-no-files-found: ignore
           retention-days: 7
@@ -238,7 +238,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: hexplus-tests-${{ github.run_id }}
+          name: typr-tests-${{ github.run_id }}
           path: ${{ runner.temp }}/test-output
           if-no-files-found: ignore
           retention-days: 7
@@ -275,18 +275,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned artifact encryption tool
-        run: bash .github/hexplus/install-age.sh
+        run: bash .github/typr/install-age.sh
       - name: Select and verify Xcode
         env:
           XCODE_PATH: ${{ vars.XCODE_PATH }}
-        run: bash .github/hexplus/select-xcode.sh
+        run: bash .github/typr/select-xcode.sh
       - name: Cache keys (Xcode, month)
         id: cache-keys
         run: |
           xcode=$(xcodebuild -version | awk 'NR==1{v=$2} NR==2{b=$3} END{print v "-" b}')
-          echo "spm=hexplus-spm-$xcode-${{ hashFiles('ios/project.yml') }}" >> "$GITHUB_OUTPUT"
+          echo "spm=typr-spm-$xcode-${{ hashFiles('ios/project.yml') }}" >> "$GITHUB_OUTPUT"
           # A new compilation cache each month, so it never grows without bound.
-          echo "cas=hexplus-cas-archive-${{ runner.arch }}-$xcode-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
+          echo "cas=typr-cas-archive-${{ runner.arch }}-$xcode-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
       - name: Restore Swift package checkouts
         id: spm-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -301,7 +301,7 @@ jobs:
           restore-keys: ${{ steps.cache-keys.outputs.cas }}
       - name: Build unsigned device archive (app, keyboard and widgets)
         id: archive
-        run: bash .github/hexplus/build.sh
+        run: bash .github/typr/build.sh
       # Saved from pushes, schedules and manual runs only, never from a PR, so a PR
       # cannot plant anything that a hex-plus (TestFlight) build later restores.
       - name: Save Swift package checkouts
@@ -319,7 +319,7 @@ jobs:
       - name: Upload encrypted archive and public provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: hexplus-unsigned-${{ github.run_id }}
+          name: typr-unsigned-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/output/archive.zip.age
             ${{ runner.temp }}/output/build.json
@@ -334,48 +334,48 @@ jobs:
     if: needs.decide.outputs.sign != '' && needs.build.result == 'success'
     runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 30
-    environment: hexplus-${{ needs.decide.outputs.sign }}
+    environment: typr-${{ needs.decide.outputs.sign }}
     env:
       APP_CONFIG: ${{ needs.decide.outputs.config }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       DISTRIBUTION: ${{ needs.decide.outputs.sign }}
       ARTIFACT_AGE_RECIPIENT: ${{ vars.ARTIFACT_AGE_RECIPIENT }}
     steps:
-      # Only Hex+'s own scripts; no source build runs on this runner.
+      # Only Typr's own scripts; no source build runs on this runner.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          sparse-checkout: .github/hexplus
+          sparse-checkout: .github/typr
           persist-credentials: false
       - name: Install pinned artifact encryption tool
-        run: bash .github/hexplus/install-age.sh
+        run: bash .github/typr/install-age.sh
       - name: Select and verify Xcode
         env:
           XCODE_PATH: ${{ vars.XCODE_PATH }}
-        run: bash .github/hexplus/select-xcode.sh
+        run: bash .github/typr/select-xcode.sh
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: hexplus-unsigned-${{ github.run_id }}
+          name: typr-unsigned-${{ github.run_id }}
           path: ${{ runner.temp }}/input
       - name: Decrypt archive with environment-protected identity
         env:
           ARTIFACT_AGE_IDENTITY: ${{ secrets.ARTIFACT_AGE_IDENTITY }}
-        run: bash .github/hexplus/decrypt-artifact.sh "$RUNNER_TEMP/input/archive.zip.age" "$RUNNER_TEMP/input/archive.zip"
+        run: bash .github/typr/decrypt-artifact.sh "$RUNNER_TEMP/input/archive.zip.age" "$RUNNER_TEMP/input/archive.zip"
       - name: Sign and export IPA
         env:
           IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_PROFILES_ZIP_BASE64: ${{ secrets.IOS_PROFILES_ZIP_BASE64 }}
         run: |
-          if ! bash .github/hexplus/sign.sh > "$RUNNER_TEMP/signing.log" 2>&1; then
+          if ! bash .github/typr/sign.sh > "$RUNNER_TEMP/signing.log" 2>&1; then
             echo 'Signing failed. Download and decrypt the signing diagnostics.'
             exit 1
           fi
       - name: Encrypt installable IPA
-        run: bash .github/hexplus/encrypt-ipa.sh
+        run: bash .github/typr/encrypt-ipa.sh
       - name: Upload encrypted IPA and public provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: hexplus-${{ needs.decide.outputs.sign }}-${{ github.run_id }}
+          name: typr-${{ needs.decide.outputs.sign }}-${{ github.run_id }}
           path: ${{ runner.temp }}/encrypted-deliverables/
           if-no-files-found: error
           retention-days: 7
@@ -386,25 +386,25 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
         run: |
-          if ! bash .github/hexplus/upload-testflight.sh > "$RUNNER_TEMP/testflight.log" 2>&1; then
+          if ! bash .github/typr/upload-testflight.sh > "$RUNNER_TEMP/testflight.log" 2>&1; then
             echo 'Upload failed. Download and decrypt the signing diagnostics.'
             exit 1
           fi
           echo "Uploaded build ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT} to TestFlight." >> "$GITHUB_STEP_SUMMARY"
       - name: Encrypt signing diagnostics
         if: always()
-        run: bash .github/hexplus/encrypt-signing-logs.sh
+        run: bash .github/typr/encrypt-signing-logs.sh
       - name: Upload encrypted signing diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: hexplus-signing-diagnostics-${{ github.run_id }}
+          name: typr-signing-diagnostics-${{ github.run_id }}
           path: ${{ runner.temp }}/signing-diagnostics.zip.age
           if-no-files-found: ignore
           retention-days: 7
       - name: Remove signing material
         if: always()
-        run: bash .github/hexplus/cleanup-signing.sh
+        run: bash .github/typr/cleanup-signing.sh
 
   status:
     name: Refresh status
@@ -422,4 +422,4 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Refresh the status issue
-        run: gh workflow run hexplus-status.yml --ref hex-plus
+        run: gh workflow run typr-status.yml --ref hex-plus

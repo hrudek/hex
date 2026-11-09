@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests of ios/ (with Hex+'s identity) on an iOS Simulator. No signing, no secrets.
+# Unit tests of ios/ (with Typr's identity) on an iOS Simulator. No signing, no secrets.
 set -euo pipefail
 : "${APP_CONFIG:?}" "${RUNNER_TEMP:?}"
 ONLY_TESTING=${ONLY_TESTING:-}
@@ -8,12 +8,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 scheme=$(python3 -c 'import json,os; print(json.loads(os.environ["APP_CONFIG"])["scheme"])')
 project=$(python3 -c 'import json,os; print(json.loads(os.environ["APP_CONFIG"])["project"])')
-# HEXPLUS_IDENTITY=keep tests the committed app identity unchanged (the agent's local
-# runs), so a rewrite never lands in its commits.
-if [[ "${HEXPLUS_IDENTITY:-}" != keep ]]; then
-  : "${APPLE_TEAM_ID:?}"
-  python3 "$here/identity.py" "$root/ios"
-fi
+: "${APPLE_TEAM_ID:?}"
+python3 "$here/identity.py" "$root/ios"
 source "$here/cache-args.sh"
 cd "$root/ios"
 command -v xcodegen >/dev/null || brew install xcodegen

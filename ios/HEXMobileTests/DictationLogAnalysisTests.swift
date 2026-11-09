@@ -76,14 +76,14 @@ final class DictationLogAnalysisTests: XCTestCase {
         XCTAssertEqual(entry.firstSpellingPass, first)
         XCTAssertEqual(entry.secondSpellingPass, second)
         XCTAssertTrue(entry.processingResultLabel.contains("2 replacements"))
-        for expected in ["AI: Hex+", "Upstream AI setting: On", "Vocabulary: On", "\"iphone\" → \"iPhone\"", "\"IPhone\" → \"iPhone\""] {
+        for expected in ["AI: Typr", "Upstream AI setting: On", "Vocabulary: On", "\"iphone\" → \"iPhone\"", "\"IPhone\" → \"iPhone\""] {
             XCTAssertTrue(entry.plainText.contains(expected), expected)
         }
         await env.dispose()
     }
 
     func testEverySelectedPathAndVocabularyStateHasAnExplicitLabel() {
-        for (path, label) in [(DictationLogCleanupPath.hexPlus, "AI: Hex+"), (.upstream, "AI: Upstream"), (.none, "AI: None")] {
+        for (path, label) in [(DictationLogCleanupPath.hexPlus, "AI: Typr"), (.upstream, "AI: Upstream"), (.none, "AI: None")] {
             var context = DictationLogContext()
             context.cleanupPath = path
             context.vocabularyEnabled = false

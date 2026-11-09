@@ -1,7 +1,9 @@
 # Security
 
+Typr is a standalone iPhone dictation keyboard. Speech processing stays on-device.
+
 To report a suspected security problem, open an
-[issue](https://github.com/hrudek/hex/issues/new) **without vulnerability details**
+[issue](https://github.com/hrudek/typr/issues/new) **without vulnerability details**
 and ask the owner for a private contact channel. Private vulnerability reporting
 is not currently enabled for this repository.
 

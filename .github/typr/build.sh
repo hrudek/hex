@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unsigned device archive of ios/ with Hex+'s identity. No signing secrets here.
+# Unsigned device archive of ios/ with Typr's identity. No signing secrets here.
 set -euo pipefail
 : "${APP_CONFIG:?}" "${APPLE_TEAM_ID:?}" "${SOURCE_SHA:?}" "${RUNNER_TEMP:?}" "${ARTIFACT_AGE_RECIPIENT:?}"
 here=$(cd "$(dirname "$0")" && pwd)

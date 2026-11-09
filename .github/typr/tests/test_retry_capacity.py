@@ -5,10 +5,10 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_hexplus import module, REPO as ROOT
+from test_typr import module, REPO as ROOT
 
-capacity = module('hexplus_capacity', 'retry-capacity.py')
-REPO = 'hrudek/hex'
+capacity = module('typr_capacity', 'retry-capacity.py')
+REPO = 'hrudek/typr'
 
 
 class CapacityTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class CapacityTests(unittest.TestCase):
         self.run = {
             'id': 42, 'repository': {'full_name': REPO},
             'head_repository': {'full_name': REPO},
-            'path': '.github/workflows/hexplus-ci.yml', 'event': 'push',
+            'path': '.github/workflows/typr-ci.yml', 'event': 'push',
             'status': 'completed', 'conclusion': 'failure', 'run_attempt': 1,
             'head_sha': 'a' * 40, 'head_branch': 'hex-plus', 'html_url': 'https://example/run/42',
         }
@@ -28,7 +28,7 @@ class CapacityTests(unittest.TestCase):
         self.assertTrue(capacity.eligible_run(self.run, REPO))
         for change in (
             {'repository': {'full_name': 'other/repo'}}, {'head_repository': None},
-            {'path': '.github/workflows/hexplus-retry.yml'}, {'event': 'workflow_run'},
+            {'path': '.github/workflows/typr-retry.yml'}, {'event': 'workflow_run'},
             {'status': 'in_progress'}, {'conclusion': 'success'}, {'conclusion': 'cancelled'},
             {'run_attempt': 0}, {'run_attempt': 4},
         ):
@@ -106,8 +106,8 @@ class CapacityTests(unittest.TestCase):
             self.assertEqual(len(capacity.pages(REPO, 'actions/runs/42/jobs', 'jobs')), 101)
 
     def test_workflow_uses_trusted_code_and_bounded_linux_wait(self):
-        source = (ROOT / '.github/workflows/hexplus-retry.yml').read_text()
-        self.assertIn('workflows: ["Hex* CI", "Hex* PR to iPhone"]', source)
+        source = (ROOT / '.github/workflows/typr-retry.yml').read_text()
+        self.assertIn('workflows: ["Typr* CI", "Typr* PR to iPhone"]', source)
         self.assertIn('ref: hex-plus', source)
         self.assertIn('runs-on: ubuntu-latest', source)
         self.assertIn('timeout-minutes: 25', source)

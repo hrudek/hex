@@ -15,8 +15,8 @@ enum DictationLogExport: String, CaseIterable, Identifiable {
 
     func text(for entries: [DictationLogEntry]) -> String {
         let header = self == .improvement
-            ? "Hex+ recognition & cleanup improvement log · export v2\n" + Self.limitations
-            : "Hex+ complete diagnostic log · export v2\n" + Self.limitations
+            ? "Typr recognition & cleanup improvement log · export v2\n" + Self.limitations
+            : "Typr complete diagnostic log · export v2\n" + Self.limitations
         return ([header] + entries.map { self == .improvement ? $0.improvementText : $0.plainText })
             .joined(separator: "\n\n────────\n\n")
     }
@@ -34,7 +34,7 @@ extension DictationLogEntry {
         ]
         if let failure = asrFailure { lines.append("ASR failure: \(failure.rawValue)") }
         if context.cleanupPath == .hexPlus {
-            lines.append("Hex+: \(cleanupOutcome ?? "not recorded"); answer: \(answerLabel)")
+            lines.append("Typr: \(cleanupOutcome ?? "not recorded"); answer: \(answerLabel)")
             lines.append("Prompt: \(promptRevision); guard: \(guardRevision)")
             lines.append("Cleanup model: on-device Apple FoundationModels (exact model version unavailable)")
         } else if context.cleanupPath == .upstream {

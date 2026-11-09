@@ -1,16 +1,16 @@
 import Foundation
 
-/// Hex+ switches, stored in the App Group so the keyboard reads them too.
+/// Typr switches, stored in the App Group so the keyboard reads them too.
 /// Switches default on. Dictation log deliberately retains saved history while off;
 /// other switches keep upstream's behavior when off.
 @MainActor
 struct HexPlusSettings {
     private enum Key {
-        static let aiCleanup = "hexplus.aiCleanup"
-        static let dictationLog = "hexplus.dictationLog"
-        static let showCleanupModel = "hexplus.showCleanupModel"
-        static let germanAutocorrect = "hexplus.germanAutocorrect"
-        static let keyboardSwitchKey = "hexplus.keyboardSwitchKey"
+        static let aiCleanup = "typr.aiCleanup"
+        static let dictationLog = "typr.dictationLog"
+        static let showCleanupModel = "typr.showCleanupModel"
+        static let germanAutocorrect = "typr.germanAutocorrect"
+        static let keyboardSwitchKey = "typr.keyboardSwitchKey"
     }
 
     private let defaults: UserDefaults?
@@ -25,7 +25,7 @@ struct HexPlusSettings {
         nonmutating set { defaults?.set(newValue, forKey: Key.aiCleanup) }
     }
 
-    /// Show the configured cleanup model in the Hex+ card, without changing cleanup itself.
+    /// Show the configured cleanup model in the Typr card, without changing cleanup itself.
     var showCleanupModel: Bool {
         get { defaults?.object(forKey: Key.showCleanupModel) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.showCleanupModel) }

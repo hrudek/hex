@@ -24,7 +24,7 @@ nonisolated struct HexPlusModelInfo: Equatable, Sendable {
         let configuration: String
         switch path {
         case .hexPlus:
-            configuration = "Hex+ AI cleanup (general use, permissive content transformations)"
+            configuration = "Typr AI cleanup (general use, permissive content transformations)"
         case .upstreamExperiment:
             configuration = "Clean up with Apple Intelligence (Experiments) (general use, default guardrails)"
         case .none:

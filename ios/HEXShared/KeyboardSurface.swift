@@ -59,7 +59,7 @@ final class KeyboardViewModel: ObservableObject {
     @Published var returnAppID: String?
     @Published var quickReturnApps: [HostApp] = HostAppCatalog.quickChips
     @Published var activeTray: PickerTray = .none
-    /// Hex+: the utility row starts with a key that shows the full keyboard.
+    /// Typr: the utility row starts with a key that shows the full keyboard.
     @Published var showsFullKeyboardSwitch = false
     @Published var feedback: DictationFeedbackPresentation?
     var onFeedbackRating: ((String, [String]?) -> Void)?
@@ -82,7 +82,7 @@ final class KeyboardViewModel: ObservableObject {
     var onDelete: (() -> Void)?
     var onReturn: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
-    /// Hex+: the full-keyboard key was tapped.
+    /// Typr: the full-keyboard key was tapped.
     var onShowFullKeyboard: (() -> Void)?
     weak var inputViewController: UIInputViewController?
 
@@ -468,7 +468,7 @@ extension View {
 }
 
 enum KeyboardSetupCopy {
-    static let fullAccessPath = "Allow Full Access: Settings › Apps › Hex › Keyboards"
+    static let fullAccessPath = "Allow Full Access: Settings › Apps › Typr › Keyboards"
 }
 
 struct KeyboardSurfaceView: View {
@@ -545,7 +545,7 @@ struct KeyboardSurfaceView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Open Hex")
+            .accessibilityLabel("Open Typr")
 
             leadingAccessory(palette: p)
 
@@ -725,7 +725,7 @@ struct KeyboardSurfaceView: View {
 
     private var idleTriggerSpec: (icon: String, title: String, width: CGFloat) {
         if !model.hasFullAccess {
-            return ("arrow.up.forward.app.fill", "Set up Hex", 112)
+            return ("arrow.up.forward.app.fill", "Set up Typr", 112)
         }
         if !model.isModelInstalled {
             return ("mic.fill", "Set up", 88)
@@ -859,7 +859,7 @@ struct KeyboardSurfaceView: View {
     private var utilityRow: some View {
         let p = palette
         return HStack(spacing: 6) {
-            if model.showsFullKeyboardSwitch { // Hex+
+            if model.showsFullKeyboardSwitch { // Typr
                 Button {
                     model.onShowFullKeyboard?()
                 } label: {

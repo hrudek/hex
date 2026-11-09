@@ -165,7 +165,7 @@ def make_report(store, *, show_text: bool = False) -> dict:
 
 def human(report: dict) -> str:
     summary = report["summary"]
-    lines = ["Hex+ local dictation report", report["limits"],
+    lines = ["Typr local dictation report", report["limits"],
              f"Entries: {summary['entries']}; ratings: {canonical(summary['ratings'])}",
              f"Import evidence: {canonical(report['importEvidence'])}",
              f"Known rating coverage: {summary['ratingCoverage']}",

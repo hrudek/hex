@@ -29,7 +29,7 @@ private final class FakeAudioManager: AudioManaging {
     var isKeepaliveRunning = false
     var permissionGranted = true
     var keepaliveShouldThrow = false
-    /// False models Hex in the background: iOS refuses to start microphone input there,
+    /// False models Typr in the background: iOS refuses to start microphone input there,
     /// though input that is already running keeps going.
     var canStartInput = true
     var startKeepaliveCount = 0

@@ -9,8 +9,8 @@ import UIKit
 /// previous zero-size layout pass.
 @MainActor
 final class HexPlusFeedbackBar: UIScrollView {
-    static let openTitle = "Fix in Hex"
-    static let openAccessibilityLabel = "Open this dictation in Hex to enter what you said"
+    static let openTitle = "Fix in Typr"
+    static let openAccessibilityLabel = "Open this dictation in Typr to enter what you said"
     private static let spacing: CGFloat = 8
 
     private var items: [(view: UIView, width: CGFloat)] = []

@@ -46,7 +46,7 @@ enum HexTheme {
     }
 }
 
-/// Critically damped `(duration, bounce: 0)` springs shared across Hex iPhone surfaces.
+/// Critically damped `(duration, bounce: 0)` springs shared across Typr iPhone surfaces.
 enum HexMotion {
     static let stageDuration: Double = 0.28
     static let settleDuration: Double = 0.30
@@ -195,7 +195,7 @@ struct HexStatusDot: View {
     }
 }
 
-/// Hex's concentric-hexagon brand mark (`site/src/App.tsx`).
+/// Inherited concentric-hexagon mark from Hex (`site/src/App.tsx`; see PORTS.md).
 struct HexMarkView: View {
     var size: CGFloat = 20
     var color: Color = HexTheme.textBase

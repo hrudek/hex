@@ -238,7 +238,7 @@ final class DictationLogStoreTests: XCTestCase {
         }
         let file = try result.get()
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
-        XCTAssertEqual(object["format"] as? String, "hexplus.dictation-log")
+        XCTAssertEqual(object["format"] as? String, "typr.dictation-log")
         XCTAssertEqual(object["exportVersion"] as? Int, 1)
         XCTAssertEqual((object["entries"] as? [Any])?.count, 65)
         let entries = try XCTUnwrap(object["entries"] as? [[String: Any]])

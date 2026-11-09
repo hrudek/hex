@@ -258,7 +258,7 @@ struct DictationLogToken: Equatable, Sendable {
 @Observable
 final class DictationLogStore {
     static let shared = DictationLogStore(storage: DictationLogStorage(url: URL.applicationSupportDirectory
-        .appendingPathComponent("HexPlus", isDirectory: true).appendingPathComponent("dictation-log.json")), feedbackBridge: .shared)
+        .appendingPathComponent("Typr", isDirectory: true).appendingPathComponent("dictation-log.json")), feedbackBridge: .shared)
     static let maximumEntries = 50 // full-entry cache, NOT archive retention
     private(set) var entries: [DictationLogEntry] = []
     private(set) var metadata: [DictationLogMetadata] = []

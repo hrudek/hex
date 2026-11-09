@@ -25,4 +25,4 @@ else
 fi
 xcodebuild -version
 current=$(xcodebuild -version | awk 'NR==1{print $2}')
-at_least "$current" || { echo "Hex+ requires Xcode $minimum or later"; exit 1; }
+at_least "$current" || { echo "Typr requires Xcode $minimum or later"; exit 1; }

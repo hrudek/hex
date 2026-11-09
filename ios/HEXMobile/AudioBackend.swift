@@ -373,7 +373,7 @@ final class SystemAudioManager: AudioManaging {
         allowBluetooth: Bool
     ) throws -> any ActiveAudioCapture {
         // Record from the keepalive input instead of switching to a recorder: stopping the
-        // input after a capture and starting it again fails while Hex is in the background,
+        // input after a capture and starting it again fails while Typr is in the background,
         // which ended the warm session after every keyboard dictation.
         try ensureKeepalive(allowBluetooth: allowBluetooth)
 

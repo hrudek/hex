@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Load Hex+'s fixed iOS identity (app.json) and publish it as APP_CONFIG."""
+"""Load Typr's fixed iOS identity (app.json) and publish it as APP_CONFIG."""
 import json
 import os
 from pathlib import Path
@@ -10,8 +10,8 @@ HERE = Path(__file__).resolve().parent
 
 def load():
     config = json.loads((HERE / 'app.json').read_text())
-    if config['app'] != 'hex' or config['directory'] != 'ios':
-        raise ValueError('app.json describes the Hex iOS app only')
+    if config['app'] != 'typr' or config['directory'] != 'ios':
+        raise ValueError('app.json describes the Typr iOS app only')
     if not re.fullmatch(r'[A-Za-z0-9_-]+\.xcodeproj', config['project']):
         raise ValueError('Invalid Xcode project')
     if not re.fullmatch(r'[A-Za-z0-9_. -]+', config['scheme']):
