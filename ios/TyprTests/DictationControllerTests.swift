@@ -674,7 +674,7 @@ final class DictationControllerTests: XCTestCase {
         XCTAssertEqual(controller.transcript, "I use OpenCode.")
     }
 
-    func testCustomVocabularyReachesTheTranscriberOnlyWhileEnabled() async throws {
+    func testCustomVocabularyReachesTheTranscriberOnlyWhileEnabledBeforeGlossaryHints() async throws {
         let now = 60_000.0
         let audio = FakeAudioManager()
         let transcriber = ControlledTranscriber()
@@ -699,8 +699,9 @@ final class DictationControllerTests: XCTestCase {
         try await settle()
         controller.finishRecording()
         try await settle()
+        // The built-in tech glossary always gives Apple Speech its hints; user terms come first.
         var arguments = await transcriber.vocabularyArguments
-        XCTAssertEqual(arguments, [[]])
+        XCTAssertEqual(arguments, [TechGlossary.listedTerms])
 
         settings.isEnabled = true
         controller.startRecording(keyboardJobID: "vocabulary-hint-on")
@@ -708,7 +709,7 @@ final class DictationControllerTests: XCTestCase {
         controller.finishRecording()
         try await settle()
         arguments = await transcriber.vocabularyArguments
-        XCTAssertEqual(arguments, [[], ["OpenCode"]])
+        XCTAssertEqual(arguments, [TechGlossary.listedTerms, ["OpenCode"] + TechGlossary.listedTerms])
     }
 
     func testCustomVocabularySurvivesCasualFormatting() async throws {

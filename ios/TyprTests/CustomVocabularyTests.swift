@@ -151,6 +151,27 @@ final class VocabularySpellingTests: XCTestCase {
             "‘Claude’"
         )
     }
+    func testRulesMapASoundsLikeFormToTheTerm() {
+        let rules = [
+            VocabularySpelling.Rule(term: "herdr"),
+            VocabularySpelling.Rule(match: "Herder", spelling: "herdr"),
+            VocabularySpelling.Rule(match: "Hörder", spelling: "herdr"),
+        ]
+        var changes: [String] = []
+        let fixed = VocabularySpelling.apply(rules: rules, to: "Öffne Herder, dann Hörder und Herders Tab") {
+            before, after, term in changes.append("\(before)→\(after) (\(term))")
+        }
+        XCTAssertEqual(fixed, "Öffne herdr, dann herdr und Herders Tab")
+        XCTAssertEqual(changes, ["Herder→herdr (herdr)", "Hörder→herdr (herdr)"])
+    }
+
+    func testEarlierRuleWinsForTheSameKey() {
+        let rules = [
+            VocabularySpelling.Rule(match: "Typer", spelling: "Typr"),
+            VocabularySpelling.Rule(match: "typer", spelling: "Tipper"),
+        ]
+        XCTAssertEqual(VocabularySpelling.apply(rules: rules, to: "open typer"), "open Typr")
+    }
 }
 
 final class CustomVocabularySettingsTests: XCTestCase {
@@ -199,5 +220,41 @@ final class CustomVocabularySettingsTests: XCTestCase {
         XCTAssertFalse(saved.contains("a"))
         XCTAssertFalse(saved.contains("open code"))
         XCTAssertEqual(saved.last, "Term 97")
+    }
+
+    func testSoundsLikeIsStoredBesideTheUnchangedTermList() {
+        let suite = "CustomVocabularySettingsTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        // An install from before sounds-like: just the term array.
+        defaults.set(["herdr", "Rudek"], forKey: "customVocabulary.terms")
+        let settings = CustomVocabularySettings(defaults: defaults)
+        XCTAssertEqual(settings.terms, ["herdr", "Rudek"])
+        XCTAssertEqual(settings.soundsLike, [:])
+
+        settings.setSoundsLike([" Herder ", "Herda", "herder", "Rudek", "x", "Hörder"], for: "herdr")
+        XCTAssertEqual(settings.soundsLike(for: "HERDR"), ["Herder", "Herda", "Hörder"])
+        XCTAssertEqual(defaults.stringArray(forKey: "customVocabulary.terms"), ["herdr", "Rudek"])
+
+        // Off: no rules. On: the term first, then its forms.
+        XCTAssertEqual(settings.activeRules, [])
+        settings.isEnabled = true
+        XCTAssertEqual(settings.activeRules.map(\.match), ["herdr", "Rudek", "Herder", "Herda", "Hörder"])
+        XCTAssertEqual(Set(settings.activeRules.map(\.spelling)), ["herdr", "Rudek"])
+
+        // Forms of a removed term are dropped.
+        settings.terms = ["Rudek"]
+        XCTAssertEqual(settings.soundsLike, [:])
+    }
+
+    func testSoundsLikeFormsAreUniqueAndCapped() {
+        let terms = ["herdr", "pane"]
+        let raw = ["herdr": (1...12).map { "Form \($0)" }, "pane": ["Pain", "Form 1"], "gone": ["Weg"]]
+        let clean = CustomVocabularySettings.sanitize(soundsLike: raw, terms: terms)
+        XCTAssertEqual(clean["herdr"]?.count, CustomVocabularySettings.maxSoundsLikePerTerm)
+        XCTAssertEqual(clean["pane"], ["Pain"])
+        XCTAssertNil(clean["gone"])
+        XCTAssertEqual(CustomVocabularySettings.parseSoundsLike("Herder, Herda;\n Hörder ,,"), ["Herder", "Herda", "Hörder"])
     }
 }

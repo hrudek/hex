@@ -163,7 +163,10 @@ Every entry freezes the complete saved Custom vocabulary as `context.vocabularyT
 the experiment is off; `vocabularyEnabled` says whether the terms were applied and
 `vocabularyCount` counts the applied ones. Older entries may instead carry the
 legacy joined `vocabularySnapshot` (active terms only, capped to 4,000 bytes). Each spelling pass
-keeps the first 20 replacements plus total count. Per-field truncation, original
+keeps the first 20 replacements plus total count. The first pass also contains the built-in tech
+glossary's fixes, marked `"source": "built-in"` (Custom vocabulary replacements and older entries
+have no source); new entries record `context.glossaryRevision`. Sounds-like forms are not
+frozen in the context; their replacements show the term they were written as. Per-field truncation, original
 byte/word counts and bounded 400-token comparisons remain explicit. Speech hints
 are best effort; counts are not correctness scores. Selected model configuration
 is not proof a model ran; Apple controls its exact checkpoint. Provided-to-keyboard

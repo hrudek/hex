@@ -69,7 +69,10 @@ it never accesses the microphone, speech model, or network.
   - **Styles:** `Polished` (sentence case + punctuation + filler trim),
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
     `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
-    insertion spacing and repeating backspace.
+    insertion spacing and repeating backspace. Filler trim removes äh/ähm/öhm/hm
+    always, but English um/uh/er/ah only from text that reads as English ("um 13 Uhr",
+    "was er sagt" stay); a period after bzw., z. B., d. h., ca., usw. and similar
+    abbreviations does not capitalize the next word.
   - **Full keyboard Typr key (Experiments › Full keyboard):** A quick tap
     types a space, exactly like the space bar (autocorrect, double-space
     period). A still hold of 0.35 s starts dictation in a warm session (or
@@ -98,7 +101,13 @@ it never accesses the microphone, speech model, or network.
     joined only when the term reads as a compound, and compound terms like
     "WeChat" can also match the plain phrase ("we chat"). On iOS 26 Apple Speech
     the list is also sent as a best-effort recognition hint; Parakeet's batch
-    path gets no hint.
+    path gets no hint. Each term can carry **sounds-like** forms (what the
+    speech engine writes instead, e.g. Herder for herdr), replaced by the term.
+  - **Built-in tech glossary (always on):** known mishearings of developer terms
+    ("Pulrequest" → "Pull Request", "Gitub" → "GitHub", "Pay Agenten" → "pi Agenten")
+    are fixed before cleanup; real words only when the dictation's context fits
+    ("gemerkt" → "gemergt" next to PR/Branch/merge). Its terms are Apple Speech hints
+    after the user's terms. See [AI_CLEANUP.md](AI_CLEANUP.md).
 - **Resilient capture & expiry contract (`DictationController`):**
   - Monotonic `jobGeneration`, retained `transcriptionTask`, and unique
     per-capture WAV filenames ensure an expiring warm session never drops an

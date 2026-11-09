@@ -39,23 +39,52 @@ nonisolated enum VocabularySpelling {
         normalize(term)
     }
 
+    /// One spelling rule: transcript words that match `match` (across case, spaces, tabs, a
+    /// single hyphen and possessives, exactly like a vocabulary term) are written as `spelling`.
+    /// A term is the rule whose `match` is its own spelling; a "sounds like" variant or a
+    /// glossary entry maps a misheard form ("Gitub") to the intended one ("GitHub").
+    struct Rule: Equatable, Sendable {
+        let match: String
+        let spelling: String
+
+        init(match: String, spelling: String) {
+            self.match = match
+            self.spelling = spelling
+        }
+
+        init(term: String) {
+            self.init(match: term, spelling: term)
+        }
+    }
+
     /// Reports only actual replacements, at the point of matching (not inferred from a diff).
     static func apply(_ terms: [String], to text: String,
                       onReplacement: ((_ before: String, _ after: String, _ term: String) -> Void)? = nil) -> String {
+        apply(rules: terms.map(Rule.init(term:)), to: text, onReplacement: onReplacement)
+    }
+
+    /// Applies rules in one left-to-right pass, longest window first. When two rules share a
+    /// key or word boundaries, the earlier one wins, so callers list higher-priority rules first.
+    static func apply(rules: [Rule], to text: String,
+                      onReplacement: ((_ before: String, _ after: String, _ term: String) -> Void)? = nil) -> String {
         var glued: [String: Spelling] = [:]
         var phrases: [[String]: Spelling] = [:]
-        for term in terms {
-            let key = normalize(term)
-            guard key.count >= 2, glued[key] == nil else { continue }
+        for rule in rules {
+            let key = normalize(rule.match)
+            guard key.count >= 2, !rule.spelling.isEmpty else { continue }
             let spelling = Spelling(
-                text: term,
-                hasApostrophe: term.contains(where: isApostrophe),
-                isCompound: looksCompound(term)
+                text: rule.spelling,
+                hasApostrophe: rule.match.contains(where: isApostrophe),
+                isCompound: looksCompound(rule.match)
             )
-            glued[key] = spelling
+            // A later rule with the same key ("Git Hub" after "Github") still adds its own
+            // word boundaries, but never replaces an earlier rule's glued match.
+            if glued[key] == nil {
+                glued[key] = spelling
+            }
 
-            let wordKeys = termWordKeys(term)
-            if wordKeys.count > 1 {
+            let wordKeys = termWordKeys(rule.match)
+            if wordKeys.count > 1, phrases[wordKeys] == nil {
                 phrases[wordKeys] = spelling
             }
         }

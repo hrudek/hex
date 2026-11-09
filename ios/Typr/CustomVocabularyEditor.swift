@@ -7,6 +7,9 @@ struct CustomVocabularyEditor: View {
     @State private var terms: [String] = []
     @State private var draft = ""
     @State private var notice: String?
+    @State private var soundsLike: [String: [String]] = [:]
+    @State private var editingTerm: String?
+    @State private var soundsLikeDraft = ""
 
     private var isAtLimit: Bool {
         terms.count >= CustomVocabularySettings.maxTermCount
@@ -15,26 +18,57 @@ struct CustomVocabularyEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(terms, id: \.self) { term in
-                HStack(spacing: 10) {
-                    Text(term)
-                        .font(.system(size: 14))
-                        .foregroundStyle(TyprTheme.textBase)
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) {
+                        Text(term)
+                            .font(.system(size: 14))
+                            .foregroundStyle(TyprTheme.textBase)
+                            .lineLimit(1)
 
-                    Spacer(minLength: 8)
+                        Spacer(minLength: 8)
 
-                    Button {
-                        remove(term)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(TyprTheme.textMuted)
-                            .frame(width: 26, height: 26)
-                            .background(TyprTheme.layer02, in: Circle())
+                        Button {
+                            toggleSoundsLike(for: term)
+                        } label: {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(editingTerm == term ? TyprTheme.textBase : TyprTheme.textMuted)
+                                .frame(width: 26, height: 26)
+                                .background(TyprTheme.layer02, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Sounds like for \(term)")
+
+                        Button {
+                            remove(term)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(TyprTheme.textMuted)
+                                .frame(width: 26, height: 26)
+                                .background(TyprTheme.layer02, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(term)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove \(term)")
+
+                    if editingTerm == term {
+                        TextField("Sounds like, e.g. Herder, Herda", text: $soundsLikeDraft)
+                            .font(.system(size: 13))
+                            .foregroundStyle(TyprTheme.textBase)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .submitLabel(.done)
+                            .onSubmit { saveSoundsLike(for: term) }
+                            .accessibilityLabel("Sounds like for \(term), separated by commas")
+                    } else if let forms = soundsLike[VocabularySpelling.normalizedKey(term)], !forms.isEmpty {
+                        Text("Sounds like: \(forms.joined(separator: ", "))")
+                            .font(.system(size: 12))
+                            .foregroundStyle(TyprTheme.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .padding(.vertical, 5)
                 .padding(.leading, 12)
                 .padding(.trailing, 6)
                 .frame(minHeight: 36)
@@ -84,8 +118,9 @@ struct CustomVocabularyEditor: View {
 
             Text(
                 "Typr fixes the spelling of listed words when it hears them. "
-                    + "It can't teach the speech engine new sounds, so a word heard "
-                    + "as something different stays as it is."
+                    + "When the speech engine writes a word as something else, tap the "
+                    + "waveform and add what it writes under Sounds like (for example "
+                    + "Herder, Herda for herdr). Your terms win over Typr's built-in tech terms."
             )
             .font(.system(size: 12))
             .foregroundStyle(TyprTheme.textMuted)
@@ -93,6 +128,7 @@ struct CustomVocabularyEditor: View {
         }
         .onAppear {
             terms = settings.terms
+            soundsLike = settings.soundsLike
         }
     }
 
@@ -126,8 +162,32 @@ struct CustomVocabularyEditor: View {
     }
 
     private func remove(_ term: String) {
+        settings.setSoundsLike([], for: term)
         terms.removeAll { $0 == term }
         settings.terms = terms
+        soundsLike = settings.soundsLike
+        if editingTerm == term { editingTerm = nil }
         notice = nil
+    }
+
+    private func toggleSoundsLike(for term: String) {
+        if editingTerm == term {
+            saveSoundsLike(for: term)
+        } else {
+            editingTerm = term
+            soundsLikeDraft = settings.soundsLike(for: term).joined(separator: ", ")
+            notice = nil
+        }
+    }
+
+    private func saveSoundsLike(for term: String) {
+        let entered = CustomVocabularySettings.parseSoundsLike(soundsLikeDraft)
+        settings.setSoundsLike(entered, for: term)
+        let saved = settings.soundsLike(for: term)
+        soundsLike = settings.soundsLike
+        editingTerm = nil
+        notice = saved.count < entered.count
+            ? "Some sounds-like entries were skipped: too short, too long, a listed term, or already used"
+            : nil
     }
 }

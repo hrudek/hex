@@ -189,6 +189,27 @@ final class DictationLogControllerTests: XCTestCase {
         try await f.dispose()
     }
 
+    func testBuiltInGlossaryReplacementsAreLoggedWithTheirSource() async throws {
+        let f = LogControllerFixture()
+        await f.asr.setOutput("Erstelle einen Pulrequest auf Gitub")
+        f.model.result = "Erstelle einen Pull Request auf GitHub"
+        try await f.start()
+        f.controller.finishRecording(); try await f.settle()
+        let entry = try XCTUnwrap(f.env.store.entries.first)
+        XCTAssertEqual(entry.recognized?.text, "Erstelle einen Pulrequest auf Gitub")
+        XCTAssertEqual(entry.aiInput?.text, "Erstelle einen Pull Request auf GitHub")
+        XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 2)
+        let change = try XCTUnwrap(entry.firstSpellingPass?.changes.first)
+        XCTAssertEqual(change.before.text, "Pulrequest")
+        XCTAssertEqual(change.after.text, "Pull Request")
+        XCTAssertEqual(change.source, "built-in")
+        XCTAssertEqual(entry.context.glossaryRevision, TechGlossary.revision)
+        XCTAssertEqual(entry.spellingLines(entry.firstSpellingPass).first,
+                       #""Pulrequest" → "Pull Request" (built-in: "Pull Request")"#)
+        XCTAssertEqual(entry.finalText?.text, "Erstelle einen Pull Request auf GitHub.")
+        try await f.dispose()
+    }
+
     func testCasualFormattingRestorationHasSeparateReplacementEvidence() async throws {
         let f = LogControllerFixture()
         let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
