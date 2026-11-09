@@ -21,6 +21,7 @@ targets:
       - Typr
       - TyprShared
       - TyprActivity
+      - Branding/TyprWordmark.swift
       - path: AppIcon.icon
         buildPhase: resources
     dependencies:
@@ -81,6 +82,7 @@ targets:
     sources:
       - TyprKeyboard
       - TyprShared
+      - Branding/TyprWordmark.swift
     info:
       path: TyprKeyboard/Info.plist
       properties:
@@ -113,6 +115,7 @@ targets:
       - TyprWidgets
       - TyprActivity
       - TyprShared/TyprTheme.swift
+      - Branding/TyprWordmark.swift
     info:
       path: TyprWidgets/Info.plist
       properties:

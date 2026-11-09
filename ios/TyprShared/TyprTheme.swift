@@ -195,54 +195,21 @@ struct TyprStatusDot: View {
     }
 }
 
-/// Inherited concentric-hexagon mark from Hex (`site/src/App.tsx`; see PORTS.md).
+/// Shared brand mark for the app header, setup and dictation keyboard.
 struct TyprMarkView: View {
     var size: CGFloat = 20
     var color: Color = TyprTheme.textBase
     var coreColor: Color? = nil
 
     var body: some View {
-        Canvas { context, canvasSize in
-            let side = min(canvasSize.width, canvasSize.height)
-            let s = side / 64.0
-            let lineWidth = max(1.15, 4.5 * s)
-            let stroke = StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-
-            func typrPath(_ points: [(CGFloat, CGFloat)]) -> Path {
-                var path = Path()
-                guard let first = points.first else { return path }
-                path.move(to: CGPoint(x: first.0 * s, y: first.1 * s))
-                for pt in points.dropFirst() {
-                    path.addLine(to: CGPoint(x: pt.0 * s, y: pt.1 * s))
-                }
-                path.closeSubpath()
-                return path
-            }
-
-            let outer = typrPath([
-                (32, 4), (57, 18.5), (57, 45.5),
-                (32, 60), (7, 45.5), (7, 18.5),
-            ])
-            let middle = typrPath([
-                (32, 15), (48, 24.25), (48, 39.75),
-                (32, 49), (16, 39.75), (16, 24.25),
-            ])
-            let core = typrPath([
-                (32, 24), (39.5, 28.25), (39.5, 36.75),
-                (32, 41), (24.5, 36.75), (24.5, 28.25),
-            ])
-
-            context.stroke(outer, with: .color(color), style: stroke)
-            context.stroke(middle, with: .color(color), style: stroke)
-            context.fill(core, with: .color(coreColor ?? color))
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        TyprWordmark()
+            .fill(coreColor ?? color)
+            .frame(width: size * 2, height: size)
+            .accessibilityHidden(true)
     }
 }
 
-/// Static braided dot-matrix glyph for WidgetKit / Live Activity surfaces
-/// where SpringBoard renders archived display lists rather than Metal drawables.
+/// Static brand mark for WidgetKit's archived Live Activity display lists.
 struct TyprDotMatrixBadge: View {
     var columns: Int = 21
     var rows: Int = 7
@@ -250,44 +217,12 @@ struct TyprDotMatrixBadge: View {
     var cooling: Bool = false
 
     var body: some View {
-        Canvas { context, size in
-            let midX = size.width * 0.5
-            let midY = size.height * 0.5
-            let halfRows = CGFloat(rows - 1) * 0.5
-            let halfCols = CGFloat(columns - 1) * 0.5
-            let tint = cooling
-                ? SIMD3<Double>(0.76, 0.85, 0.98)
-                : SIMD3<Double>(0.96, 0.93, 0.87)
-
-            for i in 0..<columns {
-                let xn = Double(i) / Double(max(1, columns - 1))
-                let edge = sin(.pi * xn)
-                let amp = (0.35 + 0.65 * sin(.pi * xn)) * Double(halfRows * 0.82)
-                let yA = Double(halfRows) + amp * sin(2.0 * .pi * 1.45 * xn - 0.5)
-                let yB = Double(halfRows) - amp * sin(2.0 * .pi * 1.45 * xn - 0.5)
-
-                for j in 0..<rows {
-                    let dA = abs(Double(j) - yA)
-                    let dB = abs(Double(j) - yB)
-                    let litA = exp(-(dA * dA) / 0.42)
-                    let litB = exp(-(dB * dB) / 0.42)
-                    let power = min(1.0, (1.0 - (1.0 - litA) * (1.0 - litB)) * (0.25 + 0.75 * edge))
-                    let alpha = 0.07 * edge + 0.89 * pow(power, 0.9)
-                    let r = (0.26 + 0.16 * pow(power, 0.6)) * Double(pitch)
-                    let cx = midX + (CGFloat(i) - halfCols) * pitch
-                    let cy = midY + (CGFloat(j) - halfRows) * pitch
-                    let rect = CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)
-                    context.fill(
-                        Path(ellipseIn: rect),
-                        with: .color(Color(red: tint.x, green: tint.y, blue: tint.z, opacity: alpha))
-                    )
-                }
-            }
-        }
-        .frame(
-            width: CGFloat(columns - 1) * pitch + 8,
-            height: CGFloat(rows - 1) * pitch + 8
-        )
-        .accessibilityHidden(true)
+        TyprWordmark()
+            .fill(cooling ? TyprTheme.agentBlue : TyprTheme.warmPearl)
+            .frame(
+                width: CGFloat(columns - 1) * pitch + 8,
+                height: CGFloat(rows - 1) * pitch + 8
+            )
+            .accessibilityHidden(true)
     }
 }

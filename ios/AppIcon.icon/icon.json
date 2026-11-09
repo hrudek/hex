@@ -1,49 +1,31 @@
 {
   "fill": {
-    "linear-gradient": [
-      "gray:0.19846,1.00000",
-      "srgb:0.00000,0.00000,0.00000,1.00000"
-    ],
-    "orientation": {
-      "start": {
-        "x": 0.5,
-        "y": 0
-      },
-      "stop": {
-        "x": 0.5,
-        "y": 0.7
-      }
-    }
+    "solid": "srgb:0.015686,0.000000,0.000000,1.000000"
   },
   "groups": [
     {
       "layers": [
         {
           "image-name": "Image.png",
-          "name": "Typr",
+          "name": "Typr wordmark",
           "position": {
-            "scale": 0.44,
-            "translation-in-points": [
-              0,
-              0
-            ]
+            "scale": 0.5,
+            "translation-in-points": [0, 0]
           }
         }
       ],
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.5
+        "opacity": 0
       },
       "translucency": {
-        "enabled": true,
-        "value": 0.5
+        "enabled": false,
+        "value": 0
       }
     }
   ],
   "supported-platforms": {
-    "circles": [
-      "watchOS"
-    ],
+    "circles": ["watchOS"],
     "squares": "shared"
   }
 }
