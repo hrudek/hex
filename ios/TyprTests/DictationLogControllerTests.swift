@@ -446,7 +446,7 @@ final class DictationLogControllerTests: XCTestCase {
             XCTAssertEqual(entry.formattedText?.text,
                 TranscriptFormatter.format(result ?? "my iPhone works", style: .polished))
             XCTAssertEqual(entry.context.vocabularyTerms, ["iPhone"])
-        XCTAssertNil(entry.context.vocabularySnapshot)
+            XCTAssertNil(entry.context.vocabularySnapshot)
             XCTAssertEqual(entry.upstreamReason,
                 result == nil ? "cleaner returned nil; API exposes no failure reason" : nil)
             XCTAssertNil(entry.cleanupOutcome)

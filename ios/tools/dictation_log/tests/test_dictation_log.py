@@ -223,7 +223,12 @@ class ToolTests(unittest.TestCase):
         other = copy.deepcopy(inactive); other["context"]["vocabularyTerms"] = ["other"]
         self.assertEqual(settings(inactive, b"x" * 32)["activeVocabulary"],
                          settings(other, b"x" * 32)["activeVocabulary"])
-        for bad in ("not a list", [1], ["x" * 65], ["t"] * 101):
+        unknown = copy.deepcopy(value); unknown["context"].pop("vocabularyEnabled")
+        self.assertEqual(settings(unknown, b"x" * 32)["activeVocabulary"], "unknown")
+        decomposed = copy.deepcopy(value)  # 64 graphemes, 128 code points: valid in the app.
+        decomposed["context"]["vocabularyTerms"] = ["e\u0301" * 64, "\U0001F468\u200D\U0001F469\u200D\U0001F467" * 64]
+        validate_entry(decomposed, "entry")
+        for bad in ("not a list", [1], ["x" * 4001], ["t"] * 101):
             broken = copy.deepcopy(value); broken["context"]["vocabularyTerms"] = bad
             with self.assertRaises(Invalid):
                 validate_entry(broken, "entry")

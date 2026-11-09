@@ -33,8 +33,10 @@ def settings(entry: dict, secret: bytes) -> dict:
     vocab = context.get("vocabularySnapshot")
     if terms is not None:
         # Complete saved list; only applied terms are active configuration.
-        active = terms if context.get("vocabularyEnabled") is True else []
-        result["activeVocabulary"] = {"hmac": fingerprint(secret, active, "vocabulary"), "truncated": False}
+        enabled = context.get("vocabularyEnabled")
+        active = terms if enabled is True else []
+        result["activeVocabulary"] = ({"hmac": fingerprint(secret, active, "vocabulary"), "truncated": False}
+                                      if enabled is not None else "unknown")
     elif vocab is not None:
         result["activeVocabulary"] = {"hmac": fingerprint(secret, vocab, "vocabulary"),
                                        "truncated": vocab["truncated"]}

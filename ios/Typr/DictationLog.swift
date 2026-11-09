@@ -539,8 +539,10 @@ final class DictationLogStore {
         let fields = [entry.recognized, entry.aiInput, entry.aiAnswer, entry.cleanupOutput,
                       entry.formattedText, entry.finalText, entry.expectedText, entry.feedbackNote,
                       entry.context.vocabularySnapshot]
-        let estimate = fields.reduce(2_048) { $0 + ($1?.text.utf8.count ?? 0) }
-            + (entry.context.vocabularyTerms ?? []).reduce(0) { $0 + $1.utf8.count + 4 }
+        let textBytes = fields.reduce(2_048) { $0 + ($1?.text.utf8.count ?? 0) }
+        let terms: [String] = entry.context.vocabularyTerms ?? []
+        let termBytes = terms.reduce(0) { (sum: Int, term: String) in sum + term.utf8.count + 4 }
+        let estimate = textBytes + termBytes
         if let index = metadata.firstIndex(where: { $0.id == entry.id }) {
             metadata[index] = DictationLogMetadata(entry, bytes: max(metadata[index].bytes, estimate))
         } else {
