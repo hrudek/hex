@@ -114,7 +114,7 @@ final class HexKeyControl: UIControl {
             fill: isHighlighted ? palette.keyPressedFill : palette.keyFill,
             radius: cornerRadius
         )
-        let markSize: CGFloat = min(19, cap.height * 0.56)
+        let markSize: CGFloat = min(cap.width - 8, cap.height * 0.82)
         let markRect = CGRect(x: cap.midX - markSize / 2, y: cap.midY - markSize / 2, width: markSize, height: markSize)
         if isWarm {
             HexMarkPath.draw(in: context, rect: markRect, color: palette.textBase, coreColor: palette.warmCore)

@@ -21,6 +21,7 @@ targets:
       - HEXMobile
       - HEXShared
       - HEXActivity
+      - Branding/TyprWordmark.swift
       - path: AppIcon.icon
         buildPhase: resources
     dependencies:
@@ -81,6 +82,7 @@ targets:
     sources:
       - HEXKeyboard
       - HEXShared
+      - Branding/TyprWordmark.swift
     info:
       path: HEXKeyboard/Info.plist
       properties:
@@ -113,6 +115,7 @@ targets:
       - HEXWidgets
       - HEXActivity
       - HEXShared/HexTheme.swift
+      - Branding/TyprWordmark.swift
     info:
       path: HEXWidgets/Info.plist
       properties:

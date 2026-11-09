@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 
 /// The full keyboard's colours, light and dark, calibrated against Apple's iOS 26
@@ -60,43 +61,12 @@ struct FullKeyboardPalette: Equatable {
     static let cornerRadius: CGFloat = 8.5
 }
 
-/// The Typr mark (two hexagon outlines and a filled core) as UIKit paths.
+/// The same outlined Typr wordmark used by SwiftUI and the app icon.
 enum HexMarkPath {
-    private static let outer: [CGPoint] = [
-        CGPoint(x: 32, y: 4), CGPoint(x: 57, y: 18.5), CGPoint(x: 57, y: 45.5),
-        CGPoint(x: 32, y: 60), CGPoint(x: 7, y: 45.5), CGPoint(x: 7, y: 18.5),
-    ]
-    private static let middle: [CGPoint] = [
-        CGPoint(x: 32, y: 15), CGPoint(x: 48, y: 24.25), CGPoint(x: 48, y: 39.75),
-        CGPoint(x: 32, y: 49), CGPoint(x: 16, y: 39.75), CGPoint(x: 16, y: 24.25),
-    ]
-    private static let core: [CGPoint] = [
-        CGPoint(x: 32, y: 24), CGPoint(x: 39.5, y: 28.25), CGPoint(x: 39.5, y: 36.75),
-        CGPoint(x: 32, y: 41), CGPoint(x: 24.5, y: 36.75), CGPoint(x: 24.5, y: 28.25),
-    ]
-
     static func draw(in context: CGContext, rect: CGRect, color: UIColor, coreColor: UIColor?) {
-        let side = min(rect.width, rect.height)
-        let s = side / 64
-        let origin = CGPoint(x: rect.midX - side / 2, y: rect.midY - side / 2)
-
-        func path(_ points: [CGPoint]) -> CGPath {
-            let p = CGMutablePath()
-            p.addLines(between: points.map { CGPoint(x: origin.x + $0.x * s, y: origin.y + $0.y * s) })
-            p.closeSubpath()
-            return p
-        }
-
         context.saveGState()
-        context.setLineWidth(max(1.15, 4.5 * s))
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-        context.setStrokeColor(color.cgColor)
-        context.addPath(path(outer))
-        context.addPath(path(middle))
-        context.strokePath()
         context.setFillColor((coreColor ?? color).cgColor)
-        context.addPath(path(core))
+        context.addPath(TyprWordmark().path(in: rect).cgPath)
         context.fillPath()
         context.restoreGState()
     }
