@@ -64,10 +64,21 @@ def red_runs(push: dict | None) -> list[str]:
     return []
 
 
+def find_issue():
+    # Reuse the existing pinned issue during the rebrand, preserving its number
+    # and pin. The old title is only a lookup key, never newly published copy.
+    for title in (TITLE, "Hex+ status"):
+        issue = next((i for i in gh_json("issue", "list", "--state", "open", "--search",
+                                        f'in:title "{title}"', "--json", "number,title,body") or []
+                      if i["title"] == title), None)
+        if issue:
+            return issue
+    return None
+
+
 def main() -> None:
     repo = os.environ["GH_REPO"]
-    issue = next((i for i in gh_json("issue", "list", "--state", "open", "--search", f'in:title "{TITLE}"',
-                                     "--json", "number,title,body") or [] if i["title"] == TITLE), None)
+    issue = find_issue()
     lines = [MARKER,
              "_Updated by the Typr status workflow. Nothing here needs you unless it says so._", ""]
 
@@ -110,7 +121,7 @@ def main() -> None:
 
     body = "\n".join(lines) + "\n"
     if issue:
-        gh("issue", "edit", str(issue["number"]), "--body", body)
+        gh("issue", "edit", str(issue["number"]), "--title", TITLE, "--body", body)
     else:
         url = gh("issue", "create", "--title", TITLE, "--body", body).strip()
         print(f"Created {url}; pin it once in the GitHub UI.")
