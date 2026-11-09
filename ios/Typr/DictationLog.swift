@@ -116,6 +116,8 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     /// and its length in characters. The text itself is never logged. nil means none was offered.
     var cleanupContextSource: String?
     var cleanupContextCharacters: Int?
+    /// `TechGlossary.revision` used for this entry's spelling fixes. nil means not recorded.
+    var glossaryRevision: String?
 
     static let maximumLoggedVocabularyTerms = CustomVocabularySettings.maxTermCount
     static func cappedVocabularyTerms(_ terms: [String]) -> [String] {
@@ -154,6 +156,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.dictationLanguage = cleanupContext?.language.rawValue
         context.cleanupContextSource = cleanupContext?.source?.rawValue
         context.cleanupContextCharacters = cleanupContext?.preceding?.count
+        context.glossaryRevision = TechGlossary.revision
         return context
     }
 }
@@ -162,6 +165,8 @@ struct DictationLogReplacement: Codable, Equatable, Sendable {
     var before: DictationLogText
     var after: DictationLogText
     var term: DictationLogText
+    /// "built-in" for a tech glossary fix; nil for Custom vocabulary (and older entries).
+    var source: String?
 
     mutating func recap() {
         before = before.recapped()
@@ -175,11 +180,11 @@ struct DictationLogSpellingPass: Codable, Equatable, Sendable {
     var changes: [DictationLogReplacement] = []
     var totalChanges = 0
 
-    mutating func record(before: String, after: String, term: String) {
+    mutating func record(before: String, after: String, term: String, source: String? = nil) {
         totalChanges += 1
         guard changes.count < Self.maximumReplacements else { return }
         changes.append(DictationLogReplacement(before: DictationLogText(before),
-            after: DictationLogText(after), term: DictationLogText(term)))
+            after: DictationLogText(after), term: DictationLogText(term), source: source))
     }
 
     mutating func recap() {

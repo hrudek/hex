@@ -7,11 +7,13 @@ private final class ContextSession: CleanupSession {
     var result = "Erstelle einen Pull-Request für den Feature-Flag."
     private(set) var contexts: [CleanupContext] = []
     private(set) var vocabularies: [[String]] = []
+    private(set) var inputs: [String] = []
     func prewarm() async {}
     func clean(_ text: String, style: DictationStyle) async throws -> String { result }
     func clean(_ text: String, style: DictationStyle, vocabulary: [String], context: CleanupContext) async throws -> String {
         contexts.append(context)
         vocabularies.append(vocabulary)
+        inputs.append(text)
         return result
     }
 }
@@ -53,8 +55,15 @@ private final class ContextCapture: ActiveAudioCapture {
 private actor ContextASR: LocalTranscribing {
     nonisolated let displayName = "Test ASR"
     let languageName = "German"
+    let output: String
+    private(set) var vocabularies: [[String]] = []
+    init(output: String = "Erstelle einen Pulrequest für das Feature Flag") { self.output = output }
     func prepare(progressHandler: @escaping @Sendable (ModelPreparationProgress) -> Void) async throws {}
-    func transcribe(_ url: URL) async throws -> String { "Erstelle einen Pulrequest für das Feature Flag" }
+    func transcribe(_ url: URL) async throws -> String { output }
+    func transcribe(_ url: URL, vocabulary: [String]) async throws -> String {
+        vocabularies.append(vocabulary)
+        return output
+    }
 }
 
 @MainActor
@@ -363,6 +372,77 @@ final class CleanupRewriteTests: XCTestCase {
         XCTAssertEqual(none.dictationLanguage, "automatic")
         XCTAssertNil(none.cleanupContextSource)
         XCTAssertNil(none.cleanupContextCharacters)
+    }
+
+    /// Integration with #74: glossary fixes and Custom vocabulary reach the same model call as
+    /// the frozen language/context. Hints, logging, hyphen cleanup and history keep both features.
+    func testGlossaryAndUserSpellingsIntegrateWithLanguageContextAndLog() async throws {
+        for customEnabled in [false, true] {
+            let env = LogTestEnvironment()
+            try await LogTestEnvironment.waitUntilLoaded(env.store)
+            env.settings.dictationLanguage = .german
+            let vocabulary = CustomVocabularySettings(defaults: env.defaults)
+            vocabulary.isEnabled = customEnabled
+            vocabulary.terms = ["herdr"]
+            vocabulary.setSoundsLike(["Hörder"], for: "herdr")
+            let raw = "Erstelle einen Pulrequest für Hörder"
+            let prepared = customEnabled ? "Erstelle einen Pull Request für herdr" : "Erstelle einen Pull Request für Hörder"
+            let terms = customEnabled ? ["herdr", "Pull Request"] : ["Pull Request"]
+            let session = ContextSession(), bg = CleanupTestBackground(), clock = CleanupTestSleeper()
+            session.result = customEnabled ? "Erstelle einen Pull-Request für herdr." : "Erstelle einen Pull-Request für Hörder."
+            let final = customEnabled ? "Erstelle einen Pull Request für herdr." : "Erstelle einen Pull Request für Hörder."
+            let deps = TranscriptCleanupDependencies(cleaner: ContextCleaner(session: session),
+                language: CleanupTestLanguage(allowed: false), background: bg, isEnabled: { true }, sleep: clock.sleep)
+            let asr = ContextASR(output: raw), bridge = KeyboardBridge(defaults: env.defaults)
+            let controller = DictationController(audio: ContextAudio(), keyboardBridge: bridge,
+                transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false,
+                cleanupSettings: AppleIntelligenceCleanupSettings(defaults: env.defaults),
+                customVocabularySettings: vocabulary, cleanup: deps, dictationLog: env.store,
+                languageSettings: env.settings)
+            controller.prepareModel(); try await settle()
+            bridge.send(.start, jobID: "integration", style: .polished, context: "Unser geheimer Projektkontext")
+            controller.processPendingKeyboardCommandForTesting(); try await settle()
+            // Changes during capture apply only to the next recording.
+            controller.setDictationLanguage(.english)
+            vocabulary.isEnabled = !customEnabled
+            controller.finishRecording(); try await settle()
+
+            XCTAssertEqual(session.inputs, [prepared])
+            XCTAssertEqual(session.vocabularies, [terms])
+            XCTAssertEqual(session.contexts, [CleanupContext(language: .german,
+                preceding: "Unser geheimer Projektkontext", source: .keyboard)])
+            let hints = await asr.vocabularies
+            XCTAssertEqual(hints.count, 1)
+            XCTAssertEqual(hints.first, DictationVocabulary(userTerms: customEnabled ? ["herdr"] : []).speechHints)
+            XCTAssertEqual(controller.transcript, final)
+            XCTAssertEqual(bridge.snapshot().transcript, final)
+            let entry = try XCTUnwrap(env.store.entries.first)
+            XCTAssertEqual(entry.recognized?.text, raw)
+            XCTAssertEqual(entry.aiInput?.text, prepared)
+            XCTAssertEqual(entry.finalText?.text, final)
+            XCTAssertEqual(entry.context.glossaryRevision, TechGlossary.revision)
+            XCTAssertEqual(entry.context.dictationLanguage, "de")
+            XCTAssertEqual(entry.context.cleanupContextSource, "keyboard")
+            XCTAssertEqual(entry.context.cleanupContextCharacters, "Unser geheimer Projektkontext".count)
+            XCTAssertEqual(entry.context.vocabularyEnabled, customEnabled)
+            let changes = try XCTUnwrap(entry.firstSpellingPass?.changes)
+            XCTAssertTrue(changes.contains { $0.before.text == "Pulrequest" && $0.after.text == "Pull Request" && $0.source == "built-in" })
+            XCTAssertEqual(changes.contains { $0.before.text == "Hörder" && $0.after.text == "herdr" && $0.source == nil }, customEnabled)
+            let encoded = String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
+            XCTAssertFalse(encoded.contains("geheimer Projektkontext"))
+            clock.fire(); try await settle()
+
+            // Restore vocabulary to isolate the language/history change in the next recording.
+            vocabulary.isEnabled = customEnabled
+            controller.startRecording(styleOverride: .polished); try await settle()
+            controller.finishRecording(); try await settle()
+            XCTAssertEqual(session.inputs, [prepared, prepared])
+            XCTAssertEqual(session.vocabularies, [terms, terms])
+            XCTAssertEqual(session.contexts.last, CleanupContext(language: .english,
+                preceding: final, source: .previousDictations))
+            controller.cancelCurrentJob(); clock.fire(); try await settle()
+            await env.dispose()
+        }
     }
 
     /// The keyboard's text before the cursor reaches the model; the next in-app dictation falls back

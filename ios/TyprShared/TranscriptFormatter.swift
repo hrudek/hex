@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(NaturalLanguage)
+import NaturalLanguage
+#endif
 
 nonisolated enum DictationStyle: String, Codable, CaseIterable, Sendable {
     case polished
@@ -102,8 +105,55 @@ nonisolated enum TranscriptFormatter {
         return ".,!?;:)]}”".contains(character)
     }
 
+    /// Hesitation sounds that are never a word in German or English (äh, ähm, öhm, hm, mhm).
+    private static let universalFillers = #"äh+m*|ähm+|öh+m*|eh+m+|hm+|mhm+"#
+    /// English hesitation sounds that are real German words ("um 13 Uhr", "was er sagt"),
+    /// so they are stripped only from text that reads as English.
+    private static let englishFillers = #"um+|uh+|er+|ah+"#
+
+    private static let germanMarkers: Set<String> = [
+        "der", "die", "das", "und", "ist", "nicht", "ich", "du", "wir", "ein", "eine", "einen",
+        "zu", "mit", "auf", "für", "den", "dem", "des", "sich", "es", "auch", "noch", "dass",
+        "wenn", "aber", "oder", "wie", "was", "bitte", "mal", "habe", "hab", "sind", "wird",
+        "kann", "soll", "uhr", "nein", "ja", "danach", "dann", "schon", "hier", "mir", "dir",
+        "uns", "von", "im", "bei", "nach", "über", "ob", "weil", "eigentlich", "vielleicht",
+        "gut", "danke", "hallo", "jetzt", "heute", "morgen", "sehr", "kommt", "komme", "gibt", "geht",
+        "muss", "mach", "machen",
+    ]
+    private static let englishMarkers: Set<String> = [
+        "the", "and", "is", "are", "to", "of", "you", "it", "that", "this", "with", "for",
+        "i", "i'm", "we", "they", "a", "an", "on", "at", "be", "was", "have", "not", "can",
+        "will", "what", "please", "let's", "my", "your", "just", "do", "don't", "so",
+        "good", "great", "sounds", "yeah", "yes", "thanks", "thank", "hello", "today", "tomorrow",
+    ]
+
+    /// Decides whether English filler words may be removed. English only when the text has no
+    /// umlaut/ß and more English than German function words; a tie asks
+    /// the on-device language recognizer. Mixed German with English terms stays German.
+    static func readsAsEnglish(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        if lowered.contains(where: { "äöüß".contains($0) }) { return false }
+        var german = 0
+        var english = 0
+        for word in lowered.split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "’" }) {
+            let key = word.replacingOccurrences(of: "’", with: "'")
+            if germanMarkers.contains(key) { german += 1 }
+            if englishMarkers.contains(key) { english += 1 }
+        }
+        if english != german { return english > german }
+        #if canImport(NaturalLanguage)
+        let recognizer = NLLanguageRecognizer()
+        recognizer.languageConstraints = [.english, .german]
+        recognizer.processString(text)
+        return recognizer.dominantLanguage == .english
+        #else
+        return false
+        #endif
+    }
+
     private static func stripStandaloneFillers(in text: String) -> String {
-        let pattern = #"(?i)(?:^|(?<=[\s,]))(?:um+|uh+|er+|ah+)(?=(?:[\s,.!?]|$)),?\s*"#
+        let fillers = readsAsEnglish(text) ? universalFillers + "|" + englishFillers : universalFillers
+        let pattern = #"(?i)(?:^|(?<=[\s,]))(?:"# + fillers + #")(?=(?:[\s,.!?]|$)),?\s*"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         let stripped = regex.stringByReplacingMatches(in: text, range: range, withTemplate: " ")
@@ -180,13 +230,46 @@ nonisolated enum TranscriptFormatter {
                     break
                 }
                 capitalizeNext = false
-            } else if ".!?".contains(ch) || ch == "\n" {
+            } else if ch == "." {
+                // "bzw. in die", "z. B. die": an abbreviation's period does not end a sentence.
+                capitalizeNext = !endsAbbreviation(chars, periodAt: index)
+            } else if "!?".contains(ch) || ch == "\n" {
                 capitalizeNext = true
             } else if !ch.isWhitespace && ch != "\"" && ch != "“" && ch != "(" {
                 capitalizeNext = false
             }
         }
         return String(chars)
+    }
+
+    /// Common German and English abbreviations whose period is not a sentence end,
+    /// written without inner spaces and lowercased ("z. B." is checked as "z.b.").
+    private static let abbreviations: Set<String> = [
+        "bzw.", "ca.", "usw.", "etc.", "ggf.", "evtl.", "vgl.", "bspw.", "inkl.", "exkl.", "zzgl.",
+        "sog.", "z.b.", "d.h.", "u.a.", "o.ä.", "u.u.", "z.t.", "z.zt.", "i.d.r.", "s.o.", "s.u.",
+        "e.g.", "i.e.", "vs.", "approx.", "nr.", "dr.", "prof.", "mr.", "mrs.", "ms.", "st.",
+    ]
+
+    /// Whether the period at `index` closes a known abbreviation, or the lowercase first
+    /// letter of a spaced one ("d." in "d. h."). Only suppresses capitalization; text the
+    /// speaker or model already capitalized is never lowercased.
+    private static func endsAbbreviation(_ chars: [Character], periodAt index: Int) -> Bool {
+        func token(endingAt end: Int) -> (text: String, start: Int)? {
+            var start = end
+            while start > 0, chars[start - 1].isLetter || chars[start - 1] == "." { start -= 1 }
+            guard start < end else { return nil }
+            return (String(chars[start...end]), start)
+        }
+        guard let last = token(endingAt: index), last.text.count > 1 else { return false }
+        let word = last.text.lowercased()
+        if abbreviations.contains(word) { return true }
+        if word.count == 2, let letter = last.text.first, letter.isLowercase { return true }
+        // "z. B." / "d. h.": join with the previous token across one space.
+        if last.start >= 2, chars[last.start - 1] == " ",
+           let previous = token(endingAt: last.start - 2), previous.text.hasSuffix(".") {
+            return abbreviations.contains((previous.text + last.text).lowercased())
+        }
+        return false
     }
 
     private static func capitalizeFirstLetter(_ text: String) -> String {

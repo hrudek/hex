@@ -45,7 +45,7 @@ extension DictationLogEntry {
         guard let pass else { return ["Replacement details not recorded (older entry or pass not reached)."] }
         guard pass.totalChanges > 0 else { return ["No replacements."] }
         var lines = pass.changes.map { change in
-            "\(String(reflecting: change.before.text)) → \(String(reflecting: change.after.text)) (term: \(String(reflecting: change.term.text)))\(change.before.truncated || change.after.truncated || change.term.truncated ? " [truncated]" : "")"
+            "\(String(reflecting: change.before.text)) → \(String(reflecting: change.after.text)) (\(change.source == "built-in" ? "built-in" : "term"): \(String(reflecting: change.term.text)))\(change.before.truncated || change.after.truncated || change.term.truncated ? " [truncated]" : "")"
         }
         if pass.totalChanges > pass.changes.count {
             lines.append("\(pass.totalChanges - pass.changes.count) more replacements not retained (limit: \(DictationLogSpellingPass.maximumReplacements) per pass).")

@@ -167,8 +167,12 @@ since prompt revision `2026-11-09a` also record `context.dictationLanguage`
 (`automatic`, `de`, `en`) and, when Typr cleanup was offered preceding text, only its
 source (`cleanupContextSource`: `keyboard` or `previous-dictations`) and length
 (`cleanupContextCharacters`), **never the context text** (see
-[AI cleanup](AI_CLEANUP.md#language-context-and-hyphens)). Missing fields mean not recorded. Each spelling pass
-keeps the first 20 replacements plus total count. Per-field truncation, original
+[AI cleanup](AI_CLEANUP.md#language-context-and-hyphens)). Missing fields mean not recorded.
+Each spelling pass keeps the first 20 replacements plus total count. The first pass also
+contains the built-in tech glossary's fixes, marked `"source": "built-in"` (Custom vocabulary
+replacements and older entries have no source); new entries record `context.glossaryRevision`.
+Sounds-like forms are not frozen in the context; their replacements show the term they were
+written as. Per-field truncation, original
 byte/word counts and bounded 400-token comparisons remain explicit. Speech hints
 are best effort; counts are not correctness scores. Selected model configuration
 is not proof a model ran; Apple controls its exact checkpoint. Provided-to-keyboard
