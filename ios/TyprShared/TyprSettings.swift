@@ -12,6 +12,7 @@ struct TyprSettings {
         static let germanAutocorrect = "typr.germanAutocorrect"
         static let keyboardSwitchKey = "typr.keyboardSwitchKey"
         static let hideSuggestionBar = "typr.hideSuggestionBar"
+        static let dictationLanguage = "typr.dictationLanguage"
     }
 
     private let defaults: UserDefaults?
@@ -55,6 +56,13 @@ struct TyprSettings {
     var keyboardSwitchKey: Bool {
         get { defaults?.object(forKey: Key.keyboardSwitchKey) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.keyboardSwitchKey) }
+    }
+
+    /// The dictation language (a picker, not a switch). Automatic, the default, keeps the
+    /// previous speech-locale and cleanup-language behavior.
+    var dictationLanguage: DictationLanguage {
+        get { defaults?.string(forKey: Key.dictationLanguage).flatMap(DictationLanguage.init(rawValue:)) ?? .automatic }
+        nonmutating set { defaults?.set(newValue.rawValue, forKey: Key.dictationLanguage) }
     }
 
     /// The full keyboard without its suggestion bar: the keys move up and the keyboard gets

@@ -110,6 +110,12 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     /// Every saved Custom vocabulary term at recording start, in saved order, even while the
     /// experiment is off (`vocabularyEnabled` says whether they were applied). nil means not recorded.
     var vocabularyTerms: [String]?
+    /// The dictation language picker's value ("automatic", "de", "en"). nil means not recorded.
+    var dictationLanguage: String?
+    /// Where the preceding text offered to Typr cleanup came from ("keyboard", "previous-dictations")
+    /// and its length in characters. The text itself is never logged. nil means none was offered.
+    var cleanupContextSource: String?
+    var cleanupContextCharacters: Int?
     /// `TechGlossary.revision` used for this entry's spelling fixes. nil means not recorded.
     var glossaryRevision: String?
 
@@ -124,7 +130,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
                         loudestAverage: Float?, cleanupPath: DictationLogCleanupPath,
                         vocabularyCount: Int, vocabularyEnabled: Bool? = nil,
                         upstreamCleanupEnabled: Bool? = nil, typrCleanupEnabled: Bool? = nil,
-                        vocabularyTerms: [String]? = nil) -> Self {
+                        vocabularyTerms: [String]? = nil, cleanupContext: CleanupContext? = nil) -> Self {
         var context = Self()
         context.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         context.appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
@@ -147,6 +153,9 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.upstreamCleanupEnabled = upstreamCleanupEnabled
         context.typrCleanupEnabled = typrCleanupEnabled
         context.vocabularyTerms = vocabularyTerms.map(cappedVocabularyTerms)
+        context.dictationLanguage = cleanupContext?.language.rawValue
+        context.cleanupContextSource = cleanupContext?.source?.rawValue
+        context.cleanupContextCharacters = cleanupContext?.preceding?.count
         context.glossaryRevision = TechGlossary.revision
         return context
     }
@@ -234,7 +243,7 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
     }
     var lateAnswerLabel: String {
         switch cleanupOutcome {
-        case "failed(deadline)": "arrived after the 4 s deadline; not used"
+        case "failed(deadline)": "arrived after the cleanup deadline; not used"
         case "failed(expired)": "arrived after iOS ended the background time; not used"
         default: "arrived after cleanup had resolved; not used"
         }

@@ -57,8 +57,7 @@ private final class CleanupBackgroundTasks: BackgroundTaskStarting {
 @MainActor
 private struct CleanupLanguageDetector: LanguageDetecting {
     func supports(_ text: String) -> Bool {
-        // One or two words have nothing to clean up.
-        guard CleanupGuard.wordCount(text) >= 3 else { return false }
+        // Only for the Automatic dictation language; the coordinator already skipped one or two words.
         // Skip only a language the model clearly can't handle; an unclear guess (short or mixed
         // dictations) still goes to the model, which answers in the transcript's language.
         let recognizer = NLLanguageRecognizer()
@@ -92,7 +91,7 @@ private struct TyprAppleCleaner: TyprTranscriptCleaning {
 @available(iOS 26.0, *)
 @Generable
 private struct CleanedTranscript {
-    @Guide(description: "The transcript with only obvious local recognition errors and explicit self-corrections resolved; otherwise unchanged.")
+    @Guide(description: "The cleaned transcript as good written text to paste: same language, meaning and facts, never an answer to it.")
     var text: String
 }
 
@@ -115,9 +114,14 @@ private final class AppleCleanupSession: CleanupSession {
     }
 
     func clean(_ text: String, style: DictationStyle, vocabulary: [String]) async throws -> String {
+        try await clean(text, style: style, vocabulary: vocabulary, context: CleanupContext())
+    }
+
+    func clean(_ text: String, style: DictationStyle, vocabulary: [String], context: CleanupContext) async throws -> String {
         guard case .available = model.availability else { throw CleanupModelError.unavailable }
-        let prompt = try CleanupPrompt.transcript(text, style: style, vocabulary: vocabulary)
+        let prompt = try CleanupPrompt.transcript(text, style: style, vocabulary: vocabulary, context: context)
         do {
+            // Greedy sampling is temperature 0: the same transcript always gets the same answer.
             let response = try await session.respond(to: prompt, generating: CleanedTranscript.self,
                 options: GenerationOptions(sampling: .greedy, maximumResponseTokens: min(1200, text.utf8.count / 2 + 128)))
             return response.content.text

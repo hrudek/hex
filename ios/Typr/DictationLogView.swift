@@ -67,6 +67,8 @@ extension DictationLogEntry {
             "Outputs: \(status == .finished ? outputLabel : "no final text provided")",
             "Style: \(context.style)", "Speech engine: \(context.speechEngine)",
             "Speech language: \(context.speechLanguage)",
+            "Dictation language: \(context.dictationLanguage ?? "not recorded")",
+            "Cleanup context: \(context.cleanupContextSource.map { "\($0), \(context.cleanupContextCharacters ?? 0) characters (text not saved)" } ?? "none or not recorded")",
             String(format: "Recording duration: %.2f s", context.recordingDuration),
             "Audio input port types: \(context.inputPortTypes.joined(separator: ", "))",
             "Bluetooth input: \(flag(context.bluetoothInput))",

@@ -28,7 +28,8 @@ extension DictationLogEntry {
             "ID: \(id.uuidString)",
             "App: \(context.appVersion) (\(context.appBuild)); iOS \(context.systemVersion)",
             "Status: \(status.label)",
-            "Recognition: \(context.speechEngine); language: \(context.speechLanguage)",
+            "Recognition: \(context.speechEngine); language: \(context.speechLanguage); dictation language: \(context.dictationLanguage ?? "not recorded")",
+            "Cleanup context: \(context.cleanupContextSource.map { "\($0), \(context.cleanupContextCharacters ?? 0) characters" } ?? "none or not recorded")",
             "Style: \(context.style); selected cleanup: \(context.cleanupPath.rawValue)",
             vocabularyLabel
         ]

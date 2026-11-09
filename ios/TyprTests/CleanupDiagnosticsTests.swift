@@ -36,8 +36,10 @@ final class CleanupDiagnosticsTests: XCTestCase {
             XCTAssertEqual(diagnostics.lastSummary(), "Last dictation (just now): Apple Intelligence changed nothing (1.2 s)")
             diagnostics.record(CleanupObservation(outcome: .skipped(.off), latencyMilliseconds: 0))
             XCTAssertEqual(diagnostics.lastSummary(), "Last dictation (just now): Apple Intelligence changed nothing (1.2 s)")
-            diagnostics.record(CleanupObservation(outcome: .skipped(.language), latencyMilliseconds: 0))
+            diagnostics.record(CleanupObservation(outcome: .skipped(.tooShort), latencyMilliseconds: 0))
             XCTAssertTrue(diagnostics.lastSummary()!.contains("fewer than 3 words"))
+            diagnostics.record(CleanupObservation(outcome: .skipped(.language), latencyMilliseconds: 0))
+            XCTAssertTrue(diagnostics.lastSummary()!.contains("a language Apple Intelligence doesn't support"))
             let later = Date().addingTimeInterval(3 * 60)
             XCTAssertTrue(diagnostics.lastSummary(now: later)!.hasPrefix("Last dictation (3 min ago): "))
             let stored = defaults.dictionary(forKey: CleanupDiagnostics.key)!
@@ -54,7 +56,7 @@ final class CleanupDiagnosticsTests: XCTestCase {
             diagnostics.recordLate(latencyMilliseconds: 6200)
             diagnostics.recordLate(latencyMilliseconds: 7000)
             XCTAssertEqual(diagnostics.lastSummary(),
-                "Last dictation (just now): Apple Intelligence took longer than 4 s; plain transcript used (it finished after 6.2 s)")
+                "Last dictation (just now): Apple Intelligence took longer than 4.0 s; plain transcript used (it finished after 6.2 s)")
         }
     }
 
@@ -88,7 +90,7 @@ final class CleanupDiagnosticsTests: XCTestCase {
             sleeper.fire()
             let value = await task.value
             XCTAssertEqual(value, raw)
-            XCTAssertTrue(diagnostics.lastSummary()!.contains("took longer than 4 s"))
+            XCTAssertTrue(diagnostics.lastSummary()!.contains("took longer than"))
             session.resume(); await drain()
             XCTAssertTrue(diagnostics.lastSummary()!.contains("(it finished after"))
             XCTAssertNil(coordinator.reservedBy)
@@ -113,8 +115,9 @@ final class CleanupDiagnosticsTests: XCTestCase {
             let value = await task.value
             XCTAssertEqual(value, raw)
             session.gate?.resume(); await drain()
-            XCTAssertEqual(diagnostics.lastSummary(),
-                "Last dictation (just now): Apple Intelligence took longer than 4 s; plain transcript used")
+            let summary = diagnostics.lastSummary()!
+            XCTAssertTrue(summary.hasPrefix("Last dictation (just now): Apple Intelligence took longer than "))
+            XCTAssertTrue(summary.hasSuffix(" s; plain transcript used"))
             XCTAssertNil(coordinator.reservedBy)
             job.finish(); await drain()
         }

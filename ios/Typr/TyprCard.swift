@@ -28,7 +28,7 @@ struct TyprCard: View {
             VStack(spacing: 0) {
                 row(
                     "AI cleanup",
-                    detail: "Apple Intelligence keeps only your final version when you correct yourself, removes ähm and stutters, and fixes misheard words. Not in Verbatim. Falls back to the plain transcript when unavailable."
+                    detail: "Apple Intelligence turns your dictation into clear written text: keeps only your final version when you correct yourself, removes ähm and stutters, and fixes misheard words and technical terms. Not in Verbatim. Falls back to the plain transcript when unavailable."
                         + (cleanupReason.map { "\n" + $0 } ?? "")
                         + (cleanupLast.map { "\n" + $0 } ?? ""),
                     isOn: $aiCleanup

@@ -407,7 +407,10 @@ final class KeyboardViewController: UIInputViewController {
             now: now,
             animated: true
         )
-        bridge.send(.start, jobID: jobID, style: viewModel.style, sentAt: now)
+        // The text before the cursor (as already read for insertion spacing), capped, so cleanup
+        // knows the topic. Only in the start command; cold starts open a URL and send none.
+        bridge.send(.start, jobID: jobID, style: viewModel.style, sentAt: now,
+                    context: textDocumentProxy.documentContextBeforeInput)
     }
 
     private func stopWarmDictation() {

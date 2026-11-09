@@ -136,8 +136,8 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertNotNil(entry.modelMilliseconds)
         XCTAssertNotNil(entry.cleanupMilliseconds)
         XCTAssertNotNil(entry.stopToFinalMilliseconds)
-        XCTAssertEqual(entry.promptRevision, "2026-11-08a")
-        XCTAssertEqual(entry.guardRevision, "2026-11-08a")
+        XCTAssertEqual(entry.promptRevision, "2026-11-09a")
+        XCTAssertEqual(entry.guardRevision, "2026-11-09a")
         try await f.dispose()
     }
 

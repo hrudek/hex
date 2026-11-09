@@ -54,19 +54,27 @@ nonisolated struct KeyboardCommand: Codable, Equatable, Sendable {
     let jobID: String
     let style: DictationStyle
     let sentAt: TimeInterval
+    /// Start only: the end of the host field's text before the cursor, at most
+    /// `maximumContextCharacters`, so Typr cleanup knows the topic. Data for the cleanup prompt
+    /// only; never logged. Older commands without it decode as nil.
+    let context: String?
+
+    static let maximumContextCharacters = 300
 
     init(
         id: String = UUID().uuidString,
         kind: KeyboardCommandKind,
         jobID: String,
         style: DictationStyle = .polished,
-        sentAt: TimeInterval = Date().timeIntervalSince1970
+        sentAt: TimeInterval = Date().timeIntervalSince1970,
+        context: String? = nil
     ) {
         self.id = id
         self.kind = kind
         self.jobID = jobID
         self.style = style
         self.sentAt = sentAt
+        self.context = context.map { String($0.suffix(Self.maximumContextCharacters)) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 }
 
@@ -293,13 +301,15 @@ struct KeyboardBridge {
         _ kind: KeyboardCommandKind,
         jobID: String,
         style: DictationStyle? = nil,
-        sentAt: TimeInterval = Date().timeIntervalSince1970
+        sentAt: TimeInterval = Date().timeIntervalSince1970,
+        context: String? = nil
     ) {
         let command = KeyboardCommand(
             kind: kind,
             jobID: jobID,
             style: style ?? self.style,
-            sentAt: sentAt
+            sentAt: sentAt,
+            context: kind == .start ? context : nil
         )
         guard let data = try? encoder.encode(command) else { return }
         defaults?.set(data, forKey: Key.command)

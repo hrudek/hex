@@ -6,6 +6,8 @@ protocol CleanupSession: AnyObject {
     func clean(_ text: String, style: DictationStyle) async throws -> String
     /// `vocabulary`: the owner's preferred spellings (Custom vocabulary list), for the prompt.
     func clean(_ text: String, style: DictationStyle, vocabulary: [String]) async throws -> String
+    /// `context`: the dictation language and data-only preceding text, for the prompt.
+    func clean(_ text: String, style: DictationStyle, vocabulary: [String], context: CleanupContext) async throws -> String
 }
 
 @MainActor
@@ -13,6 +15,11 @@ extension CleanupSession {
     /// Sessions without a prompt (test fakes) ignore the vocabulary.
     func clean(_ text: String, style: DictationStyle, vocabulary: [String]) async throws -> String {
         try await clean(text, style: style)
+    }
+
+    /// Sessions without a prompt (test fakes) ignore the context.
+    func clean(_ text: String, style: DictationStyle, vocabulary: [String], context: CleanupContext) async throws -> String {
+        try await clean(text, style: style, vocabulary: vocabulary)
     }
 }
 
@@ -94,8 +101,22 @@ final class CleanupJob {
 /// Unstructured tasks are intentional: structured task groups would await an uncooperative model.
 @MainActor
 final class CleanupCoordinator {
-    /// How long a dictation waits for Apple Intelligence before the plain transcript is used.
+    /// How long a short dictation waits for Apple Intelligence before the plain transcript is used.
     static let deadline: Duration = .seconds(4)
+    /// The longest wait, for the longest admitted dictation.
+    static let maximumDeadline: Duration = .seconds(12)
+    /// Admission budget: longer transcripts skip cleanup (`budget`). Sized so instructions, spellings,
+    /// context, transcript and answer stay inside the on-device model's ~4,096-token context window.
+    static let maximumUTF8Bytes = 2400
+    static let maximumWords = 400
+
+    /// Four seconds up to 400 UTF-8 bytes, then one more second per 150 bytes, at most twelve:
+    /// generation time grows with the answer's length, and a one-minute dictation (about 750 bytes)
+    /// ran past a flat four seconds on the owner's iPhone.
+    static func deadline(forUTF8Bytes bytes: Int) -> Duration {
+        let milliseconds = 4000 + max(0, bytes - 400) * 1000 / 150
+        return min(maximumDeadline, .milliseconds(milliseconds))
+    }
 
     private struct Pending {
         let id: UUID
@@ -164,7 +185,8 @@ final class CleanupCoordinator {
 
     func clean(_ raw: String, style: DictationStyle, job: CleanupJob?,
                dependencies: TranscriptCleanupDependencies, skipReason: CleanupSkipReason? = nil,
-               vocabulary: [String] = [], diagnostics: (any CleanupTextDiagnostics)? = nil) async -> String {
+               vocabulary: [String] = [], context: CleanupContext = CleanupContext(),
+               diagnostics: (any CleanupTextDiagnostics)? = nil) async -> String {
         let started = dependencies.clock()
         func skip(_ reason: CleanupSkipReason) -> String {
             observe(.skipped(reason), started: started, dependencies: dependencies, diagnostics: diagnostics)
@@ -185,8 +207,12 @@ final class CleanupCoordinator {
         }
         guard job.permitted else { return skip(.noBackgroundLease) }
         guard dependencies.cleaner.unavailableReason == nil else { return skip(.unavailable) }
-        guard raw.utf8.count <= 1500, CleanupGuard.wordCount(raw) <= 250 else { return skip(.budget) }
-        guard dependencies.language.supports(raw) else { return skip(.language) }
+        // One or two words have nothing to clean up.
+        let words = CleanupGuard.wordCount(raw)
+        guard words >= 3 else { return skip(.tooShort) }
+        guard raw.utf8.count <= Self.maximumUTF8Bytes, words <= Self.maximumWords else { return skip(.budget) }
+        // An explicitly chosen dictation language is never skipped for its language.
+        guard context.language != .automatic || dependencies.language.supports(raw) else { return skip(.language) }
         guard admit(job.id) else { return skip(.busy) }
         return await withTaskCancellationHandler {
             // No suspension between cancellation check and continuation registration on MainActor.
@@ -202,7 +228,7 @@ final class CleanupCoordinator {
                 modelTask = Task {
                     let modelStarted = dependencies.clock()
                     do {
-                        let revised = try await job.session.clean(raw, style: style, vocabulary: vocabulary)
+                        let revised = try await job.session.clean(raw, style: style, vocabulary: vocabulary, context: context)
                         let modelMilliseconds = dictationLogMilliseconds(from: modelStarted, to: dependencies.clock())
                         // A model that ignored cancellation and returned after its job was resolved
                         // (deadline, expiry, cancel) only reports how long it really took.
@@ -225,7 +251,8 @@ final class CleanupCoordinator {
                             diagnostics?.modelAnswer(revised, use: .rejected(.guardRejected(rule)), modelMilliseconds: modelMilliseconds)
                             resolve(job.id, value: raw, outcome: .failed(.guardRejected(rule)))
                         } else {
-                            let cleaned = revised.trimmingCharacters(in: .whitespacesAndNewlines)
+                            // English and technical compounds with spaces, not hyphens ("Pull Request").
+                            let cleaned = CleanupHyphens.apply(revised.trimmingCharacters(in: .whitespacesAndNewlines))
                             let changed = cleaned != raw.trimmingCharacters(in: .whitespacesAndNewlines)
                             dependencies.observer.recordChange(changed)
                             diagnostics?.modelAnswer(revised, use: .accepted, modelMilliseconds: modelMilliseconds)
@@ -244,7 +271,7 @@ final class CleanupCoordinator {
                     release(job.id)
                 }
                 deadlineTask = Task {
-                    do { try await dependencies.sleep(CleanupCoordinator.deadline) } catch { return }
+                    do { try await dependencies.sleep(CleanupCoordinator.deadline(forUTF8Bytes: raw.utf8.count)) } catch { return }
                     guard !Task.isCancelled, pending?.id == job.id else { return }
                     cancel(job.id, outcome: .failed(.deadline))
                 }

@@ -63,6 +63,8 @@ final class DictationController {
         let cleanupSkipReason: CleanupSkipReason?
         let logToken: DictationLogToken?
         let logCleanupPath: DictationLogCleanupPath
+        /// Dictation language and data-only preceding text for Typr cleanup, frozen at start.
+        let cleanupContext: CleanupContext
     }
 
     private struct PendingKeyboardHandoff {
@@ -88,6 +90,9 @@ final class DictationController {
 
     private let cleanup: TranscriptCleanupDependencies?
     private let cleanupCoordinator = CleanupCoordinator()
+    /// This session's recent results, in memory only, as cleanup context when the keyboard sent none.
+    private let cleanupHistory = CleanupContextHistory()
+    private let languageSettings: TyprSettings
     private var pendingCleanupJob: CleanupJob?
     private var cleanupHeartbeat: Task<Void, Never>?
     private let dictationLog: DictationLogStore?
@@ -165,6 +170,8 @@ final class DictationController {
     private(set) var handoffNotice: String?
     private(set) var engineName = "Local speech"
     private(set) var transcriptionLanguage = "English"
+    /// The chosen dictation language (Typr settings); Automatic keeps the previous behavior.
+    private(set) var dictationLanguage: DictationLanguage
     private(set) var modelPreparation = ModelPreparationProgress(
         fractionCompleted: 0,
         detail: "Checking model files"
@@ -183,7 +190,8 @@ final class DictationController {
         cleanupSettings: AppleIntelligenceCleanupSettings = AppleIntelligenceCleanupSettings(),
         customVocabularySettings: CustomVocabularySettings = CustomVocabularySettings(),
         cleanup: TranscriptCleanupDependencies? = nil,
-        dictationLog: DictationLogStore? = nil
+        dictationLog: DictationLogStore? = nil,
+        languageSettings: TyprSettings = TyprSettings()
     ) {
         let resolvedBridge = keyboardBridge ?? KeyboardBridge()
         let resolvedAudio = audio ?? SystemAudioManager()
@@ -191,6 +199,8 @@ final class DictationController {
 
         self.cleanup = cleanup
         self.dictationLog = dictationLog
+        self.languageSettings = languageSettings
+        self.dictationLanguage = languageSettings.dictationLanguage
         self.audio = resolvedAudio
         self.keyboardBridge = resolvedBridge
         self.transcriber = initialTranscriber
@@ -221,9 +231,10 @@ final class DictationController {
                 engineName = "Parakeet V2"
                 prepareModel()
             } else if #available(iOS 26.0, *), AppleSpeechTranscriber.isAvailable {
+                let language = dictationLanguage
                 Task { [weak self] in
                     guard let self else { return }
-                    if await AppleSpeechTranscriber.preferredLocale() != nil {
+                    if await AppleSpeechTranscriber.preferredLocale(language: language) != nil {
                         self.engineName = "Apple Speech"
                         self.prepareModel()
                     } else {
@@ -287,6 +298,18 @@ final class DictationController {
     func setStyle(_ newStyle: DictationStyle) {
         style = newStyle
         keyboardBridge.style = newStyle
+    }
+
+    /// The language picker: stored for the next recording's cleanup. Apple Speech holds one locale,
+    /// so an idle, prepared Apple Speech engine is prepared again for the new language; otherwise the
+    /// next preparation (relaunch, retry) uses it.
+    func setDictationLanguage(_ language: DictationLanguage) {
+        guard language != dictationLanguage else { return }
+        dictationLanguage = language
+        languageSettings.dictationLanguage = language
+        if isModelReady, phase == .ready, activeCapture == nil, transcriber.displayName == "Apple Speech" {
+            prepareModel()
+        }
     }
 
     func setAllowBluetoothMic(_ allow: Bool) {
@@ -678,9 +701,10 @@ final class DictationController {
     }
 
     private static func defaultTranscriber() async -> any LocalTranscribing {
+        let language = TyprSettings().dictationLanguage
         if #available(iOS 26.0, *),
            AppleSpeechTranscriber.isAvailable,
-           let locale = await AppleSpeechTranscriber.preferredLocale() {
+           let locale = await AppleSpeechTranscriber.preferredLocale(language: language) {
             return AppleSpeechTranscriber(locale: locale)
         }
         return ParakeetTranscriber()
@@ -692,7 +716,8 @@ final class DictationController {
         keyboardJobID: String? = nil,
         styleOverride: DictationStyle? = nil,
         copyToPasteboard: Bool = false,
-        attemptAutoReturnOnStart: Bool = false
+        attemptAutoReturnOnStart: Bool = false,
+        keyboardContext: String? = nil
     ) {
         guard activeCapture == nil else { return }
         if let keyboardJobID, keyboardJobID == activeKeyboardJobID {
@@ -724,6 +749,8 @@ final class DictationController {
             : (enabled ? .typr : (usesCleanup && cleaner != nil ? .upstream : .none))
         let cleanupEnabled = enabled && effectiveStyle != .verbatim
         let disabledCleanupReason: CleanupSkipReason? = !enabled ? .off : (effectiveStyle == .verbatim ? .verbatim : nil)
+        let cleanupContext = CleanupContext.make(language: languageSettings.dictationLanguage, keyboard: keyboardContext,
+                                                 previousDictations: cleanupHistory.recent(at: now()))
 
         phase = .requestingPermission
         copied = false
@@ -787,7 +814,8 @@ final class DictationController {
                     cleanupJob: cleanupJob,
                     cleanupSkipReason: cleanupSkipReason,
                     logToken: logToken,
-                    logCleanupPath: logCleanupPath
+                    logCleanupPath: logCleanupPath,
+                    cleanupContext: cleanupContext
                 )
                 refreshWarmExpiry()
                 audioLevel = 0
@@ -850,7 +878,8 @@ final class DictationController {
                 vocabularyEnabled: session.vocabularyEnabled,
                 upstreamCleanupEnabled: session.usesCleanup,
                 typrCleanupEnabled: session.typrCleanupEnabled,
-                vocabularyTerms: session.savedVocabularyTerms),
+                vocabularyTerms: session.savedVocabularyTerms,
+                cleanupContext: session.cleanupContext),
                 stoppedAt: stoppedAt)
         }
         transcribingLog = recording
@@ -915,7 +944,7 @@ final class DictationController {
                     } else {
                         text = await self.cleanupCoordinator.clean(spelled, style: session.style, job: session.cleanupJob,
                             dependencies: cleanup, skipReason: session.cleanupSkipReason,
-                            vocabulary: prepared.cleanupTerms, diagnostics: recording)
+                            vocabulary: prepared.cleanupTerms, context: session.cleanupContext, diagnostics: recording)
                         guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
                     }
                 } else {
@@ -936,6 +965,7 @@ final class DictationController {
                 }
                 let formatted = session.vocabulary.afterFormatting(beforeSpelling, onReplacement: observeSecond)
                 recording?.finish(text: formatted, beforeSpelling: beforeSpelling, spellingPass: secondPass)
+                self.cleanupHistory.record(formatted, at: self.now())
                 self.recordingDuration = 0
                 self.transcript = formatted
                 // Exact recording correlation, never whichever archive row happens to be latest.
@@ -1145,7 +1175,8 @@ final class DictationController {
             startRecording(
                 keyboardJobID: command.jobID,
                 styleOverride: command.style,
-                copyToPasteboard: false
+                copyToPasteboard: false,
+                keyboardContext: command.context
             )
         case .stop:
             guard phase == .recording, activeKeyboardJobID == command.jobID else { return }

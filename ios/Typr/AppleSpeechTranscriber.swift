@@ -126,10 +126,11 @@ actor AppleSpeechTranscriber: LocalTranscribing {
         SpeechTranscriber.isAvailable
     }
 
-    static func preferredLocale() async -> Locale? {
-        var identifiers = Locale.preferredLanguages
-        identifiers.append(Locale.current.identifier)
-        identifiers.append("en-US")
+    /// The chosen dictation language's locale first, then the preferred languages, the current
+    /// locale and en-US (`DictationLanguage.speechLocaleCandidates`).
+    static func preferredLocale(language: DictationLanguage = .automatic) async -> Locale? {
+        let identifiers = language.speechLocaleCandidates(preferred: Locale.preferredLanguages,
+                                                          current: Locale.current.identifier)
 
         var checked = Set<String>()
         for identifier in identifiers {
