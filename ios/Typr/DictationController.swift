@@ -39,7 +39,7 @@ final class DictationController {
 
     enum AutoReturnState: Equatable {
         case idle
-        case attempting(HostApp)
+        case attempting
         case succeeded
         case swipeFallback
     }
@@ -80,7 +80,9 @@ final class DictationController {
     private let fileManager: FileManager
     private let now: () -> TimeInterval
     private let liveActivity = LiveActivityCoordinator()
-    private var defaultURLOpener: @MainActor (URL) async -> Bool
+    private let hostReturner: HostReturner
+    /// The app the current cold-start handoff came from, by bundle ID; nil when the keyboard could not name it.
+    private var returnHost: String?
 
     private let cleanup: TranscriptCleanupDependencies?
     private let cleanupCoordinator = CleanupCoordinator()
@@ -156,8 +158,6 @@ final class DictationController {
     @ObservationIgnored private var lastPublishedSnapshotAt: TimeInterval = -100
     private(set) var warmDuration: WarmSessionDuration
     private(set) var style: DictationStyle
-    private(set) var returnAppID: String?
-    private(set) var quickReturnApps: [HostApp]
     private(set) var allowBluetoothMic: Bool
     private(set) var autoReturnState: AutoReturnState = .idle
     private(set) var handoffNotice: String?
@@ -176,7 +176,7 @@ final class DictationController {
         fileManager: FileManager = .default,
         now: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 },
         autoPrepareOnInit: Bool = true,
-        urlOpener: (@MainActor (URL) async -> Bool)? = nil,
+        hostReturner: HostReturner? = nil,
         cleaner: (any TranscriptCleaning)? = nil,
         cleanupSettings: AppleIntelligenceCleanupSettings = AppleIntelligenceCleanupSettings(),
         customVocabularySettings: CustomVocabularySettings = CustomVocabularySettings(),
@@ -200,12 +200,8 @@ final class DictationController {
         self.now = now
         self.warmDuration = resolvedBridge.warmDuration
         self.style = resolvedBridge.style
-        self.returnAppID = resolvedBridge.returnAppID
-        self.quickReturnApps = resolvedBridge.quickReturnApps
         self.allowBluetoothMic = resolvedBridge.allowBluetoothMic
-        self.defaultURLOpener = urlOpener ?? { url in
-            await UIApplication.shared.open(url)
-        }
+        self.hostReturner = hostReturner ?? .live
 
         let hasCachedModel = ParakeetTranscriber.hasCachedModel
         resolvedBridge.publish(.offline)
@@ -238,10 +234,6 @@ final class DictationController {
 
     var isRecording: Bool {
         phase == .recording
-    }
-
-    var selectedReturnApp: HostApp? {
-        HostAppCatalog.app(for: returnAppID)
     }
 
     var primaryTitle: String {
@@ -293,21 +285,6 @@ final class DictationController {
     func setStyle(_ newStyle: DictationStyle) {
         style = newStyle
         keyboardBridge.style = newStyle
-    }
-
-    func setReturnAppID(_ id: String?) {
-        let normalized = (id?.isEmpty == true) ? nil : id
-        returnAppID = normalized
-        keyboardBridge.returnAppID = normalized
-    }
-
-    /// Unticking the saved return app also forgets it, so the ↩ chip only ever names an app in the list.
-    func setQuickReturnApps(_ apps: [HostApp]) {
-        quickReturnApps = apps
-        keyboardBridge.quickReturnApps = apps
-        if let returnAppID, !apps.contains(where: { $0.id == returnAppID }) {
-            setReturnAppID(nil)
-        }
     }
 
     func setAllowBluetoothMic(_ allow: Bool) {
@@ -432,23 +409,14 @@ final class DictationController {
 
     // MARK: - Keyboard Launch & Auto-Return
 
-    func handleKeyboardLaunch(
-        _ request: KeyboardLaunchRequest,
-        urlOpener: (@MainActor (URL) async -> Bool)? = nil
-    ) {
+    func handleKeyboardLaunch(_ request: KeyboardLaunchRequest) {
         if case .setup = request {
             return
-        }
-        if let customOpener = urlOpener {
-            defaultURLOpener = customOpener
         }
         autoReturnFallbackTask?.cancel()
         autoReturnState = .idle
         handoffNotice = nil
-
-        if let appID = request.returnAppID {
-            setReturnAppID(appID)
-        }
+        returnHost = request.host
 
         let currentTime = now()
         if request.isHandoffExpired(at: currentTime) {
@@ -490,13 +458,6 @@ final class DictationController {
             )
             fulfillPendingHandoffOrPrepare()
         }
-    }
-
-    func returnToHostApp(_ app: HostApp, remember: Bool = true) {
-        if remember {
-            setReturnAppID(app.id)
-        }
-        triggerAutoReturn(to: app)
     }
 
     private func fulfillPendingHandoffOrPrepare() {
@@ -637,26 +598,25 @@ final class DictationController {
         keyboardSessionRemaining = seconds
     }
 
+    /// Back to the app the dictation came from, else the swipe-back cue.
+    /// A field inside Typr itself needs no return.
     private func maybeAutoReturnAfterActivation(allowed: Bool) {
         guard allowed else { return }
-        if let app = selectedReturnApp {
-            triggerAutoReturn(to: app)
-        } else {
-            autoReturnState = .swipeFallback
-        }
-    }
-
-    private func triggerAutoReturn(to app: HostApp) {
-        guard let url = app.url else {
+        guard let host = returnHost else {
             autoReturnState = .swipeFallback
             return
         }
+        guard host != HostReturnCatalog.typrBundleID else { return }
+        triggerAutoReturn(to: host)
+    }
+
+    private func triggerAutoReturn(to host: String) {
         autoReturnFallbackTask?.cancel()
-        autoReturnState = .attempting(app)
-        let opener = defaultURLOpener
+        autoReturnState = .attempting
+        let returner = hostReturner
 
         Task {
-            let opened = await opener(url)
+            let opened = await returner.open(host)
             guard case .attempting = self.autoReturnState else { return }
             if !opened {
                 self.autoReturnState = .swipeFallback
@@ -1450,7 +1410,6 @@ final class DictationController {
             controller.keyboardSessionEnabled = true
             controller.keyboardSessionRemaining = 14 * 60 + 42
             controller.keyboardSessionExpiresAt = Date().timeIntervalSince1970 + 14 * 60 + 42
-            controller.setReturnAppID("messages")
             controller.transcript = "Meet at ten on Thursday and bring the updated design notes."
 
         case "recording":
@@ -1533,8 +1492,7 @@ final class DictationController {
             controller.recordingDuration = 1.1
             controller.keyboardSessionEnabled = true
             controller.keyboardSessionRemaining = 14 * 60 + 59
-            controller.setReturnAppID("claude")
-            controller.autoReturnState = .attempting(HostApp(id: "claude", name: "Claude", schemeURL: "claude://"))
+            controller.autoReturnState = .attempting
 
         case "hosted-keyboard-warm":
             controller.phase = .ready
@@ -1542,7 +1500,6 @@ final class DictationController {
             controller.keyboardSessionEnabled = true
             controller.keyboardSessionRemaining = 14 * 60 + 42
             controller.keyboardSessionExpiresAt = Date().timeIntervalSince1970 + 14 * 60 + 42
-            controller.setReturnAppID("messages")
             Task { @MainActor in
                 while !Task.isCancelled {
                     let t = Date().timeIntervalSince1970

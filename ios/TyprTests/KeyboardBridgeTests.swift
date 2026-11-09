@@ -59,7 +59,7 @@ final class KeyboardBridgeTests: XCTestCase {
             jobID: "job with spaces",
             requestedAt: t0,
             style: .casual,
-            returnAppID: "claude"
+            host: "com.openai.chat"
         )
 
         let decoded = KeyboardLaunchRequest(url: request.url)
@@ -69,8 +69,9 @@ final class KeyboardBridgeTests: XCTestCase {
     }
 
     func testKeyboardSessionLaunchDoesNotRequestRecording() {
-        let request = KeyboardLaunchRequest.startSession(requestedAt: 100, returnAppID: "messages")
+        let request = KeyboardLaunchRequest.startSession(requestedAt: 100, host: "com.apple.MobileSMS")
         XCTAssertEqual(KeyboardLaunchRequest(url: request.url), request)
+        XCTAssertEqual(request.host, "com.apple.MobileSMS")
     }
 
     func testKeyboardSetupLaunchRoundTripsWithoutAHandoff() {

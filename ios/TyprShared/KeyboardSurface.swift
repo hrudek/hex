@@ -28,7 +28,6 @@ final class KeyboardViewModel: ObservableObject {
     enum PickerTray: Equatable {
         case none
         case style
-        case returnApp
     }
 
     enum StagePhase: Equatable {
@@ -56,8 +55,8 @@ final class KeyboardViewModel: ObservableObject {
     @Published private(set) var stagePhase: StagePhase = .idle
     @Published private(set) var statusMessage: String?
     @Published var style: DictationStyle = .polished
-    @Published var returnAppID: String?
-    @Published var quickReturnApps: [HostApp] = HostAppCatalog.quickChips
+    /// Why a cold start did not open Typr here (a share sheet or other surface Typr cannot return to).
+    @Published var hostNotice: String?
     @Published var activeTray: PickerTray = .none
     /// Typr: the utility row starts with a key that shows the full keyboard.
     @Published var showsFullKeyboardSwitch = false
@@ -70,14 +69,14 @@ final class KeyboardViewModel: ObservableObject {
     var liveLoudnessDB: Float = -62.0
     var currentTimestamp: TimeInterval = Date().timeIntervalSince1970
     private(set) var currentSnapshot: KeyboardSnapshot = .offline
-    var coldStartURL: URL = KeyboardLaunchRequest.startSession(requestedAt: nil, returnAppID: nil).url
     private(set) var pendingCommand: PendingCommand?
 
     var onDictateTap: (() -> Void)?
     var onStopTap: (() -> Void)?
     var onCancelTap: (() -> Void)?
     var onStyleSelected: ((DictationStyle) -> Void)?
-    var onReturnAppSelected: ((String?) -> Void)?
+    /// Opens Typr to start the microphone, then returns to this app (`KeyboardViewController.coldStart`).
+    var onColdStart: (() -> Void)?
     var onSpace: (() -> Void)?
     var onDelete: (() -> Void)?
     var onReturn: (() -> Void)?
@@ -85,10 +84,6 @@ final class KeyboardViewModel: ObservableObject {
     /// Typr: the full-keyboard key was tapped.
     var onShowFullKeyboard: (() -> Void)?
     weak var inputViewController: UIInputViewController?
-
-    var selectedReturnApp: HostApp? {
-        HostAppCatalog.app(for: returnAppID)
-    }
 
     var dotScopePhase: DotScopePhase {
         switch stagePhase {
@@ -118,7 +113,6 @@ final class KeyboardViewModel: ObservableObject {
             snapshot: currentSnapshot,
             isModelInstalled: isModelInstalled,
             style: style,
-            returnAppID: returnAppID,
             now: now,
             animated: animated
         )
@@ -129,7 +123,6 @@ final class KeyboardViewModel: ObservableObject {
         snapshot newSnapshot: KeyboardSnapshot,
         isModelInstalled newModelInstalled: Bool,
         style newStyle: DictationStyle,
-        returnAppID newReturnAppID: String?,
         now: TimeInterval,
         clearPending: Bool = false,
         animated: Bool
@@ -167,7 +160,6 @@ final class KeyboardViewModel: ObservableObject {
             snapshot: newSnapshot,
             isModelInstalled: newModelInstalled,
             style: newStyle,
-            returnAppID: newReturnAppID,
             now: now,
             animated: animated
         )
@@ -180,7 +172,6 @@ final class KeyboardViewModel: ObservableObject {
         hasFullAccess: Bool = true,
         isModelInstalled: Bool = true,
         style: DictationStyle = .polished,
-        returnAppID: String? = "messages",
         activeTray: PickerTray = .none
     ) {
         self.activeTray = activeTray
@@ -189,7 +180,6 @@ final class KeyboardViewModel: ObservableObject {
             snapshot: snapshot,
             isModelInstalled: isModelInstalled,
             style: style,
-            returnAppID: returnAppID,
             now: now,
             clearPending: true,
             animated: false
@@ -201,7 +191,6 @@ final class KeyboardViewModel: ObservableObject {
         snapshot snap: KeyboardSnapshot,
         isModelInstalled newModelInstalled: Bool,
         style newStyle: DictationStyle,
-        returnAppID newReturnAppID: String?,
         now: TimeInterval,
         animated: Bool
     ) {
@@ -216,7 +205,6 @@ final class KeyboardViewModel: ObservableObject {
             || stagePhase != nextStage
             || statusMessage != nextMessage
             || style != newStyle
-            || returnAppID != newReturnAppID
 
         guard changed else { return }
 
@@ -227,7 +215,6 @@ final class KeyboardViewModel: ObservableObject {
             self.stagePhase = nextStage
             self.statusMessage = nextMessage
             self.style = newStyle
-            self.returnAppID = newReturnAppID
         }
 
         if animated {
@@ -524,9 +511,6 @@ struct KeyboardSurfaceView: View {
 
             styleTrayBar(palette: p)
                 .typrTrayReveal(model.activeTray == .style, reduceMotion: reduceMotion, offsetY: 3.5)
-
-            returnAppTrayBar(palette: p)
-                .typrTrayReveal(model.activeTray == .returnApp, reduceMotion: reduceMotion, offsetY: 3.5)
         }
         .frame(height: 26)
     }
@@ -534,8 +518,11 @@ struct KeyboardSurfaceView: View {
     private func defaultTopBar(palette p: KeyboardChromePalette) -> some View {
         HStack(spacing: 8) {
             Button {
-                let target = model.hasFullAccess ? model.coldStartURL : KeyboardLaunchRequest.setup.url
-                model.onOpenURL?(target)
+                if model.hasFullAccess {
+                    model.onColdStart?()
+                } else {
+                    model.onOpenURL?(KeyboardLaunchRequest.setup.url)
+                }
             } label: {
                 TyprMarkView(
                     size: 16,
@@ -580,26 +567,6 @@ struct KeyboardSurfaceView: View {
         .frame(height: 26)
     }
 
-    private func returnAppTrayBar(palette p: KeyboardChromePalette) -> some View {
-        HStack(spacing: 4) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    returnChip(id: nil, label: "Swipe", palette: p)
-                    ForEach(model.quickReturnApps) { app in
-                        returnChip(id: app.id, label: app.name, palette: p)
-                    }
-                }
-                .padding(.leading, 2)
-                .padding(.trailing, 10)
-            }
-            .typrScrollEdgeEffectHidden()
-            .typrHorizontalEdgeFade(leading: 4, trailing: 14)
-
-            closeTrayButton(palette: p)
-        }
-        .frame(height: 26)
-    }
-
     private func leadingAccessory(palette p: KeyboardChromePalette) -> some View {
         let showNoAccess = !model.hasFullAccess
         let showRecordingClock = model.hasFullAccess && model.stagePhase == .recording
@@ -607,7 +574,8 @@ struct KeyboardSurfaceView: View {
             && model.isWarmAvailable
             && model.stagePhase != .recording
             && model.stagePhase != .transcribing
-        let showReturnTrigger = model.hasFullAccess
+        let showHostNotice = model.hasFullAccess
+            && model.hostNotice != nil
             && !model.isWarmAvailable
             && model.stagePhase != .recording
             && model.stagePhase != .transcribing
@@ -651,23 +619,12 @@ struct KeyboardSurfaceView: View {
             }
             .typrTrayReveal(showWarmStatus, reduceMotion: reduceMotion, offsetY: 2)
 
-            Button {
-                model.setActiveTray(.returnApp, reduceMotion: reduceMotion)
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 11, weight: .medium))
-                    Text(model.selectedReturnApp?.name ?? "Swipe")
-                        .font(.system(size: 13, weight: .medium))
-                }
+            Text(model.hostNotice ?? " ")
+                .font(.system(size: 13, weight: .regular))
                 .foregroundStyle(p.textMuted)
-                .padding(.horizontal, 8)
-                .frame(height: 26)
-                .contentShape(Capsule())
-            }
-            .buttonStyle(TopBarTriggerButtonStyle(palette: p))
-            .accessibilityLabel("Return app")
-            .typrTrayReveal(showReturnTrigger, reduceMotion: reduceMotion, offsetY: 2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .typrTrayReveal(showHostNotice, reduceMotion: reduceMotion, offsetY: 2)
         }
     }
 
@@ -689,22 +646,6 @@ struct KeyboardSurfaceView: View {
         }
         .buttonStyle(TopBarTriggerButtonStyle(palette: p))
         .accessibilityLabel("Style: \(model.style.label)")
-    }
-
-    private func returnChip(id: String?, label: String, palette p: KeyboardChromePalette) -> some View {
-        let active = model.returnAppID == id
-        return Button {
-            model.onReturnAppSelected?(id)
-            model.setActiveTray(.none, reduceMotion: reduceMotion)
-        } label: {
-            Text(label)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(active ? p.textBase : p.textMuted)
-                .padding(.horizontal, 10)
-                .frame(height: 26)
-                .background(active ? p.chipActiveFill : p.chipIdleFill, in: Capsule())
-        }
-        .buttonStyle(.plain)
     }
 
     private func closeTrayButton(palette p: KeyboardChromePalette) -> some View {
@@ -848,7 +789,7 @@ struct KeyboardSurfaceView: View {
         if !model.hasFullAccess {
             model.onOpenURL?(KeyboardLaunchRequest.setup.url)
         } else if !model.isWarmAvailable || model.stagePhase == .failed {
-            model.onOpenURL?(model.coldStartURL)
+            model.onColdStart?()
         } else {
             model.onDictateTap?()
         }

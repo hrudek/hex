@@ -42,44 +42,6 @@ nonisolated enum WarmSessionDuration: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// Curated App Store-safe URL schemes for returning from Typr after a cold-start handoff.
-/// Apps without a registered scheme (or when unset) use the bottom-edge swipe fallback.
-nonisolated struct HostApp: Identifiable, Equatable, Codable, Sendable {
-    let id: String
-    let name: String
-    let schemeURL: String
-
-    var url: URL? {
-        URL(string: schemeURL)
-    }
-}
-
-nonisolated enum HostAppCatalog {
-    static let all: [HostApp] = [
-        HostApp(id: "messages", name: "Messages", schemeURL: "messages://"),
-        HostApp(id: "slack", name: "Slack", schemeURL: "slack://"),
-        HostApp(id: "claude", name: "Claude", schemeURL: "claude://"),
-        HostApp(id: "chatgpt", name: "ChatGPT", schemeURL: "chatgpt://"),
-        HostApp(id: "notes", name: "Notes", schemeURL: "mobilenotes://"),
-        HostApp(id: "discord", name: "Discord", schemeURL: "discord://"),
-        HostApp(id: "telegram", name: "Telegram", schemeURL: "tg://"),
-        HostApp(id: "whatsapp", name: "WhatsApp", schemeURL: "whatsapp://"),
-        HostApp(id: "obsidian", name: "Obsidian", schemeURL: "obsidian://"),
-        HostApp(id: "linear", name: "Linear", schemeURL: "linear://"),
-        HostApp(id: "gmail", name: "Gmail", schemeURL: "googlegmail://"),
-        HostApp(id: "reminders", name: "Reminders", schemeURL: "x-apple-reminderkit://"),
-        HostApp(id: "signal", name: "Signal", schemeURL: "sgnl://"),
-        HostApp(id: "t3code", name: "T3 Code", schemeURL: "t3code://"),
-    ]
-
-    static let quickChips: [HostApp] = Array(all.prefix(6))
-
-    static func app(for id: String?) -> HostApp? {
-        guard let id, !id.isEmpty else { return nil }
-        return all.first { $0.id == id }
-    }
-}
-
 nonisolated enum KeyboardCommandKind: String, Codable, Sendable {
     case start
     case stop
@@ -114,12 +76,13 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
 
     /// Opens Typr's keyboard setup screen without starting a session.
     case setup
-    case startSession(requestedAt: TimeInterval?, returnAppID: String?)
+    /// `host` is the bundle ID of the app the keyboard was typing in (`KeyboardHost`), when known.
+    case startSession(requestedAt: TimeInterval?, host: String?)
     case startRecording(
         jobID: String,
         requestedAt: TimeInterval?,
         style: DictationStyle?,
-        returnAppID: String?
+        host: String?
     )
 
     init?(url: URL) {
@@ -135,21 +98,21 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
         }
 
         let requestedAt = value("ts").flatMap(TimeInterval.init)
-        let returnAppID = value("return")
+        let host = value("host")
         let style = value("style").flatMap(DictationStyle.init(rawValue:))
 
         switch url.path {
         case "/setup":
             self = .setup
         case "/start":
-            self = .startSession(requestedAt: requestedAt, returnAppID: returnAppID)
+            self = .startSession(requestedAt: requestedAt, host: host)
         case "/record":
             guard let jobID = value("job") else { return nil }
             self = .startRecording(
                 jobID: jobID,
                 requestedAt: requestedAt,
                 style: style,
-                returnAppID: returnAppID
+                host: host
             )
         default:
             return nil
@@ -165,12 +128,12 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
         }
     }
 
-    var returnAppID: String? {
+    var host: String? {
         switch self {
         case .setup:
             nil
-        case .startSession(_, let appID), .startRecording(_, _, _, let appID):
-            appID
+        case .startSession(_, let host), .startRecording(_, _, _, let host):
+            host
         }
     }
 
@@ -189,16 +152,16 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
         case .setup:
             components.path = "/setup"
 
-        case .startSession(let requestedAt, let returnAppID):
+        case .startSession(let requestedAt, let host):
             components.path = "/start"
             if let requestedAt {
                 items.append(URLQueryItem(name: "ts", value: String(format: "%.3f", requestedAt)))
             }
-            if let returnAppID, !returnAppID.isEmpty {
-                items.append(URLQueryItem(name: "return", value: returnAppID))
+            if let host, !host.isEmpty {
+                items.append(URLQueryItem(name: "host", value: host))
             }
 
-        case .startRecording(let jobID, let requestedAt, let style, let returnAppID):
+        case .startRecording(let jobID, let requestedAt, let style, let host):
             components.path = "/record"
             items.append(URLQueryItem(name: "job", value: jobID))
             if let requestedAt {
@@ -207,8 +170,8 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
             if let style {
                 items.append(URLQueryItem(name: "style", value: style.rawValue))
             }
-            if let returnAppID, !returnAppID.isEmpty {
-                items.append(URLQueryItem(name: "return", value: returnAppID))
+            if let host, !host.isEmpty {
+                items.append(URLQueryItem(name: "host", value: host))
             }
         }
 
@@ -313,8 +276,6 @@ struct KeyboardBridge {
         static let snapshot = "keyboard.snapshot"
         static let warmDuration = "settings.warmDuration"
         static let style = "settings.dictationStyle"
-        static let returnAppID = "settings.returnAppID"
-        static let quickReturnAppIDs = "settings.quickReturnAppIDs"
         static let allowBluetoothMic = "settings.allowBluetoothMic"
         static let lastInsertedResultID = "keyboard.lastInsertedResultID"
         static let fullAccessSeenAt = "keyboard.fullAccessSeenAt"
@@ -380,37 +341,6 @@ struct KeyboardBridge {
         }
         nonmutating set {
             defaults?.set(newValue.rawValue, forKey: Key.style)
-        }
-    }
-
-    var returnAppID: String? {
-        get {
-            let value = defaults?.string(forKey: Key.returnAppID)
-            return (value?.isEmpty == true) ? nil : value
-        }
-        nonmutating set {
-            if let newValue, !newValue.isEmpty {
-                defaults?.set(newValue, forKey: Key.returnAppID)
-            } else {
-                defaults?.removeObject(forKey: Key.returnAppID)
-            }
-        }
-    }
-
-    var returnApp: HostApp? {
-        HostAppCatalog.app(for: returnAppID)
-    }
-
-    /// The apps the keyboard offers to jump back to, in the user's order.
-    var quickReturnApps: [HostApp] {
-        get {
-            guard let ids = defaults?.stringArray(forKey: Key.quickReturnAppIDs) else {
-                return HostAppCatalog.quickChips
-            }
-            return ids.compactMap(HostAppCatalog.app(for:))
-        }
-        nonmutating set {
-            defaults?.set(newValue.map(\.id), forKey: Key.quickReturnAppIDs)
         }
     }
 

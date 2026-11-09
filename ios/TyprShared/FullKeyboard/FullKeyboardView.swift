@@ -375,8 +375,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         refreshRecordingPanel()
         if let menu = styleMenu {
             menu.style = model.style
-            menu.returnAppID = model.returnAppID
-            menu.quickReturnApps = model.quickReturnApps
         }
         refreshStrip()
     }
@@ -386,6 +384,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             "Allow Full Access to dictate with Typr"
         } else if model.stagePhase == .failed {
             model.statusMessage
+        } else if !model.isWarmAvailable, let notice = model.hostNotice {
+            notice
         } else {
             nil
         }
@@ -530,7 +530,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         if typrKey.isWarm {
             model.onDictateTap?()
         } else {
-            model.onOpenURL?(model.coldStartURL)
+            model.onColdStart?()
         }
     }
 
@@ -564,15 +564,9 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         let menu = TyprStyleMenuView()
         menu.palette = palette
         menu.style = model.style
-        menu.returnAppID = model.returnAppID
-        menu.quickReturnApps = model.quickReturnApps
         menu.onHoverChanged = { [weak self] in self?.selectionFeedback() }
         menu.onStyle = { [weak self] style in
             self?.model.onStyleSelected?(style)
-            self?.dismissStyleMenu()
-        }
-        menu.onReturnApp = { [weak self] appID in
-            self?.model.onReturnAppSelected?(appID)
             self?.dismissStyleMenu()
         }
         menu.onDismiss = { [weak self] in self?.dismissStyleMenu() }
