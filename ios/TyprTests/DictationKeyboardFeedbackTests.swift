@@ -327,7 +327,15 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         model.onFeedbackRating = { rating, _ in ratings.append(rating) }
         model.onOpenURL = { opened = $0 }
         let host = UIHostingController(rootView: KeyboardSurfaceView(model: model))
-        host.view.frame = CGRect(x: 0, y: 0, width: 393, height: 140)
+        // SwiftUI mounts UIViewRepresentable children as part of window presentation.
+        // A detached hosting view can have no feedback panel in its UIKit hierarchy.
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 140))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         host.view.layoutIfNeeded()
         pumpMainRunLoop()
         let problem = visibleButton("Problem", in: host.view)

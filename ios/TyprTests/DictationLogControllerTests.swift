@@ -193,8 +193,15 @@ final class DictationLogControllerTests: XCTestCase {
         await f.asr.setOutput("Erstelle einen Pulrequest auf Gitub")
         f.model.result = "Erstelle einen Pull Request auf GitHub"
         try await f.start()
-        f.controller.finishRecording(); try await f.settle()
+        f.controller.finishRecording()
+        // Completion also waits for cold archive readiness before finishing the entry.
+        // Wait for the observable result, not a fixed 200 ms scheduling allowance.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while f.env.store.entries.first?.status != .finished, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         let entry = try XCTUnwrap(f.env.store.entries.first)
+        XCTAssertEqual(entry.status, .finished)
         XCTAssertEqual(entry.recognized?.text, "Erstelle einen Pulrequest auf Gitub")
         XCTAssertEqual(entry.aiInput?.text, "Erstelle einen Pull Request auf GitHub")
         XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 2)
