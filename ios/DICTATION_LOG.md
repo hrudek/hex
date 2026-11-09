@@ -204,6 +204,6 @@ entries, load-with-new-offer generation stability, and full-keyboard Undo/host
 text/typing dismissal. New scene names: `keyboard-feedback`,
 `keyboard-feedback-problem`, `full-keyboard-feedback[-dark]` and
 `full-keyboard-feedback-problem[-dark]`. Fixtures are synthetic, not real extension
-or device proof. Linux strict Swift 6 typechecking uses platform stubs; the seven
-initial non-UIKit XCTest cases also passed under the Linux XCTest runner before
-review fixes. Native CI results are recorded on the PR, not inferred here.
+or device proof. Linux strict Swift 6 typechecking uses platform stubs; all eight
+non-UIKit XCTest cases also passed under the Linux XCTest runner after the
+independent review fixes (Swift 5 mode for its Linux XCTest discovery adapter). Native CI results are recorded on the PR, not inferred here.
