@@ -325,7 +325,7 @@ final class KeyboardViewController: UIInputViewController {
             insertedResult = true
             if feedbackBridge.switchesEnabled, snap.state != .recording, snap.state != .transcribing {
                 viewModel.feedback = DictationFeedbackPresentation.inserted(offer: snap.feedbackOffer,
-                    resultID: resultID, ownedJobs: ownedFeedbackJobs.union([coldStartJobID]),
+                    resultID: resultID, ownedJobs: ownedFeedbackJobs.union(bridge.feedbackJobs).union([coldStartJobID]),
                     permission: permission, now: Date(timeIntervalSince1970: now))
             }
             coldStartJobID = UUID().uuidString
@@ -369,6 +369,7 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             .startSession(requestedAt: now, host: host)
         }
+        bridge.ownFeedbackJob(coldStartJobID)
         ContainingAppOpener.open(request.url, from: self)
     }
 
@@ -401,6 +402,7 @@ final class KeyboardViewController: UIInputViewController {
         guard viewModel.hasFullAccess, viewModel.currentSnapshot.isAvailable(at: now) else { return }
         let jobID = UUID().uuidString
         ownedFeedbackJobs.insert(jobID)
+        bridge.ownFeedbackJob(jobID)
         viewModel.dismissFeedback()
         viewModel.setPendingCommand(
             KeyboardViewModel.PendingCommand(kind: .start, jobID: jobID, sentAt: now),

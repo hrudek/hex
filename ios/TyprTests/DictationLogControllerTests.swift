@@ -162,14 +162,14 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertEqual(entry.context.cleanupPath, .typr)
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")
-        XCTAssertEqual(entry.context.vocabularyTerms, ["iPhone"])
+        XCTAssertNil(entry.context.vocabularyTerms)
         XCTAssertNil(entry.context.vocabularySnapshot)
         XCTAssertEqual(entry.cleanupOutput?.text, "iPhone works")
         XCTAssertEqual(entry.formattedText?.text, TranscriptFormatter.format("iPhone works", style: .polished))
         try await f.dispose()
     }
 
-    func testEveryEntryRecordsAllSavedVocabularyTermsEvenWhenOff() async throws {
+    func testUnrelatedSavedVocabularyIsNotCollected() async throws {
         let f = LogControllerFixture()
         let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
         vocabulary.isEnabled = false
@@ -182,10 +182,9 @@ final class DictationLogControllerTests: XCTestCase {
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.vocabularyEnabled, false)
         XCTAssertEqual(entry.context.vocabularyCount, 0)
-        XCTAssertEqual(entry.context.vocabularyTerms, ["herdr", "pi Agent", "GitHub"])
-        XCTAssertTrue(entry.improvementText.contains(
-            #"Vocabulary terms (3; saved, not applied): "herdr", "pi Agent", "GitHub""#))
-        XCTAssertTrue(entry.plainText.contains(#""pi Agent""#))
+        XCTAssertNil(entry.context.vocabularyTerms)
+        XCTAssertFalse(entry.plainText.contains(#""pi Agent""#))
+        XCTAssertFalse(entry.plainText.contains("GitHub"))
         try await f.dispose()
     }
 
@@ -466,7 +465,7 @@ final class DictationLogControllerTests: XCTestCase {
             XCTAssertEqual(entry.cleanupOutput?.text, result ?? "my iPhone works")
             XCTAssertEqual(entry.formattedText?.text,
                 TranscriptFormatter.format(result ?? "my iPhone works", style: .polished))
-            XCTAssertEqual(entry.context.vocabularyTerms, ["iPhone"])
+            XCTAssertNil(entry.context.vocabularyTerms)
             XCTAssertNil(entry.context.vocabularySnapshot)
             XCTAssertEqual(entry.upstreamReason,
                 result == nil ? "cleaner returned nil; API exposes no failure reason" : nil)
