@@ -1,5 +1,5 @@
 {
-  "format": "hexplus.dictation-log",
+  "format": "typr.dictation-log",
   "exportVersion": 1,
   "exportedAt": "2026-11-08T12:30:00Z",
   "archiveID": "77777777-7777-7777-7777-777777777777",
@@ -25,10 +25,10 @@
         "speechEngine": "synthetic",
         "speechLanguage": "en-US",
         "style": "Polished",
-        "cleanupPath": "hexPlus",
+        "cleanupPath": "typr",
         "vocabularyEnabled": true,
         "upstreamCleanupEnabled": false,
-        "hexPlusCleanupEnabled": true,
+        "typrCleanupEnabled": true,
         "vocabularySnapshot": {
           "text": "\"Hexopolis\"",
           "truncated": false,

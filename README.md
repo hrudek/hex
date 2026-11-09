@@ -1,15 +1,14 @@
-# Hex+
+# Typr
 
-Hex+ is a personal, standalone iPhone dictation app with a custom keyboard,
+Typr is a private, standalone iPhone dictation keyboard with a containing app,
 widgets and Live Activity. Speech stays on-device: Apple Speech on iOS 26+,
 or Parakeet via FluidAudio on iOS 18+. The keyboard exchanges commands and
 completed text with the app; it never accesses the microphone, model or network.
 
-The project originated from the iOS part of
-[anomalyco/hex](https://github.com/anomalyco/hex), under MIT
+Typr is based on Hex by Kit Langton
+(https://github.com/kitlangton/hex / https://github.com/anomalyco/hex), MIT
 (© Christopher Langton; the original [LICENSE](LICENSE) is preserved).
-There are no automatic upstream merges. [PORTS.md](PORTS.md) records adopted
-sources and how future changes are selected.
+[PORTS.md](PORTS.md) records adopted sources and how future changes are selected.
 
 ## Build and test
 
@@ -23,11 +22,11 @@ xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=
 ```
 
 Alternatively, from the repository root:
-`bash .github/hexplus/agent-test.sh [Target/Class,…]` keeps the committed app
+`bash .github/typr/agent-test.sh [Target/Class,…]` keeps the committed app
 identity unchanged. Signing and device installation require the owner's Apple
-configuration; CI applies the build identity only in its disposable checkout.
+configuration. CI validates the committed Typr identity without rewriting it.
 
 Start with [AGENTS.md](AGENTS.md) for development,
-[HEXPLUS.md](HEXPLUS.md) for the feature table, review and CI/TestFlight,
+[TYPR.md](TYPR.md) for the feature table, review and CI/TestFlight,
 and [ios/README.md](ios/README.md) for architecture and verification limits.
-The default integration branch is `hex-plus`; app code stays in `ios/`.
+The default integration branch is `main`; app code stays in `ios/`.

@@ -53,7 +53,7 @@ final class DictationController {
         let usesCleanup: Bool
         let vocabularyTerms: [String]
         let vocabularyEnabled: Bool
-        let hexPlusCleanupEnabled: Bool
+        let typrCleanupEnabled: Bool
         let copyToPasteboard: Bool
         let cleanupJob: CleanupJob?
         let cleanupSkipReason: CleanupSkipReason?
@@ -755,7 +755,7 @@ final class DictationController {
         let enabled = cleanup?.isEnabled() == true
         let logToken = dictationLog?.token()
         let logCleanupPath: DictationLogCleanupPath = effectiveStyle == .verbatim ? .none
-            : (enabled ? .hexPlus : (usesCleanup && cleaner != nil ? .upstream : .none))
+            : (enabled ? .typr : (usesCleanup && cleaner != nil ? .upstream : .none))
         let cleanupEnabled = enabled && effectiveStyle != .verbatim
         let disabledCleanupReason: CleanupSkipReason? = !enabled ? .off : (effectiveStyle == .verbatim ? .verbatim : nil)
 
@@ -775,7 +775,7 @@ final class DictationController {
             }
 
             let captureURL = fileManager.temporaryDirectory
-                .appendingPathComponent("hex-dictation-\(captureGeneration)-\(UUID().uuidString)")
+                .appendingPathComponent("typr-\(captureGeneration)-\(UUID().uuidString)")
                 .appendingPathExtension("wav")
 
             do {
@@ -814,7 +814,7 @@ final class DictationController {
                     usesCleanup: usesCleanup,
                     vocabularyTerms: vocabularyTerms,
                     vocabularyEnabled: vocabularyEnabled,
-                    hexPlusCleanupEnabled: enabled,
+                    typrCleanupEnabled: enabled,
                     copyToPasteboard: copyToPasteboard,
                     cleanupJob: cleanupJob,
                     cleanupSkipReason: cleanupSkipReason,
@@ -881,7 +881,7 @@ final class DictationController {
                 cleanupPath: session.logCleanupPath, vocabularyCount: session.vocabularyTerms.count,
                 vocabularyEnabled: session.vocabularyEnabled,
                 upstreamCleanupEnabled: session.usesCleanup,
-                hexPlusCleanupEnabled: session.hexPlusCleanupEnabled,
+                typrCleanupEnabled: session.typrCleanupEnabled,
                 vocabularyTerms: session.vocabularyTerms),
                 stoppedAt: stoppedAt)
         }
@@ -936,7 +936,7 @@ final class DictationController {
                 recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds, spellingPass: firstPass)
                 var text = spelled
                 if let cleanup = self.cleanup, session.cleanupSkipReason != .off {
-                    // Hex+ AI cleanup is on: it replaces upstream's cleanup experiment.
+                    // Typr AI cleanup is on: it replaces upstream's cleanup experiment.
                     if session.cleanupSkipReason == .verbatim {
                         // Verbatim remains synchronous: no prepare, model call, lease or await.
                         self.cleanupCoordinator.recordSkip(.verbatim, dependencies: cleanup, diagnostics: recording)

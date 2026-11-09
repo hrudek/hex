@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Hex</string>
+	<string>Typr</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,10 +26,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.kitlangton.hex.mobile.keyboard-session</string>
+			<string>dev.rudek.typr.keyboard-session</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>hex-dictation</string>
+				<string>typr</string>
 			</array>
 		</dict>
 	</array>
@@ -38,9 +38,9 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hex records only while you dictate and transcribes locally on this iPhone.</string>
+	<string>Typr records only while you dictate and transcribes locally on this iPhone.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Hex uses Apple's on-device SpeechTranscriber to turn your recording into text.</string>
+	<string>Typr uses Apple's on-device SpeechTranscriber to turn your recording into text.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

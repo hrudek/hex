@@ -1,4 +1,4 @@
-# Hex+ dictation archive and feedback
+# Typr dictation archive and feedback
 
 ## Explicit local analysis (C)
 
@@ -17,7 +17,7 @@ from B. They contain no text and are preserved as source evidence, never interpr
 as permission to post feedback by the local tool. Export v1 dates have whole-second
 precision: the importer uses whole-entry revisions, never timestamp-only merges.
 
-The Hex+ **Dictation log** switch (`hexplus.dictationLog`, on by default)
+The Typr **Dictation log** switch (`typr.dictationLog`, on by default)
 controls collection, not retention. **Off stops new collection and interrupts
 unfinished saved entries; it keeps existing history.** Read, rate, edit a
 reference, export and explicitly delete saved entries even while Off. This is
@@ -26,7 +26,7 @@ There is no automatic count, age or aggregate byte eviction.
 
 ## Everyday feedback
 
-Open **Hex+ → Show dictation log**, or tap **Fix in Hex** on the keyboard after
+Open **Typr → Show dictation log**, or tap **Fix in Typr** on the keyboard after
 Problem (see below). The list uses metadata, a 120-character preview and All /
 Unrated / Problems filters. Leading Good and trailing Problem swipes have explicit
 VoiceOver equivalents.
@@ -117,7 +117,7 @@ Export envelope v1:
 
 ```json
 {
-  "format": "hexplus.dictation-log",
+  "format": "typr.dictation-log",
   "exportVersion": 1,
   "exportedAt": "2026-11-08T12:00:00Z",
   "archiveID": "UUID",
@@ -189,7 +189,7 @@ VoiceOver and on-device model quality still require hardware verification.
 
 ## Keyboard quick feedback (B)
 
-Hex+ › Keyboard dictation feedback is **on by default** (independent of the
+Typr › Keyboard dictation feedback is **on by default** (independent of the
 archive collection switch). Good / Problem / dismiss use the existing compact
 tray or full-keyboard suggestion strip, on **both** surfaces. The full keyboard
 retains Undo dictation as a separate sibling; while feedback shows, Undo is an
@@ -197,9 +197,9 @@ icon (same action and VoiceOver label) so every feedback action fits without
 scrolling. The full-keyboard bar lays out its items with explicit frames because
 it is created hidden and filled only when a result arrives.
 
-After **Problem**, the keyboard shows **Fix in Hex** instead of issue categories:
+After **Problem**, the keyboard shows **Fix in Typr** instead of issue categories:
 the keyboard cannot usefully show what was recognized and what AI made of it.
-Fix in Hex opens `hex-dictation://hexplus/feedback?entry=<UUID>` (the entry ID
+Fix in Typr opens `typr://typr/feedback?entry=<UUID>` (the entry ID
 only, never text); the app opens the log on that entry with **What I said**
 focused. The link never starts a dictation session. Categories remain available
 in the app under More details. No keyboard text editor, document inspection for
@@ -246,7 +246,7 @@ ordering, separate reference ownership, durable-write retry, replay, Off/Clear/
 Delete/opt-out, simultaneous writers/cap, malformed/expired events, unloaded
 entries, load-with-new-offer generation stability, and full-keyboard Undo/host
 text/typing dismissal, a feedback offer that arrives after the full keyboard was
-mounted (the on-device order), Fix in Hex opening the exact entry link, link
+mounted (the on-device order), Fix in Typr opening the exact entry link, link
 routing that never parses as a launch request, and reference saves that keep
 the note. Scene names: `keyboard-feedback`,
 `keyboard-feedback-problem`, `full-keyboard-feedback[-dark]` and

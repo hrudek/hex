@@ -1131,7 +1131,7 @@ final class DotScopeMetalPipeline {
         }
 
         let scopeDesc = MTLRenderPipelineDescriptor()
-        scopeDesc.label = "Hex DotScope"
+        scopeDesc.label = "Typr DotScope"
         scopeDesc.vertexFunction = vertex
         scopeDesc.fragmentFunction = scopeFragment
         scopeDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
@@ -1143,7 +1143,7 @@ final class DotScopeMetalPipeline {
         let swipePipeline: MTLRenderPipelineState?
         if let swipeFragment = library.makeFunction(name: "dot_swipe_cue_fragment") {
             let swipeDesc = MTLRenderPipelineDescriptor()
-            swipeDesc.label = "Hex DotSwipeCue"
+            swipeDesc.label = "Typr DotSwipeCue"
             swipeDesc.vertexFunction = vertex
             swipeDesc.fragmentFunction = swipeFragment
             swipeDesc.colorAttachments[0].pixelFormat = .bgra8Unorm

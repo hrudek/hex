@@ -1,7 +1,7 @@
 import CoreGraphics
 import UIKit
 
-// Hex+: the key that switches between the full keyboard and the compact dictation bar.
+// Typr: the key that switches between the full keyboard and the compact dictation bar.
 
 /// The full keyboard's switch key as a pure state machine. A tap does nothing, so fast
 /// typing never switches by accident; a hold of `holdDuration` switches once. Sliding off
@@ -45,7 +45,7 @@ nonisolated struct KeyboardSwitchHold: Equatable, Sendable {
 /// switch key. Kept in the keyboard's own defaults, so it works without Full Access.
 @MainActor
 struct KeyboardSurfaceChoice {
-    private static let key = "hexplus.keyboardShowsCompactBar"
+    private static let key = "typr.keyboardShowsCompactBar"
 
     private let defaults: UserDefaults
 
@@ -59,7 +59,7 @@ struct KeyboardSurfaceChoice {
         nonmutating set { defaults.set(newValue, forKey: Self.key) }
     }
 
-    /// Whether the full keyboard is mounted: its experiment on, and, with the Hex+ switch
+    /// Whether the full keyboard is mounted: its experiment on, and, with the Typr switch
     /// key on, the compact bar not chosen. With the switch off this is today's rule.
     static func wantsFullKeyboard(experimentOn: Bool, switchKeyOn: Bool, compactChosen: Bool) -> Bool {
         experimentOn && !(switchKeyOn && compactChosen)

@@ -66,11 +66,11 @@ class Store:
                 with contextlib.closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=2)) as con:
                     valid = (con.execute("PRAGMA user_version").fetchone()[0] == 1
                              and con.execute("SELECT value FROM meta WHERE name='format'").fetchone()
-                             == (b"hexplus.dictation-local-store",))
+                             == (b"typr.dictation-local-store",))
             except sqlite3.Error:
                 pass
         if not valid:
-            raise Invalid("Store directory exists and is not a Hex+ store; choose a new or empty directory")
+            raise Invalid("Store directory exists and is not a Typr store; choose a new or empty directory")
 
     def __enter__(self):
         self.old_umask = os.umask(0o077)
@@ -106,9 +106,9 @@ class Store:
                 try:
                     marker = self.connection.execute("SELECT value FROM meta WHERE name='format'").fetchone()
                 except sqlite3.Error:
-                    raise Invalid("Not a Hex+ local store; existing data left intact") from None
-                if marker != (b"hexplus.dictation-local-store",):
-                    raise Invalid("Not a Hex+ local store; existing data left intact")
+                    raise Invalid("Not a Typr local store; existing data left intact") from None
+                if marker != (b"typr.dictation-local-store",):
+                    raise Invalid("Not a Typr local store; existing data left intact")
             self.connection.execute("PRAGMA synchronous=FULL")
             self.connection.execute("PRAGMA journal_mode=DELETE")
             self.connection.execute("PRAGMA secure_delete=ON")
@@ -122,7 +122,7 @@ class Store:
                         PRIMARY KEY(archive_id, entry_id));
                     PRAGMA user_version=1;
                 """)
-                self.connection.execute("INSERT INTO meta VALUES ('format', ?)", (b"hexplus.dictation-local-store",))
+                self.connection.execute("INSERT INTO meta VALUES ('format', ?)", (b"typr.dictation-local-store",))
                 self.connection.execute("INSERT INTO meta VALUES ('hmac_secret', ?)", (secrets.token_bytes(32),))
                 self.connection.commit()
                 sync_directory(self.path)

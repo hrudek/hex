@@ -26,7 +26,7 @@ def settings(entry: dict, secret: bytes) -> dict:
     context = entry["context"]
     result = {key: context.get(key) if context.get(key) is not None else "unknown" for key in
               ("speechEngine", "speechLanguage", "style", "cleanupPath", "vocabularyEnabled",
-               "upstreamCleanupEnabled", "hexPlusCleanupEnabled")}
+               "upstreamCleanupEnabled", "typrCleanupEnabled")}
     for key in ("promptRevision", "guardRevision"):
         result[key] = entry.get(key) if entry.get(key) is not None else "unknown"
     vocab = context.get("vocabularySnapshot")
@@ -165,7 +165,7 @@ def make_report(store, *, show_text: bool = False) -> dict:
 
 def human(report: dict) -> str:
     summary = report["summary"]
-    lines = ["Hex+ local dictation report", report["limits"],
+    lines = ["Typr local dictation report", report["limits"],
              f"Entries: {summary['entries']}; ratings: {canonical(summary['ratings'])}",
              f"Import evidence: {canonical(report['importEvidence'])}",
              f"Known rating coverage: {summary['ratingCoverage']}",

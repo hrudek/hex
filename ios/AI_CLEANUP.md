@@ -1,7 +1,7 @@
-# Hex+ AI cleanup
+# Typr AI cleanup
 
 For per-dictation recognized/input/model/final text, diffs and timing diagnostics,
-see [Dictation log](DICTATION_LOG.md). Its separate Hex+ switch is on by default;
+see [Dictation log](DICTATION_LOG.md). Its separate Typr switch is on by default;
 Off/Clear deletes that persistent app-container history. Its opt-in per-operation
 text sink is separate from the text-free logger and App Group outcome below,
 and never changes cleanup delivery or accepts a late answer as a new result.
@@ -9,14 +9,14 @@ and never changes cleanup delivery or accepts a late answer as a new result.
 ## Relation to upstream's cleanup and Custom vocabulary
 
 Upstream added its own *Clean up with Apple Intelligence* experiment (anomalyco/hex#1538,
-off by default) and *Custom vocabulary* (#1547). Hex+ keeps its own cleanup because it
+off by default) and *Custom vocabulary* (#1547). Typr keeps its own cleanup because it
 corrected more on the owner's iPhone: prewarmed session, 4 s deadline instead of 2 s,
 German examples and self-correction cues, and a visible last outcome. To avoid name clashes
-with upstream's `TranscriptCleanup.swift`, Hex+'s files and types carry a `HexPlus` prefix
+with upstream's `TranscriptCleanup.swift`, Typr's files and types carry a `HexPlus` prefix
 (`HexPlusCleanup.swift`, `HexPlusAppleCleaner`, `HexPlusTranscriptCleaning`).
 
-- **Precedence:** while the Hex+ switch is on, Hex+ cleanup runs and upstream's
-  experiment is skipped, whatever its switch says. With the Hex+ switch off, upstream's
+- **Precedence:** while the Typr switch is on, Typr cleanup runs and upstream's
+  experiment is skipped, whatever its switch says. With the Typr switch off, upstream's
   experiment runs exactly as upstream wired it.
 - **Custom vocabulary:** with upstream's *Custom vocabulary* on, its terms (read-only
   through `CustomVocabularySettings.activeTerms`, no second list) are
@@ -31,8 +31,8 @@ with upstream's `TranscriptCleanup.swift`, Hex+'s files and types carry a `HexPl
 
 ## Contract
 
-The **AI cleanup** switch in Hex+ settings is on by default, stored as
-`hexplus.aiCleanup` in the App Group. Each recording freezes the switch and style.
+The **AI cleanup** switch in Typr settings is on by default, stored as
+`typr.aiCleanup` in the App Group. Each recording freezes the switch and style.
 Changing either affects the next recording. Off, Verbatim, or absent injected
 cleanup dependencies retains the existing transcript path: no model session,
 prewarm, generation, lease, heartbeat, or extra wait.
@@ -64,26 +64,26 @@ all fall back to plain ASR text, formatted as before. Cleanup failures do not
 set `.failed`; ASR failures retain their existing error behavior. Logs use
 `ai-cleanup` and fixed reason strings, never transcript text or model error text.
 
-The Hex+ card shows the **last dictation's outcome** under the switch, e.g.
+The Typr card shows the **last dictation's outcome** under the switch, e.g.
 “cleaned up by Apple Intelligence (1.8 s)”, “Apple Intelligence changed nothing”,
 “skipped: fewer than 3 words, or a language … doesn't support”, “took longer than 4 s … (it finished
 after 6.2 s)” or “change was not used: it contained a number or link you didn't say”. It is stored in the App Group as
-`hexplus.aiCleanup.last` (`CleanupDiagnostics`): a fixed English summary, a time
+`typr.aiCleanup.last` (`CleanupDiagnostics`): a fixed English summary, a time
 and a deadline flag only, never dictated or model text. A model call that returns
 after its deadline reports only its real duration, to tune the 4 s deadline.
 Turning the switch off keeps the previous outcome visible.
 
-## Which model (Hex+ card)
+## Which model (Typr card)
 
 **Show AI cleanup model**, directly below **AI cleanup**, is on by default
-(`hexplus.showCleanupModel` in the App Group). It reports the **configured cleanup
+(`typr.showCleanupModel` in the App Group). It reports the **configured cleanup
 model for new recordings**, not the speech-recognition model or a guarantee that
 a particular dictation will be cleaned:
 
-- With Hex+ AI cleanup on, it shows Apple's on-device foundation model with
-  general use and permissive content transformations. Unavailable Hex+ cleanup
+- With Typr AI cleanup on, it shows Apple's on-device foundation model with
+  general use and permissive content transformations. Unavailable Typr cleanup
   does **not** fall through to the upstream experiment.
-- With Hex+ off and Experiments › Clean up with Apple Intelligence on, it shows
+- With Typr off and Experiments › Clean up with Apple Intelligence on, it shows
   the upstream configuration: general use, default guardrails.
 - With both switches off, it says no model is configured. Below iOS 26 or without
   FoundationModels, it says the model requires iOS 26 or later, regardless of the
@@ -102,8 +102,8 @@ would not establish support for a future transcript's detected language.
 Turning the display switch off hides the details but keeps its control visible,
 with “Shows which Apple Intelligence model cleans up your dictations”. It changes
 neither cleanup switch nor recording behavior. The other card rows stay unchanged.
-Information refreshes on appearance, foregrounding (after invalidating Hex+'s
-availability cache), after persisting the Hex+ cleanup switch, when enabling the
+Information refreshes on appearance, foregrounding (after invalidating Typr's
+availability cache), after persisting the Typr cleanup switch, when enabling the
 display, and on defaults-change notifications, including the sibling experiment's
 switch. Notification handling runs on the main actor and only reads; it does not
 write settings or invalidate the cache. Reading information never creates a
@@ -116,10 +116,10 @@ default-on display switch. These new tests have **not run locally**: no Swift or
 Xcode toolchain is installed on the implementation host. The SwiftUI notification
 subscription, foreground refresh and mounted-card updates have no automated UI
 wiring test. Production needs archive compilation; the test target needs a manual
-Hex+ CI run with distribution `simulator` (optionally
+Typr CI run with distribution `simulator` (optionally
 `only_testing=HEXMobileTests/HexPlusModelInfoTests`). Neither is claimed here.
 Suggested screenshot: the settings screen, checking multiline wrapping and
-VoiceOver readability with the display on/off and Hex+/upstream/both-off paths.
+VoiceOver readability with the display on/off and Typr/upstream/both-off paths.
 A real eligible iPhone is still needed to verify actual model availability and
 foreground transitions as Apple Intelligence is enabled or becomes ready.
 
@@ -186,8 +186,8 @@ and `src/apple_intelligence.rs` / `.swift` (used for meetings).
   model output as empty-output, apply the unchanged structural guard to raw
   output, then trim accepted text before the one formatter call. This prevents
   trimming from hiding changed Notes line anchors.
-- **D9:** Default **on** is Hex+ policy (desktop rewrite defaults off). The key
-  remains `hexplus.aiCleanup`. iOS deliberately keeps the four-second deadline
+- **D9:** Default **on** is Typr policy (desktop rewrite defaults off). The key
+  remains `typr.aiCleanup`. iOS deliberately keeps the four-second deadline
   rather than desktop's thirty seconds, because keyboard delivery/background
   execution cannot rely on a desktop-length budget. The structural guard, one
   model slot, background lease and generation/delivery fences remain iOS-specific
@@ -201,7 +201,7 @@ automatically a retraction") with a strict token-alignment guard. On the iPhone 
 model then returned "Dienstag, nein Mittwoch, nein Freitag." unchanged ("Apple
 Intelligence changed nothing (1.2 s)"). Other on-device dictation cleaners (Yap,
 VoiceInk, Orttaai, Juno) give the model short, positive editing rules and at most a
-light plausibility check, so Hex+ now does the same:
+light plausibility check, so Typr now does the same:
 
 - **Prompt** (`CleanupPrompt`): resolve self-corrections (delete the rejected words
   and the correction phrase), remove stutters, repeated words, false starts and filler
@@ -268,10 +268,10 @@ Manual simulator CI run `42466628122` compiled production and test Swift and ran
 17 tests: 16 passed; the one-word question-to-answer guard case failed. That test
 was retained and the interrogative restriction added. Pre-steering commit
 `ffe59ebd` then passed all 17 targeted tests in simulator run `42467401714`, device
-archive run `42467380855` (after retrying transient HTTP 504 downloads) and Hex+
+archive run `42467380855` (after retrying transient HTTP 504 downloads) and Typr
 review `42467379347`. These results do **not** prove the subsequent desktop-steering
 changes; the PR records their separate CI/review/test outcomes.
-Optional simulator run: Hex+ CI, distribution `simulator`,
+Optional simulator run: Typr CI, distribution `simulator`,
 `only_testing=HEXMobileTests/AICleanupGuardCases,HEXMobileTests/HexPlusCleanupTests,HEXMobileTests/AICleanupControllerTests,HEXMobileTests/CleanupDesktopAnalogyTests`.
 
 ## Owner hardware checklist / manual model evaluation

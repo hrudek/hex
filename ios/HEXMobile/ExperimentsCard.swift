@@ -22,7 +22,7 @@ struct ExperimentsCard: View {
                         Text("Full keyboard")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundStyle(HexTheme.textBase)
-                        Text("Type with Hex, with a Hex key to dictate")
+                        Text("Type with Typr, with a Typr key to dictate")
                             .font(.system(size: 12))
                             .foregroundStyle(HexTheme.textMuted)
                     }

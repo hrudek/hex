@@ -1,8 +1,8 @@
 import Combine
 import UIKit
 
-/// The experimental full keyboard: a 3-slot suggestion strip, QWERTY keys with the Hex key
-/// right of space, long-press accents, and the recording panel that replaces both while Hex records.
+/// The experimental full keyboard: a 3-slot suggestion strip, QWERTY keys with the Typr key
+/// right of space, long-press accents, and the recording panel that replaces both while Typr records.
 /// Dictation state comes from the same `KeyboardViewModel` the dictation bar uses.
 @MainActor
 final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
@@ -19,7 +19,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     var allowsHaptics: () -> Bool = { false }
     /// Draws a stand-in backdrop where there is no system keyboard behind the view.
     var drawsBackdrop = false { didSet { applyAppearance() } }
-    /// Hex+: the bottom row starts with a key that, held, shows the compact dictation bar.
+    /// Typr: the bottom row starts with a key that, held, shows the compact dictation bar.
     var showsCompactSwitch: Bool {
         get { engine.showsCompactSwitch }
         set {
@@ -28,7 +28,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             setNeedsLayout()
         }
     }
-    /// Hex+: the switch key was held.
+    /// Typr: the switch key was held.
     var onShowCompactBar: (() -> Void)?
 
     private let stripView = KeyboardStripView()
@@ -37,7 +37,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private let accentCallout = AccentCalloutView()
     private let hexKey = HexKeyControl()
     private let globeButton = UIButton(type: .custom)
-    private let compactSwitchKey = KeyboardSwitchKeyControl() // Hex+
+    private let compactSwitchKey = KeyboardSwitchKeyControl() // Typr
     private var recordingPanel: HexKeyRecordingPanel?
     private var styleMenu: HexStyleMenuView?
     private var palette = FullKeyboardPalette(isDark: false)
@@ -115,7 +115,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
 
         engine.autocorrect.isEnabled = FullKeyboardSettings().autocorrect
-        if HexPlusSettings().germanAutocorrect { // Hex+
+        if HexPlusSettings().germanAutocorrect { // Typr
             let instance = GermanAutocorrect.system()
             cachedGerman = instance
             engine.autocorrect.german = instance
@@ -146,12 +146,12 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     var enableInputClicksWhenVisible: Bool { true }
 
-    private var cachedGerman: GermanAutocorrect? // Hex+
+    private var cachedGerman: GermanAutocorrect? // Typr
 
     func warmUpTextCheckerAsync() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.engine.autocorrect.german?.warmUp() // Hex+
+            self.engine.autocorrect.german?.warmUp() // Typr
             guard let checker = self.engine.autocorrect.checker as? SystemTextChecker else { return }
             checker.warmUp()
             self.engine.refreshSuggestions()
@@ -174,7 +174,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             engine.autocorrect.isEnabled = wantsAutocorrect
             engine.refreshSuggestions()
         }
-        // Hex+: German autocorrect switch (cached instance, built once).
+        // Typr: German autocorrect switch (cached instance, built once).
         let wantsGerman = HexPlusSettings().germanAutocorrect
         if wantsGerman != (engine.autocorrect.german != nil) {
             if wantsGerman {
@@ -229,7 +229,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
-    /// Hex inserted a dictation; offer to take it back until the next edit.
+    /// Typr inserted a dictation; offer to take it back until the next edit.
     func didInsertDictation(_ text: String, keepUndoFor: TimeInterval = 12) {
         lastDictation = text
         refreshStrip()
@@ -383,7 +383,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     private func refreshStrip() {
         let status: String? = if !model.hasFullAccess {
-            "Allow Full Access to dictate with Hex"
+            "Allow Full Access to dictate with Typr"
         } else if model.stagePhase == .failed {
             model.statusMessage
         } else {
@@ -523,7 +523,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
-    /// A still hold on the Hex key; a tap does nothing, so a stray one while typing is harmless.
+    /// A still hold on the Typr key; a tap does nothing, so a stray one while typing is harmless.
     private func hexKeyHeld() {
         if allowsHaptics() { haptics.impactOccurred() }
         dismissStyleMenu()
@@ -534,7 +534,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
-    /// Hex+: a hold on the switch key; a tap does nothing, so a stray one while typing is harmless.
+    /// Typr: a hold on the switch key; a tap does nothing, so a stray one while typing is harmless.
     private func compactSwitchHeld() {
         guard !showsRecording else { return }
         if allowsHaptics() { haptics.impactOccurred() }

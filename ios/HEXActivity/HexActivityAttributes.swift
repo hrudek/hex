@@ -57,7 +57,7 @@ nonisolated struct StopHexDictationIntent: LiveActivityIntent {
 
 nonisolated struct CancelHexDictationIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Cancel dictation"
-    static let description = IntentDescription("Discards the active Hex recording.")
+    static let description = IntentDescription("Discards the active Typr recording.")
     static let isDiscoverable = false
 
     init() {}

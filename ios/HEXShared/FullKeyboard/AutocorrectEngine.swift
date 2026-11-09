@@ -3,7 +3,7 @@ import UIKit
 /// One slot in the 3-column suggestion strip above the keys.
 nonisolated struct KeyboardSuggestion: Equatable, Sendable {
     enum Kind: Equatable, Sendable {
-        /// Left slot (`"typed"`): keeps the exact characters and teaches Hex not to rewrite them.
+        /// Left slot (`"typed"`): keeps the exact characters and teaches Typr not to rewrite them.
         case keepLiteral
         /// Center slot: best replacement or completion (`autoReplace` highlights when Space will apply it).
         case primary(autoReplace: Bool)
@@ -165,7 +165,7 @@ final class AutocorrectEngine {
     let checker: TextChecking
     let learnedWords: LearnedWordsStore
     var isEnabled = true
-    /// Hex+: German layer; `nil` keeps today's behaviour exactly.
+    /// Typr: German layer; `nil` keeps today's behaviour exactly.
     var german: GermanAutocorrect?
     private(set) var lexiconShortcuts: [String: String] = [:]
     private var lexiconTerms: [String] = []
@@ -291,7 +291,7 @@ final class AutocorrectEngine {
 
         // Spelling guesses or prefix completions from `UITextChecker`.
         if pool.count < 2 && token.count >= 2 {
-            // Hex+: German-valid words count as valid; German guesses come first.
+            // Typr: German-valid words count as valid; German guesses come first.
             let valid = Self.shorthandAllowlist.contains(lower) || learnedWords.contains(lower) || checker.isWordValid(token)
                 || (german?.isValid(token) ?? false)
             if !valid {
@@ -368,7 +368,7 @@ final class AutocorrectEngine {
         let hasInternalCaps = token.dropFirst().contains(where: \.isUppercase) && !isAllCaps
         if hasInternalCaps { return nil }
 
-        // Hex+: German umlaut digraphs (`fuer` -> `für`), before the all-caps bail-out so `FUER` -> `FÜR`.
+        // Typr: German umlaut digraphs (`fuer` -> `für`), before the all-caps bail-out so `FUER` -> `FÜR`.
         if let german,
            let umlaut = german.umlautReplacement(
                for: token,
@@ -388,7 +388,7 @@ final class AutocorrectEngine {
         // 3. Single-edit `UITextChecker` typo on words of 3+ characters, never rewriting valid words.
         guard token.count >= 3, !token.contains("'") else { return nil }
         guard !checker.isWordValid(token) else { return nil }
-        // Hex+: a German word is valid too; German guesses win over English ones.
+        // Typr: a German word is valid too; German guesses win over English ones.
         if let german {
             guard !german.isValid(token) else { return nil }
             var germanBest: String?
@@ -548,7 +548,7 @@ final class AutocorrectEngine {
         "lol", "lmao", "omg", "brb", "btw", "afaik", "fyi", "nvm", "rn", "irl", "jk",
         "np", "yw", "smh", "ikr", "ngl", "fr", "gg", "dm", "pr", "prs", "ci", "ui",
         "ux", "ios", "macos", "api", "apis", "url", "urls", "json", "sql", "ssh", "cli",
-        "gpu", "cpu", "ram", "sdk", "hex", "wisp", "seer", "rune", "kit", "gonna",
+        "gpu", "cpu", "ram", "sdk", "typr", "hex", "wisp", "seer", "rune", "kit", "gonna",
         "wanna", "gotta", "kinda", "sorta", "yeah", "yep", "nope", "nah", "hey", "yo",
     ]
 

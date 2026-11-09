@@ -2,7 +2,7 @@ import CoreGraphics
 import XCTest
 @testable import HEX
 
-/// Hex+: the key that switches between the full keyboard and the compact dictation bar.
+/// Typr: the key that switches between the full keyboard and the compact dictation bar.
 @MainActor
 final class KeyboardSwitchKeyTests: XCTestCase {
     private var defaults: UserDefaults!

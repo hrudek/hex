@@ -144,7 +144,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// The dictation bar, or the full keyboard when its experiment is on (iPhone only).
-    /// Hex+: with the switch key on, the compact bar when it was picked with that key.
+    /// Typr: with the switch key on, the compact bar when it was picked with that key.
     /// Only switches while idle.
     private func mountSurface() {
         let experimentOn = FullKeyboardSettings().isEnabled && UIDevice.current.userInterfaceIdiom == .phone
@@ -203,7 +203,7 @@ final class KeyboardViewController: UIInputViewController {
         schedulePoll(force: false)
     }
 
-    /// Hex+: the switch key picked the compact bar or the full keyboard. Only while idle.
+    /// Typr: the switch key picked the compact bar or the full keyboard. Only while idle.
     private func switchSurface(toCompactBar compact: Bool) {
         guard viewModel.stagePhase == .idle || viewModel.stagePhase == .failed else { return }
         KeyboardSurfaceChoice().showsCompactBar = compact

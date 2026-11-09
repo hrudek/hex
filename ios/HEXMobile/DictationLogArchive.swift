@@ -27,7 +27,7 @@ struct DictationArchiveLoad: Sendable {
 }
 
 struct DictationJSONEnvelope: Encodable {
-    let format = "hexplus.dictation-log"
+    let format = "typr.dictation-log"
     let exportVersion = 1
     let exportedAt: Date
     let archiveID: UUID

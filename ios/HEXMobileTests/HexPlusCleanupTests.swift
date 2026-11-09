@@ -84,7 +84,7 @@ final class HexPlusCleanupTests: XCTestCase {
         XCTAssertTrue(settings.aiCleanup)
         settings.aiCleanup = false
         XCTAssertFalse(HexPlusSettings(defaults: defaults).aiCleanup)
-        XCTAssertEqual(defaults.object(forKey: "hexplus.aiCleanup") as? Bool, false)
+        XCTAssertEqual(defaults.object(forKey: "typr.aiCleanup") as? Bool, false)
     }
 
     func testSuccessThrowAndGuardFallback() async {

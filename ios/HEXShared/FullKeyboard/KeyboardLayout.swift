@@ -30,7 +30,7 @@ nonisolated enum KeyKind: Equatable, Hashable, Sendable {
     case returnKey
     case hex
     case globe
-    /// Hex+: hold to show the compact dictation bar (drawn by `KeyboardSwitchKeyControl`).
+    /// Typr: hold to show the compact dictation bar (drawn by `KeyboardSwitchKeyControl`).
     case compactSwitch
 }
 
@@ -136,7 +136,7 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
     let layer: KeyboardLayer
     let field: KeyboardFieldKind
     let showsGlobe: Bool
-    /// Hex+: the bottom row starts with the compact-bar switch key.
+    /// Typr: the bottom row starts with the compact-bar switch key.
     let showsCompactSwitch: Bool
     let horizontalInset: CGFloat
     let metrics: KeyboardMetrics
@@ -312,12 +312,12 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         }
         add(.delete, row: 2, x: right - modW, w: modW, label: "delete")
 
-        // Row 4: 123/ABC, globe?, space, field extras (@ . / . /), Hex, return.
+        // Row 4: 123/ABC, globe?, space, field extras (@ . / . /), Typr, return.
         let isCompactBottomRow = showsGlobe || showsCompactSwitch || field != .text
         let switchW = isCompactBottomRow ? modW : lw * bottomSwitchWidthRatio
         let returnW = isCompactBottomRow ? (lw * compactReturnWidthRatio) : (lw * returnWidthRatio + m.gap)
         var leading: [(KeyKind, CGFloat, String)] = []
-        if showsCompactSwitch { // Hex+
+        if showsCompactSwitch { // Typr
             // Letter-wide when the row also carries a globe or field keys, so space keeps room.
             let crowded = showsGlobe || field != .text
             leading.append((.compactSwitch, crowded ? lw : modW, "dictation bar"))

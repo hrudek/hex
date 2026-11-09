@@ -4,18 +4,18 @@ import Darwin
 /// No text crosses this bridge. One immutable atomic event per UUID avoids cross-process
 /// UserDefaults array races. The app alone publishes permission; all queue access uses flock.
 final class DictationFeedbackBridge: @unchecked Sendable {
-    static let permissionKey = "hexplus.dictationFeedback.permission"
-    static let stripKey = "hexplus.dictationFeedbackStrip"
+    static let permissionKey = "typr.dictationFeedback.permission"
+    static let stripKey = "typr.dictationFeedbackStrip"
     static let maximumPending = 100
     static let maximumEventBytes = 16_384
     static let shared = DictationFeedbackBridge()
     private let defaults: UserDefaults?
     private let directory: URL?
-    private let queue = DispatchQueue(label: "hexplus.keyboard-feedback", qos: .utility)
+    private let queue = DispatchQueue(label: "typr.keyboard-feedback", qos: .utility)
 
     init(defaults: UserDefaults? = UserDefaults(suiteName: KeyboardBridge.appGroup),
          directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: KeyboardBridge.appGroup)?
-            .appendingPathComponent("HexPlus/DictationFeedback", isDirectory: true)) {
+            .appendingPathComponent("Typr/DictationFeedback", isDirectory: true)) {
         self.defaults = defaults; self.directory = directory
     }
     var permission: DictationFeedbackPermission? {
@@ -25,7 +25,7 @@ final class DictationFeedbackBridge: @unchecked Sendable {
     }
     var switchesEnabled: Bool {
         guard let defaults else { return false }
-        return (defaults.object(forKey: "hexplus.dictationLog") as? Bool ?? true)
+        return (defaults.object(forKey: "typr.dictationLog") as? Bool ?? true)
             && (defaults.object(forKey: Self.stripKey) as? Bool ?? true)
     }
     /// Only the app calls this, once its archive lineage is known. No queue I/O blocks output.

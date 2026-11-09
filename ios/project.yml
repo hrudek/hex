@@ -1,7 +1,7 @@
 name: HEXMobile
 options:
   minimumXcodeGenVersion: 2.46.0
-  bundleIdPrefix: com.kitlangton.hex
+  bundleIdPrefix: dev.rudek.typr
   deploymentTarget:
     iOS: "18.0"
   xcodeVersion: "2660"
@@ -11,7 +11,7 @@ packages:
     exactVersion: 0.15.5
 settings:
   base:
-    DEVELOPMENT_TEAM: QC99C9JE59
+    DEVELOPMENT_TEAM: 2ZNGF24932
     SWIFT_VERSION: 6.0
 targets:
   HEXMobile:
@@ -21,6 +21,7 @@ targets:
       - HEXMobile
       - HEXShared
       - HEXActivity
+      - Branding/TyprWordmark.swift
       - path: AppIcon.icon
         buildPhase: resources
     dependencies:
@@ -32,17 +33,17 @@ targets:
     info:
       path: HEXMobile/Info.plist
       properties:
-        CFBundleDisplayName: Hex
+        CFBundleDisplayName: Typr
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CADisableMinimumFrameDurationOnPhone: true
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
-            CFBundleURLName: com.kitlangton.hex.mobile.keyboard-session
+            CFBundleURLName: dev.rudek.typr.keyboard-session
             CFBundleURLSchemes:
-              - hex-dictation
-        NSMicrophoneUsageDescription: Hex records only while you dictate and transcribes locally on this iPhone.
-        NSSpeechRecognitionUsageDescription: Hex uses Apple's on-device SpeechTranscriber to turn your recording into text.
+              - typr
+        NSMicrophoneUsageDescription: Typr records only while you dictate and transcribes locally on this iPhone.
+        NSSpeechRecognitionUsageDescription: Typr uses Apple's on-device SpeechTranscriber to turn your recording into text.
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
@@ -69,7 +70,7 @@ targets:
         MARKETING_VERSION: 0.2.0
         OTHER_LDFLAGS: $(inherited) -weak_framework FoundationModels
         OTHER_SWIFT_FLAGS: $(inherited) -Xfrontend -disable-autolink-framework -Xfrontend FoundationModels
-        PRODUCT_BUNDLE_IDENTIFIER: com.kitlangton.hex.mobile
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr
         PRODUCT_NAME: HEX
     scheme:
       gatherCoverageData: false
@@ -81,10 +82,11 @@ targets:
     sources:
       - HEXKeyboard
       - HEXShared
+      - Branding/TyprWordmark.swift
     info:
       path: HEXKeyboard/Info.plist
       properties:
-        CFBundleDisplayName: Hex Keyboard
+        CFBundleDisplayName: Typr
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -103,7 +105,7 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: 0.2.0
-        PRODUCT_BUNDLE_IDENTIFIER: com.kitlangton.hex.mobile.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr.keyboard
         PRODUCT_NAME: HEXKeyboard
         SKIP_INSTALL: YES
   HEXWidgets:
@@ -113,10 +115,11 @@ targets:
       - HEXWidgets
       - HEXActivity
       - HEXShared/HexTheme.swift
+      - Branding/TyprWordmark.swift
     info:
       path: HEXWidgets/Info.plist
       properties:
-        CFBundleDisplayName: Hex
+        CFBundleDisplayName: Typr
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -128,7 +131,7 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: 0.2.0
-        PRODUCT_BUNDLE_IDENTIFIER: com.kitlangton.hex.mobile.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr.widgets
         PRODUCT_NAME: HEXWidgets
         SKIP_INSTALL: YES
   HEXMobileTests:
@@ -145,5 +148,5 @@ targets:
         BUNDLE_LOADER: $(TEST_HOST)
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.kitlangton.hex.mobile.tests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr.tests
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/HEX.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HEX

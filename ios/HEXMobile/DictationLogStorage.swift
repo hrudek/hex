@@ -6,8 +6,8 @@ final class DictationLogStorage: @unchecked Sendable {
     static let maximumBytes = 1_000_000 // legacy and individual file read safety, never archive eviction
     let url: URL // schema-1 source, retained until migration has been verified
     let root: URL
-    private let queue = DispatchQueue(label: "hexplus.dictation-log", qos: .utility)
-    private let exportQueue = DispatchQueue(label: "hexplus.dictation-log.export", qos: .utility)
+    private let queue = DispatchQueue(label: "typr.dictation-log", qos: .utility)
+    private let exportQueue = DispatchQueue(label: "typr.dictation-log.export", qos: .utility)
     private let beforeExportStream: @Sendable () -> Void
     private var archiveID = UUID()
     private var metadata: [UUID: DictationLogMetadata] = [:]

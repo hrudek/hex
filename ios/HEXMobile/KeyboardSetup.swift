@@ -7,7 +7,7 @@ import UIKit
 @MainActor
 @Observable
 final class KeyboardSetupMonitor {
-    static let keyboardBundleID = "com.kitlangton.hex.mobile.keyboard"
+    static let keyboardBundleID = "dev.rudek.typr.keyboard"
 
     private let bridge: KeyboardBridge
 
@@ -72,7 +72,7 @@ struct KeyboardSetupCard: View {
 
             VStack(spacing: 0) {
                 row(
-                    title: "Hex Keyboard",
+                    title: "Typr Keyboard",
                     status: keyboardStatus,
                     done: monitor.keyboardAdded == true
                 )

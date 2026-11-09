@@ -75,7 +75,7 @@ def validate_entry(entry: dict, field: str) -> None:
     context = entry.get("context")
     require(isinstance(context, dict), field + ".context")
     utc(context.get("createdAt"), field + ".context.createdAt")
-    for name in ("vocabularyEnabled", "upstreamCleanupEnabled", "hexPlusCleanupEnabled"):
+    for name in ("vocabularyEnabled", "upstreamCleanupEnabled", "typrCleanupEnabled"):
         require(context.get(name) is None or type(context[name]) is bool, field + ".context." + name)
     for name in ("speechEngine", "speechLanguage", "style", "cleanupPath", "appBuild", "appVersion"):
         require(context.get(name) is None or isinstance(context[name], str), field + ".context." + name)
@@ -134,7 +134,7 @@ def read_export(path: Path) -> Export:
     except (UnicodeError, RecursionError):
         raise Invalid("Invalid UTF-8 or excessively nested JSON") from None
     require(isinstance(value, dict), "envelope")
-    require(value.get("format") == "hexplus.dictation-log", "format (unsupported)")
+    require(value.get("format") == "typr.dictation-log", "format (unsupported)")
     require(type(value.get("exportVersion")) is int and value["exportVersion"] == 1, "exportVersion (unsupported)")
     identifier(value.get("archiveID"), "archiveID")
     utc(value.get("exportedAt"), "exportedAt")

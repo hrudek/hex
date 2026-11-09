@@ -6,7 +6,7 @@ extension DictationLogEntry {
     /// audio, device names or error descriptions. Text and vocabulary may be private.
     var aiPathLabel: String {
         switch context.cleanupPath {
-        case .hexPlus: "AI: Hex+"
+        case .typr: "AI: Typr"
         case .upstream: "AI: Upstream"
         case .none: "AI: None"
         }
@@ -23,7 +23,7 @@ extension DictationLogEntry {
     var processingResultLabel: String {
         let ai = context.cleanupPath == .upstream
             ? "Upstream: \(upstreamOutcome ?? "pending / not run")"
-            : (context.cleanupPath == .hexPlus ? "Hex+: \(cleanupOutcome ?? "pending / not run")" : "No AI pass")
+            : (context.cleanupPath == .typr ? "Typr: \(cleanupOutcome ?? "pending / not run")" : "No AI pass")
         let spelling: String
         if let first = firstSpellingPass, let second = secondSpellingPass {
             spelling = "Vocabulary: \(first.totalChanges + second.totalChanges) replacements"
@@ -36,8 +36,8 @@ extension DictationLogEntry {
     var settingsLines: [String] {
         func state(_ value: Bool?) -> String { value.map { $0 ? "On" : "Off" } ?? "Not recorded" }
         return [aiPathLabel + " (selected path; not proof of a model call)",
-                "Hex+ AI setting: \(state(context.hexPlusCleanupEnabled))",
-                "Upstream AI setting: \(state(context.upstreamCleanupEnabled)) (overridden while Hex+ is on)",
+                "Typr AI setting: \(state(context.typrCleanupEnabled))",
+                "Upstream AI setting: \(state(context.upstreamCleanupEnabled)) (overridden while Typr is on)",
                 vocabularyLabel, "Style: \(context.style)"]
     }
 
@@ -74,11 +74,11 @@ extension DictationLogEntry {
             "ASR: \(ms(asrMilliseconds))", "Cleanup resolution: \(ms(cleanupMilliseconds))",
             "Model: \(ms(modelMilliseconds))", "Stop → final text provided: \(ms(stopToFinalMilliseconds))",
             "Cleanup path: \(context.cleanupPath.rawValue)",
-            "Hex+ outcome: \(cleanupOutcome ?? "not recorded")",
-            "\(cleanupSummary ?? "No Hex+ cleanup outcome")",
+            "Typr outcome: \(cleanupOutcome ?? "not recorded")",
+            "\(cleanupSummary ?? "No Typr cleanup outcome")",
             "Cleanup changed: \(flag(cleanupChanged)); pipeline changed: \(flag(pipelineChanged))",
             "Model answer: \(answerLabel)", "Upstream cleanup: \(upstreamOutcome ?? "not used")",
-            "Hex+ prompt revision: \(promptRevision); Hex+ guard revision: \(guardRevision)",
+            "Typr prompt revision: \(promptRevision); Typr guard revision: \(guardRevision)",
             "Active vocabulary terms: \(context.vocabularyCount)",
             settingsLines.joined(separator: "\n"),
             processingResultLabel,
@@ -88,7 +88,7 @@ extension DictationLogEntry {
     }
 
     var plainText: String {
-        var sections = ["Hex+ dictation log", detailLines.joined(separator: "\n")]
+        var sections = ["Typr dictation log", detailLines.joined(separator: "\n")]
         for (title, field) in [("Recognized", recognized), ("AI input (after spelling)", aiInput),
                                ("AI answer — \(answerLabel)", aiAnswer),
                                ("Cleanup output actually used", cleanupOutput),
@@ -112,7 +112,7 @@ extension DictationLogEntry {
 
 struct DictationLogView: View {
     let store: DictationLogStore
-    /// Hex+: "Fix in Hex" from the keyboard opens this entry with "What I said" focused.
+    /// Typr: "Fix in Typr" from the keyboard opens this entry with "What I said" focused.
     var router: HexPlusFeedbackRouter? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingClear = false
@@ -194,7 +194,7 @@ extension DictationLogView {
     }
 }
 
-/// Hex+: the everyday feedback view. Recognized text and the AI correction, each with Copy,
+/// Typr: the everyday feedback view. Recognized text and the AI correction, each with Copy,
 /// then one field for what was actually said/expected. Everything else is still recorded and
 /// exported, but stays behind "More details".
 struct DictationLogDetail: View {

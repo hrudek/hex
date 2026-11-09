@@ -124,7 +124,7 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertEqual(f.bridge.snapshot().transcript, entry.finalText?.text)
         XCTAssertEqual(entry.cleanupOutcome, "completed")
         XCTAssertEqual(entry.cleanupChanged, true)
-        XCTAssertEqual(entry.context.cleanupPath, .hexPlus)
+        XCTAssertEqual(entry.context.cleanupPath, .typr)
         XCTAssertEqual(entry.context.speechEngine, "Controlled Speech")
         XCTAssertEqual(entry.context.speechLanguage, "German")
         XCTAssertEqual(entry.context.loudestAverageDBFS, -24)
@@ -158,8 +158,8 @@ final class DictationLogControllerTests: XCTestCase {
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.vocabularyEnabled, true)
         XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
-        XCTAssertEqual(entry.context.hexPlusCleanupEnabled, true)
-        XCTAssertEqual(entry.context.cleanupPath, .hexPlus)
+        XCTAssertEqual(entry.context.typrCleanupEnabled, true)
+        XCTAssertEqual(entry.context.cleanupPath, .typr)
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")
         XCTAssertEqual(entry.context.vocabularySnapshot?.text, "\"iPhone\"")
@@ -199,7 +199,7 @@ final class DictationLogControllerTests: XCTestCase {
         f.controller.finishRecording(); try await f.settle()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.cleanupPath, .none)
-        XCTAssertEqual(entry.context.hexPlusCleanupEnabled, true)
+        XCTAssertEqual(entry.context.typrCleanupEnabled, true)
         XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
         XCTAssertEqual(entry.vocabularyLabel, "Vocabulary: On (0 terms)")
         XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 0)
@@ -348,10 +348,13 @@ final class DictationLogControllerTests: XCTestCase {
 
     func testUnwritableStorageDoesNotAffectDelivery() async throws {
         let f = LogControllerFixture()
-        try FileManager.default.createDirectory(at: f.env.directory, withIntermediateDirectories: true)
-        // A regular file where the log's parent directory belongs fails even as an admin.
-        try FileManager.default.removeItem(at: f.env.directory)
-        try Data("not a directory".utf8).write(to: f.env.directory)
+        // Let startup finish before changing its storage. Removing the whole fixture
+        // directory races the archive's asynchronous initialization on the simulator.
+        try await LogTestEnvironment.waitUntilLoaded(f.env.store)
+        let entries = f.env.storage.root.appendingPathComponent("entries", isDirectory: false)
+        // A regular file where entries must be written fails even as an admin.
+        try FileManager.default.removeItem(at: entries)
+        try Data("not a directory".utf8).write(to: entries)
         try await f.start()
         f.controller.finishRecording(); try await f.settle()
         await f.env.storage.flush(); try await f.settle()
@@ -410,7 +413,7 @@ final class DictationLogControllerTests: XCTestCase {
             XCTAssertEqual(entry.context.vocabularyCount, 1)
             XCTAssertEqual(entry.context.vocabularyEnabled, true)
             XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
-            XCTAssertEqual(entry.context.hexPlusCleanupEnabled, false)
+            XCTAssertEqual(entry.context.typrCleanupEnabled, false)
             XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 1)
             XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
             XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")

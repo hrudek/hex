@@ -75,7 +75,7 @@ final class KeyboardBridgeTests: XCTestCase {
 
     func testKeyboardSetupLaunchRoundTripsWithoutAHandoff() {
         let request = KeyboardLaunchRequest.setup
-        XCTAssertEqual(request.url.absoluteString, "hex-dictation://keyboard/setup")
+        XCTAssertEqual(request.url.absoluteString, "typr://keyboard/setup")
         XCTAssertEqual(KeyboardLaunchRequest(url: request.url), request)
         XCTAssertFalse(request.isHandoffExpired(at: 1_000_000))
     }
@@ -93,7 +93,7 @@ final class KeyboardBridgeTests: XCTestCase {
     }
 
     func testKeyboardRecordingLaunchRequiresAJob() {
-        let url = URL(string: "hex-dictation://keyboard/record")!
+        let url = URL(string: "typr://keyboard/record")!
         XCTAssertNil(KeyboardLaunchRequest(url: url))
     }
 
