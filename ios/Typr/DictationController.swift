@@ -52,6 +52,8 @@ final class DictationController {
         let style: DictationStyle
         let usesCleanup: Bool
         let vocabularyTerms: [String]
+        /// Every saved term, frozen for the log even while the experiment is off.
+        let savedVocabularyTerms: [String]
         let vocabularyEnabled: Bool
         let typrCleanupEnabled: Bool
         let copyToPasteboard: Bool
@@ -751,7 +753,8 @@ final class DictationController {
         let effectiveStyle = styleOverride ?? style
         let usesCleanup = cleanupSettings.isEnabled
         let vocabularyEnabled = customVocabularySettings.isEnabled
-        let vocabularyTerms = vocabularyEnabled ? customVocabularySettings.terms : []
+        let savedVocabularyTerms = customVocabularySettings.terms
+        let vocabularyTerms = vocabularyEnabled ? savedVocabularyTerms : []
         let enabled = cleanup?.isEnabled() == true
         let logToken = dictationLog?.token()
         let logCleanupPath: DictationLogCleanupPath = effectiveStyle == .verbatim ? .none
@@ -813,6 +816,7 @@ final class DictationController {
                     style: effectiveStyle,
                     usesCleanup: usesCleanup,
                     vocabularyTerms: vocabularyTerms,
+                    savedVocabularyTerms: savedVocabularyTerms,
                     vocabularyEnabled: vocabularyEnabled,
                     typrCleanupEnabled: enabled,
                     copyToPasteboard: copyToPasteboard,
@@ -882,7 +886,7 @@ final class DictationController {
                 vocabularyEnabled: session.vocabularyEnabled,
                 upstreamCleanupEnabled: session.usesCleanup,
                 typrCleanupEnabled: session.typrCleanupEnabled,
-                vocabularyTerms: session.vocabularyTerms),
+                vocabularyTerms: session.savedVocabularyTerms),
                 stoppedAt: stoppedAt)
         }
         transcribingLog = recording

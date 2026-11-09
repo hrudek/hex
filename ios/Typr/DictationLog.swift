@@ -104,7 +104,17 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     var vocabularyEnabled: Bool?
     var upstreamCleanupEnabled: Bool?
     var typrCleanupEnabled: Bool?
+    /// Legacy (schema 2 before vocabularyTerms): active terms joined into one capped string.
+    /// Kept readable for older entries; new entries record `vocabularyTerms` instead.
     var vocabularySnapshot: DictationLogText?
+    /// Every saved Custom vocabulary term at recording start, in saved order, even while the
+    /// experiment is off (`vocabularyEnabled` says whether they were applied). nil means not recorded.
+    var vocabularyTerms: [String]?
+
+    static let maximumLoggedVocabularyTerms = CustomVocabularySettings.maxTermCount
+    static func cappedVocabularyTerms(_ terms: [String]) -> [String] {
+        terms.prefix(maximumLoggedVocabularyTerms).map { String($0.prefix(CustomVocabularySettings.maxTermLength)) }
+    }
 
     @MainActor
     static func capture(keyboardJob: Bool, copyToPasteboard: Bool, style: DictationStyle,
@@ -134,9 +144,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.vocabularyEnabled = vocabularyEnabled
         context.upstreamCleanupEnabled = upstreamCleanupEnabled
         context.typrCleanupEnabled = typrCleanupEnabled
-        context.vocabularySnapshot = vocabularyTerms.map {
-            DictationLogText($0.prefix(100).map { String(reflecting: $0) }.joined(separator: ", "))
-        }
+        context.vocabularyTerms = vocabularyTerms.map(cappedVocabularyTerms)
         return context
     }
 }
@@ -238,6 +246,7 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
         expectedText = expectedText?.recapped()
         feedbackNote = feedbackNote?.recapped()
         context.vocabularySnapshot = context.vocabularySnapshot?.recapped()
+        context.vocabularyTerms = context.vocabularyTerms.map(DictationLogContext.cappedVocabularyTerms)
         firstSpellingPass?.recap()
         secondSpellingPass?.recap()
     }
@@ -530,7 +539,10 @@ final class DictationLogStore {
         let fields = [entry.recognized, entry.aiInput, entry.aiAnswer, entry.cleanupOutput,
                       entry.formattedText, entry.finalText, entry.expectedText, entry.feedbackNote,
                       entry.context.vocabularySnapshot]
-        let estimate = fields.reduce(2_048) { $0 + ($1?.text.utf8.count ?? 0) }
+        let textBytes = fields.reduce(2_048) { $0 + ($1?.text.utf8.count ?? 0) }
+        let terms: [String] = entry.context.vocabularyTerms ?? []
+        let termBytes = terms.reduce(0) { (sum: Int, term: String) in sum + term.utf8.count + 4 }
+        let estimate = textBytes + termBytes
         if let index = metadata.firstIndex(where: { $0.id == entry.id }) {
             metadata[index] = DictationLogMetadata(entry, bytes: max(metadata[index].bytes, estimate))
         } else {

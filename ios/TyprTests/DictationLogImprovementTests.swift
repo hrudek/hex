@@ -97,7 +97,7 @@ final class DictationLogImprovementTests: XCTestCase {
 
     func testNewFieldsAreRecappedAndIncludedInCompleteExport() {
         var entry = DictationLogEntry(context: .init())
-        entry.context.vocabularySnapshot = DictationLogText("\"Herder\", \"pi\"")
+        entry.context.vocabularyTerms = ["Herder", "pi"] + (0..<120).map { "term\($0)" + String(repeating: "x", count: 80) }
         entry.cleanupOutput = DictationLogText("cleanup result")
         entry.formattedText = DictationLogText("Formatted result.")
         entry.expectedText = DictationLogText(String(repeating: "x", count: 8_000))
@@ -106,6 +106,9 @@ final class DictationLogImprovementTests: XCTestCase {
         entry.recap()
         XCTAssertTrue(entry.expectedText?.truncated == true)
         XCTAssertLessThanOrEqual(entry.expectedText?.text.utf8.count ?? 0, 4_000)
+        XCTAssertEqual(entry.context.vocabularyTerms?.count, 100)
+        XCTAssertEqual(entry.context.vocabularyTerms.map { Array($0.prefix(2)) }, ["Herder", "pi"])
+        XCTAssertTrue(entry.context.vocabularyTerms?.allSatisfy { $0.count <= 64 } == true)
         for text in ["Herder", "pi", "cleanup result", "Formatted result.", "feedback", "cleaner unavailable"] {
             XCTAssertTrue(entry.plainText.contains(text), text)
         }

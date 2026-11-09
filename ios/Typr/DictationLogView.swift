@@ -80,6 +80,7 @@ extension DictationLogEntry {
             "Model answer: \(answerLabel)", "Upstream cleanup: \(upstreamOutcome ?? "not used")",
             "Typr prompt revision: \(promptRevision); Typr guard revision: \(guardRevision)",
             "Active vocabulary terms: \(context.vocabularyCount)",
+            vocabularyTermsLine ?? "Vocabulary terms: not recorded",
             settingsLines.joined(separator: "\n"),
             processingResultLabel,
             "First spelling pass changed text: \(flag(firstSpellingChanged))",

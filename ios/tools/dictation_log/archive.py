@@ -84,6 +84,12 @@ def validate_entry(entry: dict, field: str) -> None:
     for name in TEXT_FIELDS:
         text(entry.get(name), field + "." + name)
     text(context.get("vocabularySnapshot"), field + ".context.vocabularySnapshot")
+    terms = context.get("vocabularyTerms")
+    require(terms is None or (isinstance(terms, list) and len(terms) <= 100
+            # Swift caps 64 grapheme clusters; bound UTF-8 bytes generously, not code points.
+            and all(isinstance(term, str) and len(term.encode("utf-8", "surrogatepass")) <= 4000
+                    for term in terms)),
+            field + ".context.vocabularyTerms")
     require(entry.get("issues") is None or (isinstance(entry["issues"], list)
             and all(isinstance(code, str) for code in entry["issues"])), field + ".issues")
     for name in TIMINGS:

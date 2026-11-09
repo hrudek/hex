@@ -134,7 +134,8 @@ complete references, Good without reference and category counts. Missing timings
 remain missing (not zero); report each timing's count, missing count and median.
 Groups use sanitized build labels and canonical HMAC settings fingerprints over
 language, engine, style, cleanup path, all three AI/vocabulary flags, active
-vocabulary snapshot+truncation, prompt revision and guard revision. Missing/null
+vocabulary (applied `vocabularyTerms`, or legacy snapshot+truncation), prompt revision and guard revision. Legacy snapshot and `vocabularyTerms`
+fingerprints differ even for the same terms, so groups split at that upgrade. Missing/null
 configuration stays **unknown**, never false/disabled. Unknown/truncated source
 evidence cannot establish identical real settings. Fingerprints are comparable
 **only within this store**; no cross-store equivalence is claimed.

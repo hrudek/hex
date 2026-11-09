@@ -29,9 +29,19 @@ def settings(entry: dict, secret: bytes) -> dict:
                "upstreamCleanupEnabled", "typrCleanupEnabled")}
     for key in ("promptRevision", "guardRevision"):
         result[key] = entry.get(key) if entry.get(key) is not None else "unknown"
+    terms = context.get("vocabularyTerms")
     vocab = context.get("vocabularySnapshot")
-    result["activeVocabulary"] = {"hmac": fingerprint(secret, vocab, "vocabulary"),
-                                   "truncated": vocab["truncated"]} if vocab is not None else "unknown"
+    if terms is not None:
+        # Complete saved list; only applied terms are active configuration.
+        enabled = context.get("vocabularyEnabled")
+        active = terms if enabled is True else []
+        result["activeVocabulary"] = ({"hmac": fingerprint(secret, active, "vocabulary"), "truncated": False}
+                                      if enabled is not None else "unknown")
+    elif vocab is not None:
+        result["activeVocabulary"] = {"hmac": fingerprint(secret, vocab, "vocabulary"),
+                                       "truncated": vocab["truncated"]}
+    else:
+        result["activeVocabulary"] = "unknown"
     return result
 
 
@@ -130,7 +140,8 @@ def make_report(store, *, show_text: bool = False) -> dict:
         if show_text:
             text_rows.append({"archiveID": archive_id, "id": entry_id,
                               "fields": {key: entry.get(key) for key in TEXT_FIELDS},
-                              "vocabulary": entry["context"].get("vocabularySnapshot")})
+                              "vocabulary": entry["context"].get("vocabularySnapshot"),
+                              "vocabularyTerms": entry["context"].get("vocabularyTerms")})
     latest, latest_all, warnings = {}, {}, []
     evidence = {"rawEvidenceImports": 0, "exportsWithUnreadableFiles": 0,
                 "exportsWithMigrationPending": 0, "maximumReportedUnreadableFiles": 0}
