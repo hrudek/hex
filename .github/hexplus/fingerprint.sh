@@ -4,7 +4,7 @@
 #   app       what changes the app binary that ships (pushes to hex-plus → TestFlight)
 #   pipeline  app + Hex+'s CI scripts and workflow (PRs, so pipeline changes get tested)
 set -euo pipefail
-paths=(ios app/AppIcon.icon tests/fixtures/vocabulary/audio
+paths=(ios
   .github/hexplus/app.json .github/hexplus/identity.py .github/hexplus/build.sh
   .github/hexplus/archive.py .github/hexplus/package-archive.py)
 if [[ "${3:-pipeline}" == pipeline ]]; then

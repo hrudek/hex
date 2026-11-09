@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Give the CI checkout of ios/ Hex+'s own identity.
+"""Give the disposable CI checkout Hex+'s build identity.
 
-Upstream's identity (Kit's team, com.kitlangton.hex.mobile, its App Group and
-URL scheme) is spread over Swift, plist, entitlement and XcodeGen files that
-upstream keeps changing. Rewriting them here, on the disposable CI checkout,
-keeps hex-plus free of identity commits that would conflict on every sync.
-Fails closed when upstream's identity no longer looks as reviewed.
+The committed app identity (original team, bundle IDs, App Group and URL scheme)
+stays unchanged. Identity rewrites must never land in source commits; changing
+that policy requires a separate reviewed change. Fail closed if the committed
+identity no longer matches the reviewed source.
 """
 import json
 import os

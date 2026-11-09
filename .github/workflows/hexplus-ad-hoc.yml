@@ -1,4 +1,4 @@
-# Hex+ (fork-only): sign a compiled feature PR archive, without waiting for tests or rebuilding.
+# Hex+: sign a compiled feature PR archive, without waiting for tests or rebuilding.
 # Dispatch from hex-plus only. All control scripts come from hex-plus, never the PR.
 name: Hex+ PR to iPhone
 run-name: "Hex+ PR #${{ inputs.pr }} → iPhone (no rebuild)"

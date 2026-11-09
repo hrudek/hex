@@ -1,11 +1,12 @@
-# Hex+ (fork-only): keep the pinned issue "Hex+ status" current, so the owner only watches.
-# No schedule: dispatched after each hex-plus and sync/upstream CI run (hexplus-ci)
-# and the daily sync (hexplus-sync), which also checks SYNC_TOKEN.
+# Hex+: keep the pinned issue "Hex+ status" current.
+# Dispatched after each hex-plus CI run, weekly for renewal warnings, or by hand.
 # gh only; runs Hex+'s status.py from hex-plus, never branch code.
 name: Hex+ status
 run-name: "Hex+ status · ${{ github.event_name }}"
 
 on:
+  schedule:
+    - cron: '17 6 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -16,40 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  token:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: hexplus-sync
-    outputs:
-      expiry: ${{ steps.expiry.outputs.expiry }}
-      pr_write: ${{ steps.pr.outputs.pr_write }}
-    steps:
-      - name: When does SYNC_TOKEN expire?
-        id: expiry
-        env:
-          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
-        run: |
-          expiry=$(curl -fsS -o /dev/null -D - -H "Authorization: Bearer $SYNC_TOKEN" https://api.github.com/user \
-            | tr -d '\r' | sed -n 's/^github-authentication-token-expiration: //Ip' | head -1)
-          echo "SYNC_TOKEN expires: ${expiry:-never/unknown}"
-          echo "expiry=${expiry:0:10}" >> "$GITHUB_OUTPUT"
-      - name: Can SYNC_TOKEN still write pull requests? (re-saves the newest PR's own title)
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          read -r number title < <(gh api "repos/$GH_REPO/pulls?state=all&per_page=1" --jq '.[0] | "\(.number) \(.title)"')
-          if gh api -X PATCH "repos/$GH_REPO/pulls/$number" -f title="$title" >/dev/null 2>err.txt; then
-            echo pr_write=ok >> "$GITHUB_OUTPUT"; echo "PR write: ok (#$number)"
-          else
-            cat err.txt; echo pr_write=missing >> "$GITHUB_OUTPUT"
-          fi
-
   status:
-    needs: token
-    if: always()
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -60,8 +29,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      SYNC_TOKEN_EXPIRY: ${{ needs.token.outputs.expiry }}
-      SYNC_TOKEN_PR_WRITE: ${{ needs.token.outputs.pr_write }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

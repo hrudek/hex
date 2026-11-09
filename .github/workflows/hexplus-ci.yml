@@ -1,19 +1,16 @@
-# Hex+ (fork-only) CI for the iPhone app.
+# Hex+ CI for the iPhone app.
 # Fast lane: PRs run Linux checks and compile only. Simulator tests run after
 # merging to hex-plus, beside the TestFlight build (no nightly run). Screenshots and
 # pre-merge tests are opt-in via the manual simulator distribution.
 #   push hex-plus       → app changed? archive → TestFlight at once; tests in parallel
-#   push sync/upstream  → the daily upstream merge: tests AND archive; hexplus-gate promotes it when green
-#   push upstream-pr/*  → an unmerged upstream PR taken over by hexplus-upstream-pr: checks, scope
 #   pull_request        → feature/fix PRs: checks, scope, labels, archive (required); no simulator
-# Bot branches (sync/upstream, upstream-pr/*) get their PR checks from their push runs.
 #   workflow_dispatch   → simulator preview (tests + screenshots, no archive), or a device build
 name: Hex+ CI
 run-name: "Hex+ CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event.action || github.event_name }}"
 
 on:
   push:
-    branches: [hex-plus, sync/upstream, "upstream-pr/**"]
+    branches: [hex-plus]
   pull_request:
     branches: [hex-plus]
     # As OpenCode's checks: no label events, so a label never starts a macOS run. Adding
@@ -42,12 +39,11 @@ permissions:
 
 concurrency:
   group: hexplus-ci-${{ github.event_name }}-${{ github.ref }}-${{ inputs.distribution || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/sync/upstream' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   linux:
     name: Linux checks
-    if: ${{ !(github.head_ref == 'sync/upstream' || startsWith(github.head_ref, 'upstream-pr/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -61,32 +57,19 @@ jobs:
           persist-credentials: false
       - name: Hex+ script tests
         run: python3 -m unittest discover -s .github/hexplus/tests -v
+      - name: Offline dictation log tests
+        run: python3 -m unittest discover -s ios/tools/dictation_log/tests -v
       - name: Shell syntax
         run: for script in .github/hexplus/*.sh; do bash -n "$script"; done
       - name: Lint Hex+ workflows
         # SC2016/SC2129: Markdown backticks in single quotes and one-line-per-fact outputs are intended.
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color -ignore SC2016 -ignore SC2129 .github/workflows/hexplus-*.yml
-      - name: No conflict markers
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          base=$BASE
-          if [[ ! "$base" =~ ^[0-9a-f]{40}$ || "$base" == 0000000000000000000000000000000000000000 ]] \
-             || ! git cat-file -e "$base^{commit}" 2>/dev/null || [[ "$GITHUB_REF" != refs/heads/hex-plus && -z "${{ github.event.pull_request.number }}" ]]; then
-            base=$(git rev-parse origin/hex-plus)
-          fi
-          if git diff "$base" "$HEAD" | grep -nE '^\+(<<<<<<<|>>>>>>>)( |$)|^\+=======$'; then
-            echo 'Unresolved merge conflict markers (lines above).'; exit 1
-          fi
-          echo "No conflict markers between ${base:0:8} and ${HEAD:0:8}."
       - name: Scope (what this change may touch)
-        if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/upstream-pr/')
+        if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           PR: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.head_ref || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
@@ -102,7 +85,6 @@ jobs:
   labels:
     name: Label PR
     if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'reopened')
-      && !startsWith(github.head_ref, 'upstream-pr/') && github.head_ref != 'sync/upstream'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -122,7 +104,6 @@ jobs:
 
   decide:
     name: Decide
-    if: ${{ !(github.head_ref == 'sync/upstream' || startsWith(github.head_ref, 'upstream-pr/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -161,13 +142,9 @@ jobs:
           base='' head=$AFTER sign='' mode=pipeline
           case "$EVENT" in
             push)
-              if [[ "$REF" == refs/heads/hex-plus ]]; then
-                [[ "$BEFORE" != "$zero" ]] && base=$BEFORE
-                sign=testflight
-                mode=app   # PR Linux checks validate pipeline changes; only app changes ship
-              else
-                base=$(git ls-remote "$REPO" refs/heads/hex-plus | cut -f1)
-              fi ;;
+              [[ "$BEFORE" != "$zero" ]] && base=$BEFORE
+              sign=testflight
+              mode=app ;;   # PR Linux checks validate pipeline changes; only app changes ship
             pull_request) base=$PR_BASE head=$PR_HEAD ;;
             workflow_dispatch)
               case "$DISTRIBUTION" in
@@ -205,7 +182,7 @@ jobs:
     name: Simulator tests
     needs: decide
     # No simulator allocation for PRs; manual branch runs remain available.
-    if: github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref == 'refs/heads/hex-plus' || github.ref == 'refs/heads/sync/upstream') && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
+    if: github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref == 'refs/heads/hex-plus') && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
@@ -429,36 +406,13 @@ jobs:
         if: always()
         run: bash .github/hexplus/cleanup-signing.sh
 
-  sync-gate:
-    name: Request sync promotion
-    needs: [linux, decide, test, build]
-    if: >-
-      always() && github.event_name == 'push' && github.ref == 'refs/heads/sync/upstream'
-      && needs.linux.result == 'success' && needs.decide.result == 'success'
-      && ((needs.decide.outputs.run == 'true'
-           && needs.test.result == 'success' && needs.build.result == 'success')
-          || (needs.decide.outputs.run == 'false'
-              && needs.test.result == 'skipped' && needs.build.result == 'skipped'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-    steps:
-      # Dispatch is allowed with GITHUB_TOKEN. No PAT, checkout or branch code
-      # here; the canonical gate independently verifies this run before pushing.
-      - name: Invoke the canonical gate on hex-plus
-        run: gh workflow run hexplus-gate.yml --ref hex-plus -f run_id="$GITHUB_RUN_ID"
-
   status:
     name: Refresh status
     needs: [linux, decide, test, build, sign]
-    # The status issue reports hex-plus and the upstream sync; red runs there are fixed locally.
+    # The status issue reports hex-plus; red runs are fixed locally.
     if: >-
       always() && !cancelled() && github.event_name == 'push'
-      && (github.ref == 'refs/heads/hex-plus' || github.ref == 'refs/heads/sync/upstream')
+      && github.ref == 'refs/heads/hex-plus'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

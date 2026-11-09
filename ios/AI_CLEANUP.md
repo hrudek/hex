@@ -126,7 +126,8 @@ foreground transitions as Apple Intelligence is enabled or becomes ready.
 ## Explicit desktop alignment (D1–D9 and reviewed amendments)
 
 The reference is desktop **Rewrite with OpenCode**, not an existing desktop Apple
-Intelligence dictation feature (there is none). Source references:
+Intelligence dictation feature (there is none). Source references in
+`anomalyco/hex` at `cae389a8` (not paths in this repository):
 `src/dictation/processor.rs` (`process_cancellable`, `PROTOCOL_PROMPT`,
 `numbers_only`, `generate_observed`), `src/app_settings/dictation_processing.rs`,
 and `src/apple_intelligence.rs` / `.swift` (used for meetings).

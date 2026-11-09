@@ -1,4 +1,5 @@
 """Workflow scheduling contracts: no macOS simulator in PRs, manual previews remain."""
+import importlib.util
 from pathlib import Path
 import re
 import unittest
@@ -37,29 +38,42 @@ class FastLaneContracts(unittest.TestCase):
         self.assertFalse(condition('build', 'pull_request', draft=True))
         self.assertFalse(condition('build', 'pull_request', changed='false'))
 
-    def test_post_merge_and_sync_keep_tests_and_device_builds(self):
-        # Both hex-plus and sync/upstream use push events; the gate stays strict.
+    def test_post_merge_keeps_tests_and_device_builds(self):
         self.assertTrue(condition('test', 'push'))
         self.assertTrue(condition('build', 'push'))
-        self.assertTrue(condition('test', 'push', ref='refs/heads/sync/upstream'))
-        self.assertFalse(condition('test', 'push', ref='refs/heads/upstream-pr/938'))
-        self.assertTrue(condition('build', 'push', ref='refs/heads/upstream-pr/938'))
         self.assertFalse(condition('test', 'push', changed='false'))
         self.assertFalse(condition('build', 'push', changed='false'))
-        self.assertIn("needs.test.result == 'success' && needs.build.result == 'success'",
-                      job('sync-gate'))
         self.assertIn('needs: [decide, build]', job('sign'))
 
-    def test_no_schedule_and_manual_preview_does_not_build_device_archive(self):
-        # Only the upstream sync runs on a schedule; CI, review and status are event-driven.
+    def test_only_status_is_scheduled_and_manual_preview_has_no_device_archive(self):
         workflows = ROOT / '.github/workflows'
-        scheduled = sorted(p.name for p in workflows.glob('hexplus-*.yml')
+        scheduled = sorted(p.name for p in workflows.glob('*.yml')
                            if re.search(r'^  schedule:', p.read_text(), re.M))
-        self.assertEqual(scheduled, ['hexplus-sync.yml'])
+        self.assertEqual(scheduled, ['hexplus-status.yml'])
+        status = (workflows / 'hexplus-status.yml').read_text()
+        self.assertIn("cron: '17 6 * * 1'", status)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'", status)
         self.assertTrue(condition('test', 'workflow_dispatch', 'simulator'))
         self.assertFalse(condition('build', 'workflow_dispatch', 'simulator'))
         self.assertFalse(condition('test', 'workflow_dispatch', 'simulator', only_testing='none'))
         self.assertIn('unsigned|simulator) ;;', job('decide'))
+
+    def test_only_hex_plus_pushes_and_required_job_names_stay_stable(self):
+        push = re.search(r'^  push:\n(.*?)(?=^  \S)', SOURCE, re.M | re.S).group(1)
+        self.assertEqual(push.strip(), 'branches: [hex-plus]')
+        spec = importlib.util.spec_from_file_location(
+            'reuse', ROOT / '.github/hexplus/reuse-pr-archive.py')
+        reuse = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reuse)
+        names = set()
+        for key, expected in (('linux', 'Linux checks'), ('decide', 'Decide'),
+                              ('build', 'Unsigned archive')):
+            self.assertEqual(re.search(r'^    name: (.+)$', job(key), re.M).group(1), expected)
+            names.add(expected)
+        self.assertEqual(names, set(reuse.REQUIRED_JOBS))
+        self.assertNotRegex(job('linux'), re.compile(r'^    if:', re.M))
+        self.assertNotRegex(job('decide'), re.compile(r'^    if:', re.M))
+        self.assertIn('python3 -m unittest discover -s ios/tools/dictation_log/tests -v', job('linux'))
 
     def test_manual_device_distributions_still_build(self):
         for distribution in ('unsigned', 'ad-hoc', 'testflight'):
@@ -79,7 +93,7 @@ class FastLaneContracts(unittest.TestCase):
         self.assertIn("if: needs.decide.outputs.sign != '' && needs.build.result == 'success'", job('sign'))
         self.assertNotIn('hexplus-fix', SOURCE)
         status = job('status')
-        self.assertIn("github.ref == 'refs/heads/hex-plus' || github.ref == 'refs/heads/sync/upstream'", status)
+        self.assertIn("&& github.ref == 'refs/heads/hex-plus'", status)
         self.assertIn('gh workflow run hexplus-status.yml --ref hex-plus', status)
 
 

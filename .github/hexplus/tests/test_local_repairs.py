@@ -16,20 +16,18 @@ def run(conclusion, state='completed'):
 
 class StatusReportsRedRuns(unittest.TestCase):
     def test_green_or_running_needs_nothing(self):
-        self.assertEqual(status.red_runs(run('success'), run('success'), run('success')), [])
-        self.assertEqual(status.red_runs(run(None, 'in_progress'), None, None), [])
-        self.assertEqual(status.red_runs(None, None, None), [])
+        self.assertEqual(status.red_runs(run('success')), [])
+        self.assertEqual(status.red_runs(run(None, 'in_progress')), [])
+        self.assertEqual(status.red_runs(None), [])
 
     def test_each_red_run_needs_the_owner(self):
-        items = status.red_runs(run('failure'), run('failure'), run('failure'))
-        self.assertEqual(len(items), 3)
+        items = status.red_runs(run('failure'))
+        self.assertEqual(len(items), 1)
         self.assertIn('hex-plus CI failed', items[0])
         self.assertIn('fix/<name>', items[0])
-        self.assertIn('Upstream sync failed', items[1])
-        self.assertIn('sync/upstream CI failed', items[2])
 
     def test_cancelled_is_not_red(self):
-        self.assertEqual(status.red_runs(run('cancelled'), None, None), [])
+        self.assertEqual(status.red_runs(run('cancelled')), [])
 
 
 class NoRepairAgents(unittest.TestCase):
@@ -50,12 +48,20 @@ class NoRepairAgents(unittest.TestCase):
             self.assertNotIn('hexplus-fix', text, path.name)
             self.assertNotIn('hexplus-conflicts', text, path.name)
 
-    def test_sync_keeps_a_locally_fixed_branch(self):
-        sync = (WORKFLOWS / 'hexplus-sync.yml').read_text()
-        self.assertIn("git config user.name 'hexplus-sync'", sync)
-        self.assertIn(""""$(git log -1 --format='%an|%s' FETCH_HEAD)" != 'hexplus-sync|Sync upstream '*""", sync)
-        self.assertIn('title="Sync upstream anomalyco/hex dev @', sync)
-        self.assertIn('--label conflict', sync)
+    def test_sync_files_and_runtime_references_are_gone(self):
+        for name in ('hexplus-sync.yml', 'hexplus-gate.yml', 'hexplus-upstream-pr.yml'):
+            self.assertFalse((WORKFLOWS / name).exists(), name)
+        scripts = ROOT / '.github/hexplus'
+        for name in ('verify-sync-run.py', 'ours.txt'):
+            self.assertFalse((scripts / name).exists(), name)
+        # Do not scan tests: negative assertions deliberately name removed inputs.
+        paths = [*WORKFLOWS.glob('*.yml')]
+        for pattern in ('*.py', '*.sh', '*.json'):
+            paths.extend(scripts.glob(pattern))
+        for path in paths:
+            for removed in ('sync/upstream', 'upstream-pr', 'SYNC_TOKEN',
+                            'hexplus-gate', 'hexplus-sync', 'verify-sync-run', 'ours.txt'):
+                self.assertNotIn(removed, path.read_text(), str(path))
 
 
 if __name__ == '__main__':

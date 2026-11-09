@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -44,7 +45,7 @@ class ConfigTests(unittest.TestCase):
 
 
 class IdentityTests(unittest.TestCase):
-    """Runs against the real ios/ tree, so an upstream identity change fails here first."""
+    """Check identity rewrites against the real committed ios/ tree."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -85,9 +86,9 @@ class IdentityTests(unittest.TestCase):
 
 
 class ScopeTests(unittest.TestCase):
-    """scope.sh: feature PRs touch only ios/ and HEXPLUS.md; Hex+ automation needs the infra label."""
+    """All paths may change; every .github/ change needs the infra label."""
 
-    def run_scope(self, files, labels='', head_ref='feature/x'):
+    def run_scope(self, files, labels=''):
         with tempfile.TemporaryDirectory() as tmp:
             git = ['git', '-C', tmp, '-c', 'user.name=t', '-c', 'user.email=t@t']
             subprocess.run(git[:3] + ['init', '-q'], check=True)
@@ -99,23 +100,63 @@ class ScopeTests(unittest.TestCase):
             subprocess.run(git + ['add', '-A'], check=True)
             subprocess.run(git + ['commit', '-q', '-m', 'change'], check=True)
             return subprocess.run(['bash', str(HERE / 'scope.sh'), 'HEAD~1', 'HEAD'], cwd=tmp,
-                                  env={'PATH': '/usr/bin:/bin', 'LABELS': labels, 'HEAD_REF': head_ref},
+                                  env={'PATH': '/usr/bin:/bin', 'LABELS': labels},
                                   capture_output=True, text=True).returncode
 
-    def test_ios_and_notes_pass(self):
-        self.assertEqual(self.run_scope(['ios/HEXShared/A.swift', 'HEXPLUS.md']), 0)
+    def test_non_automation_paths_pass(self):
+        for path in ('ios/HEXShared/A.swift', 'HEXPLUS.md', 'README.md', 'src/main.rs'):
+            with self.subTest(path=path):
+                self.assertEqual(self.run_scope([path]), 0)
 
-    def test_automation_needs_infra_label(self):
-        self.assertEqual(self.run_scope(['.github/hexplus/build.sh']), 1)
-        self.assertEqual(self.run_scope(['.github/workflows/hexplus-ci.yml'], 'feature,infra'), 0)
+    def test_all_automation_needs_infra_label(self):
+        for path in ('.github/hexplus/x.sh', '.github/workflows/x.yml',
+                     '.github/ISSUE_TEMPLATE/x.yml', '.github/other.txt'):
+            with self.subTest(path=path):
+                self.assertEqual(self.run_scope([path]), 1)
+                self.assertEqual(self.run_scope([path], 'feature,infra'), 0)
 
-    def test_everything_else_fails(self):
-        self.assertEqual(self.run_scope(['src/main.rs']), 1)
-        self.assertEqual(self.run_scope(['.github/workflows/release.yml'], 'infra'), 1)
+    def test_no_changes_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(['git', 'init', '-q', tmp], check=True)
+            subprocess.run(['git', '-C', tmp, '-c', 'user.name=t', '-c', 'user.email=t@t',
+                            'commit', '-q', '--allow-empty', '-m', 'base'], check=True)
+            result = subprocess.run(['bash', str(HERE / 'scope.sh'), 'HEAD', 'HEAD'], cwd=tmp,
+                                    capture_output=True, text=True, check=True)
+            self.assertIn('Scope OK (0 files)', result.stdout)
 
-    def test_upstream_pr_may_change_upstream_files_but_not_hexplus_automation(self):
-        self.assertEqual(self.run_scope(['src/main.rs', 'ios/A.swift'], head_ref='upstream-pr/12'), 0)
-        self.assertEqual(self.run_scope(['src/main.rs', '.github/hexplus/x.sh'], head_ref='upstream-pr/12'), 1)
+
+class ProjectPathsTests(unittest.TestCase):
+    def test_project_paths_are_self_contained_and_exist(self):
+        # Parse path keys anywhere, plus bare list entries in each sources block.
+        # Keep this Linux check independent of PyYAML / XcodeGen.
+        ios = REPO / 'ios'
+        paths = []
+        sources_indent = None
+        for line in (ios / 'project.yml').read_text().splitlines():
+            indent = len(line) - len(line.lstrip())
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            if sources_indent is not None and indent <= sources_indent:
+                sources_indent = None
+            if stripped == 'sources:':
+                sources_indent = indent
+            match = re.match(r'(?:-\s+)?path:\s*(.+)$', stripped)
+            if match:
+                paths.append(match.group(1))
+            elif sources_indent is not None:
+                match = re.match(r'-\s+([^:]+)$', stripped)
+                if match:
+                    paths.append(match.group(1))
+        self.assertGreater(len(paths), 0)
+        self.assertIn('AppIcon.icon', paths)
+        self.assertIn('TestFixtures/term-hex-1.wav', paths)
+        for raw in paths:
+            value = raw.strip('"\'')
+            with self.subTest(path=value):
+                self.assertNotIn('..', value)
+                self.assertFalse(Path(value).is_absolute())
+                self.assertTrue((ios / value).exists(), value)
 
 
 class InfraLabelTests(unittest.TestCase):
