@@ -136,7 +136,7 @@ class ScopeTests(unittest.TestCase):
                                   capture_output=True, text=True).returncode
 
     def test_non_automation_paths_pass(self):
-        for path in ('ios/HEXShared/A.swift', 'TYPR.md', 'README.md', 'src/main.rs'):
+        for path in ('ios/TyprShared/A.swift', 'TYPR.md', 'README.md', 'src/main.rs'):
             with self.subTest(path=path):
                 self.assertEqual(self.run_scope([path]), 0)
 
@@ -158,6 +158,24 @@ class ScopeTests(unittest.TestCase):
 
 
 class ProjectPathsTests(unittest.TestCase):
+    def test_renamed_project_targets_module_and_host_are_consistent(self):
+        ios = REPO / 'ios'
+        project = (ios / 'project.yml').read_text()
+        self.assertEqual(re.findall(r'^  (Typr\w*):$', project, re.MULTILINE),
+                         ['Typr', 'TyprKeyboard', 'TyprWidgets', 'TyprTests'])
+        self.assertTrue(project.startswith('name: Typr\n'))
+        self.assertIn('PRODUCT_NAME: Typr\n', project)
+        self.assertIn('TEST_HOST: $(BUILT_PRODUCTS_DIR)/Typr.app/'
+                      '$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Typr', project)
+        self.assertIn('- TyprTests\n', project)
+        for path in (ios / 'TyprTests').glob('*.swift'):
+            with self.subTest(path=path.name):
+                self.assertIn('@testable import Typr', path.read_text())
+        old_prefix = re.compile(r'\b(?:HEX[A-Za-z_]*|Hex[A-Z]\w*|hexPlus\w*)\b')
+        for path in ios.rglob('*.swift'):
+            with self.subTest(path=str(path.relative_to(ios))):
+                self.assertIsNone(old_prefix.search(path.read_text()))
+
     def test_project_paths_are_self_contained_and_exist(self):
         # Parse path keys anywhere, plus bare list entries in each sources block.
         # Keep this Linux check independent of PyYAML / XcodeGen.

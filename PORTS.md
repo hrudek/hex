@@ -13,8 +13,11 @@ sync instructions or local dependencies.
 
 ## Carried keyboard PR paths
 
-The second row's source and destination paths are:
-`ios/HEXKeyboard/KeyboardViewController.swift`, `ios/HEXMobile/ExperimentsCard.swift`, `ios/HEXMobile/FullKeyboardSnapshotStage.swift`, `ios/HEXMobile/KeyboardPreviewHost.swift`, `ios/HEXMobileTests/AutocorrectEngineTests.swift`, `ios/HEXMobileTests/FullKeyboardEngineTests.swift`, `ios/HEXMobileTests/KeyboardLayoutTests.swift`, `ios/HEXShared/DotScope.swift`, `ios/HEXShared/FullKeyboard/AccentPicker.swift`, `ios/HEXShared/FullKeyboard/AutocorrectEngine.swift`, `ios/HEXShared/FullKeyboard/FullKeyboardEngine.swift`, `ios/HEXShared/FullKeyboard/FullKeyboardPalette.swift`, `ios/HEXShared/FullKeyboard/FullKeyboardView.swift`, `ios/HEXShared/FullKeyboard/HexKeyViews.swift`, `ios/HEXShared/FullKeyboard/KeyboardKeyPlaneView.swift`, `ios/HEXShared/FullKeyboard/KeyboardLayout.swift`, `ios/HEXShared/FullKeyboard/KeyboardStripView.swift`.
+The second row's current destination paths are listed below. In the adopted
+source revision, targets used `HEXMobile`, `HEXKeyboard`, `HEXMobileTests` and
+`HEXShared`, and the key view file was `HexKeyViews.swift`; Typr renamed these
+locally without changing their provenance:
+`ios/TyprKeyboard/KeyboardViewController.swift`, `ios/Typr/ExperimentsCard.swift`, `ios/Typr/FullKeyboardSnapshotStage.swift`, `ios/Typr/KeyboardPreviewHost.swift`, `ios/TyprTests/AutocorrectEngineTests.swift`, `ios/TyprTests/FullKeyboardEngineTests.swift`, `ios/TyprTests/KeyboardLayoutTests.swift`, `ios/TyprShared/DotScope.swift`, `ios/TyprShared/FullKeyboard/AccentPicker.swift`, `ios/TyprShared/FullKeyboard/AutocorrectEngine.swift`, `ios/TyprShared/FullKeyboard/FullKeyboardEngine.swift`, `ios/TyprShared/FullKeyboard/FullKeyboardPalette.swift`, `ios/TyprShared/FullKeyboard/FullKeyboardView.swift`, `ios/TyprShared/FullKeyboard/TyprKeyViews.swift`, `ios/TyprShared/FullKeyboard/KeyboardKeyPlaneView.swift`, `ios/TyprShared/FullKeyboard/KeyboardLayout.swift`, `ios/TyprShared/FullKeyboard/KeyboardStripView.swift`.
 
 This list was derived with `git diff --name-only bbab250d^ 9029d2bc -- ios/`.
 An upstream PR's status and head may later change; the adopted commit above
@@ -25,7 +28,7 @@ none of those commits touched `ios/`. This is a historical observation,
 not a claim about the current remote tip.
 
 `src/…` paths in comments under `ios/` refer to `anomalyco/hex` at `cae389a8`.
-In particular, unchanged comments in `HEXShared/DotScope.swift` and
+In particular, unchanged comments in `TyprShared/DotScope.swift` and
 `DotScopeShader.metal` name the desktop spring, scope and shader sources.
 Some comments retain pre-reorganization names: at that commit,
 `src/spring.rs`, `src/dot_scope.rs` and `src/dot_scope/scope.rs` correspond to

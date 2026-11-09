@@ -79,7 +79,7 @@ fences storage loads/exports; fresh captures submitted after Clear survive.
 
 ## Files and migration
 
-`Application Support/HexPlus/DictationLog/v2/entries/<UUID>.json` is the source of
+`Application Support/Typr/DictationLog/v2/entries/<UUID>.json` is the source of
 truth, one atomic protected file per entry (storage schema 2). `archive-id.json`
 identifies the lineage. The rebuildable metadata index contains ID/date/status,
 rating/issues/source/revision, bytes, filesystem fingerprint and short preview.
@@ -93,7 +93,7 @@ snapshot admission. Each entry write is independently admitted; unrelated entrie
 cannot be lost to whole-history snapshot coalescing. Index writes coalesce as a
 cache only, after source writes. Failed source writes remain dirty for Retry.
 
-Schema-1 `HexPlus/dictation-log.json` migrates independently of collection being
+Schema-1 `Typr/dictation-log.json` migrates independently of collection being
 on. Copies are re-read and verified and a completion marker is verified before
 the original is removed. Existing v2 copies always win, including after a
 downgrade. Unknown/corrupt originals remain in place with a generic notice;

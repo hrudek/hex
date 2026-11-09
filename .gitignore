@@ -1,6 +1,6 @@
 /ios/*DerivedData
 /ios/build
-/ios/HEXMobile.xcodeproj
+/ios/Typr.xcodeproj
 __pycache__/
 *.py[cod]
 /.venv

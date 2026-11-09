@@ -33,8 +33,8 @@ this file is the entry point for agents and the owner.
     New switches are **on by default**, and off preserves the previous
     behavior exactly. Any exception needs an explicit owner decision.
   - Switches live in the app's **Typr** settings section:
-    `HEXShared/HexPlusSettings.swift` stores values in the App Group;
-    `HEXMobile/HexPlusCard.swift` hosts toggles. Do not add them to
+    `TyprShared/TyprSettings.swift` stores values in the App Group;
+    `Typr/TyprCard.swift` hosts toggles. Do not add them to
     `ExperimentsCard.swift` or `FullKeyboardSettings.swift`.
     Existing switches and behavior stay in place unless explicitly changed.
   - Tweaks, extensions and follow-ups use the feature's existing switch (if
@@ -42,7 +42,7 @@ this file is the entry point for agents and the owner.
     A separate switch requires a genuine experiment or owner request.
   - Make a proven feature permanent through a PR: remove the switch and old
     code path, set its table status to `permanent`. No separate issue is required.
-- Every feature brings simulator tests (`ios/HEXMobileTests`) to protect its
+- Every feature brings simulator tests (`ios/TyprTests`) to protect its
   behavior. Hand over promptly: a successful local simulator
   run is not required before the push; CI runs tests after merging to `main`.
   Use targeted tests for debugging or when the owner asks to fix failures first,
@@ -88,14 +88,14 @@ may be listed for a feature. Documentation-only process changes need no feature 
 
 | Feature | Issue | PR | Status | Main files |
 | --- | --- | --- | --- | --- |
-| [AI cleanup](ios/AI_CLEANUP.md): on-device Apple Intelligence self-corrections, stutter/filler removal and misheard-word fixes, using the Custom vocabulary list as preferred spellings, with plain-transcript fallback; last outcome shown in the Typr card, which also shows the configured model (switch *Show AI cleanup model*). While on, it replaces upstream's *Clean up with Apple Intelligence* experiment | — | #49, #52, #53, #55, #57 | switch | ios/HEXMobile/HexPlusCleanup.swift, ios/HEXMobile/CleanupGuard.swift, ios/HEXMobile/CleanupPrompt.swift, ios/HEXMobile/CleanupObservation.swift, ios/HEXMobile/HexPlusAppleCleaner.swift, ios/HEXMobile/DictationController.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift, ios/HEXMobile/HexPlusModelInfo.swift, ios/HEXMobileTests/HexPlusModelInfoTests.swift |
-| [Dictation log](ios/DICTATION_LOG.md): durable on-device archive without automatic eviction; detail shows recognized text and AI correction (each with Copy) and an inline "What I said" field, everything else under More details; one-tap Good/Problem feedback, optional categories/reference/notes; complete versioned JSON file export and bounded recent text export. Off stops collection and keeps saved logs; only explicit Delete/Clear removes them (owner-approved retention exception) | — | #58, #59, #60, #61 (archive/feedback/JSON), #64 (feedback detail) | switch | ios/HEXMobile/DictationLogArchive.swift, ios/HEXMobile/DictationLogFeedbackView.swift, ios/HEXMobile/DictationLog.swift, ios/HEXMobile/DictationLogStorage.swift, ios/HEXMobile/DictationLogView.swift, ios/HEXMobile/DictationLogExport.swift, ios/HEXMobile/DictationLogExportMenu.swift, ios/HEXMobile/WordDiff.swift, ios/HEXMobile/CleanupTextDiagnostics.swift, ios/HEXMobile/HexPlusCleanup.swift, ios/HEXMobile/DictationController.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift, ios/HEXMobileTests/DictationLogImprovementTests.swift |
+| [AI cleanup](ios/AI_CLEANUP.md): on-device Apple Intelligence self-corrections, stutter/filler removal and misheard-word fixes, using the Custom vocabulary list as preferred spellings, with plain-transcript fallback; last outcome shown in the Typr card, which also shows the configured model (switch *Show AI cleanup model*). While on, it replaces upstream's *Clean up with Apple Intelligence* experiment | — | #49, #52, #53, #55, #57 | switch | ios/Typr/TyprCleanup.swift, ios/Typr/CleanupGuard.swift, ios/Typr/CleanupPrompt.swift, ios/Typr/CleanupObservation.swift, ios/Typr/TyprAppleCleaner.swift, ios/Typr/DictationController.swift, ios/TyprShared/TyprSettings.swift, ios/Typr/TyprCard.swift, ios/Typr/TyprModelInfo.swift, ios/TyprTests/TyprModelInfoTests.swift |
+| [Dictation log](ios/DICTATION_LOG.md): durable on-device archive without automatic eviction; detail shows recognized text and AI correction (each with Copy) and an inline "What I said" field, everything else under More details; one-tap Good/Problem feedback, optional categories/reference/notes; complete versioned JSON file export and bounded recent text export. Off stops collection and keeps saved logs; only explicit Delete/Clear removes them (owner-approved retention exception) | — | #58, #59, #60, #61 (archive/feedback/JSON), #64 (feedback detail) | switch | ios/Typr/DictationLogArchive.swift, ios/Typr/DictationLogFeedbackView.swift, ios/Typr/DictationLog.swift, ios/Typr/DictationLogStorage.swift, ios/Typr/DictationLogView.swift, ios/Typr/DictationLogExport.swift, ios/Typr/DictationLogExportMenu.swift, ios/Typr/WordDiff.swift, ios/Typr/CleanupTextDiagnostics.swift, ios/Typr/TyprCleanup.swift, ios/Typr/DictationController.swift, ios/TyprShared/TyprSettings.swift, ios/Typr/TyprCard.swift, ios/TyprTests/DictationLogImprovementTests.swift |
 | [Local dictation report](ios/tools/dictation_log/README.md): explicit offline Python import/report, private SQLite and raw evidence outside Git, revision-safe merge, HMAC settings fingerprints and bounded reference-only metrics; no app/runtime changes | — | #63 | permanent | ios/tools/dictation_log/archive.py, ios/tools/dictation_log/store.py, ios/tools/dictation_log/report.py, ios/tools/dictation_log/cli.py, ios/tools/dictation_log/tests/test_dictation_log.py |
-| Keyboard quick feedback: exact newly inserted result, Good/Problem on the compact and full keyboard; after Problem, *Fix in Typr* opens the app on that entry's "What I said" field; durable text-free queue; honest Noted, archive commit before removal; preserves full keyboard Undo | — | #62, #64 | switch | ios/HEXShared/DictationFeedback.swift, ios/HEXShared/DictationFeedbackBridge.swift, ios/HEXShared/HexPlusFeedbackTray.swift, ios/HEXShared/FullKeyboard/HexPlusFeedbackBar.swift, ios/HEXShared/HexPlusFeedbackLink.swift, ios/HEXMobile/HexPlusFeedbackRouter.swift, ios/HEXMobile/HEXMobileApp.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift, ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXMobile/DictationLog.swift, ios/HEXMobile/DictationController.swift, ios/HEXShared/FullKeyboard/KeyboardStripView.swift, ios/HEXShared/KeyboardSurface.swift, ios/HEXMobileTests/DictationKeyboardFeedbackTests.swift |
-| Typr keyboard no longer falls back to the iOS keyboard (Swift 6 lexicon crash) | #31 | pending | fix | ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXShared/FullKeyboard/LexiconDelivery.swift |
-| German autocorrect: ae/oe/ue/ss → ä/ö/ü/ß and German typo fixes on the full keyboard | #33 | pending | switch | ios/HEXShared/FullKeyboard/GermanAutocorrect.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
-| Keep mic warm stays hot after a keyboard dictation (no trip back into the app for the next one) | #42 | pending | fix | ios/HEXMobile/AudioBackend.swift, ios/HEXMobile/DictationController.swift |
-| Keyboard switch key: tap on the dictation bar shows the full keyboard; hold 0.35 s on the full keyboard shows the dictation bar | #44 | pending | switch | ios/HEXShared/FullKeyboard/KeyboardSwitchKey.swift, ios/HEXKeyboard/KeyboardViewController.swift, ios/HEXShared/FullKeyboard/FullKeyboardView.swift, ios/HEXShared/KeyboardSurface.swift, ios/HEXShared/HexPlusSettings.swift, ios/HEXMobile/HexPlusCard.swift |
+| Keyboard quick feedback: exact newly inserted result, Good/Problem on the compact and full keyboard; after Problem, *Fix in Typr* opens the app on that entry's "What I said" field; durable text-free queue; honest Noted, archive commit before removal; preserves full keyboard Undo | — | #62, #64 | switch | ios/TyprShared/DictationFeedback.swift, ios/TyprShared/DictationFeedbackBridge.swift, ios/TyprShared/TyprFeedbackTray.swift, ios/TyprShared/FullKeyboard/TyprFeedbackBar.swift, ios/TyprShared/TyprFeedbackLink.swift, ios/Typr/TyprFeedbackRouter.swift, ios/Typr/TyprApp.swift, ios/TyprShared/TyprSettings.swift, ios/Typr/TyprCard.swift, ios/TyprKeyboard/KeyboardViewController.swift, ios/Typr/DictationLog.swift, ios/Typr/DictationController.swift, ios/TyprShared/FullKeyboard/KeyboardStripView.swift, ios/TyprShared/KeyboardSurface.swift, ios/TyprTests/DictationKeyboardFeedbackTests.swift |
+| Typr keyboard no longer falls back to the iOS keyboard (Swift 6 lexicon crash) | #31 | pending | fix | ios/TyprKeyboard/KeyboardViewController.swift, ios/TyprShared/FullKeyboard/LexiconDelivery.swift |
+| German autocorrect: ae/oe/ue/ss → ä/ö/ü/ß and German typo fixes on the full keyboard | #33 | pending | switch | ios/TyprShared/FullKeyboard/GermanAutocorrect.swift, ios/TyprShared/TyprSettings.swift, ios/Typr/TyprCard.swift |
+| Keep mic warm stays hot after a keyboard dictation (no trip back into the app for the next one) | #42 | pending | fix | ios/Typr/AudioBackend.swift, ios/Typr/DictationController.swift |
+| Keyboard switch key: tap on the dictation bar shows the full keyboard; hold 0.35 s on the full keyboard shows the dictation bar | #44 | pending | switch | ios/TyprShared/FullKeyboard/KeyboardSwitchKey.swift, ios/TyprKeyboard/KeyboardViewController.swift, ios/TyprShared/FullKeyboard/FullKeyboardView.swift, ios/TyprShared/KeyboardSurface.swift, ios/TyprShared/TyprSettings.swift, ios/Typr/TyprCard.swift |
 
 ## Asking for work (owner)
 
@@ -262,10 +262,10 @@ gh workflow run typr-ci.yml -R hrudek/typr --ref feature/NAME -f distribution=ad
 
 # For either path, RUN_ID below is the signing workflow's run ID:
 
-gh run download -R hrudek/typr RUN_ID --pattern 'typr-ad-hoc-*' --dir ~/code/hex-downloads/RUN_ID
+gh run download -R hrudek/typr RUN_ID --pattern 'typr-ad-hoc-*' --dir ~/code/typr-downloads/RUN_ID
 age --decrypt --identity ~/.local/share/ios-build-signing/artifacts.agekey \
-  --output HEX.ipa ~/code/hex-downloads/RUN_ID/typr-ad-hoc-RUN_ID/HEX.ipa.age
-~/code/apple-dev-setup/iphone-wifi install "$PWD/HEX.ipa"
+  --output Typr.ipa ~/code/typr-downloads/RUN_ID/typr-ad-hoc-RUN_ID/Typr.ipa.age
+~/code/apple-dev-setup/iphone-wifi install "$PWD/Typr.ipa"
 
 # TestFlight happens on its own for every main change to the app; by hand:
 gh workflow run typr-ci.yml -R hrudek/typr -f distribution=testflight

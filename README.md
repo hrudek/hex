@@ -18,7 +18,7 @@ On macOS, install Xcode 26+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen
 ```sh
 cd ios
 xcodegen generate
-xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=<SIM_UDID>"
+xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>"
 ```
 
 Alternatively, from the repository root:

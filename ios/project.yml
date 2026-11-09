@@ -1,4 +1,4 @@
-name: HEXMobile
+name: Typr
 options:
   minimumXcodeGenVersion: 2.46.0
   bundleIdPrefix: dev.rudek.typr
@@ -14,24 +14,24 @@ settings:
     DEVELOPMENT_TEAM: 2ZNGF24932
     SWIFT_VERSION: 6.0
 targets:
-  HEXMobile:
+  Typr:
     type: application
     platform: iOS
     sources:
-      - HEXMobile
-      - HEXShared
-      - HEXActivity
+      - Typr
+      - TyprShared
+      - TyprActivity
       - Branding/TyprWordmark.swift
       - path: AppIcon.icon
         buildPhase: resources
     dependencies:
       - package: FluidAudio
-      - target: HEXKeyboard
+      - target: TyprKeyboard
         embed: true
-      - target: HEXWidgets
+      - target: TyprWidgets
         embed: true
     info:
-      path: HEXMobile/Info.plist
+      path: Typr/Info.plist
       properties:
         CFBundleDisplayName: Typr
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -64,27 +64,27 @@ targets:
         ASSETCATALOG_COMPILER_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: HEXMobile/HEXMobile.entitlements
+        CODE_SIGN_ENTITLEMENTS: Typr/Typr.entitlements
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: 0.2.0
         OTHER_LDFLAGS: $(inherited) -weak_framework FoundationModels
         OTHER_SWIFT_FLAGS: $(inherited) -Xfrontend -disable-autolink-framework -Xfrontend FoundationModels
         PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr
-        PRODUCT_NAME: HEX
+        PRODUCT_NAME: Typr
     scheme:
       gatherCoverageData: false
       testTargets:
-        - HEXMobileTests
-  HEXKeyboard:
+        - TyprTests
+  TyprKeyboard:
     type: app-extension
     platform: iOS
     sources:
-      - HEXKeyboard
-      - HEXShared
+      - TyprKeyboard
+      - TyprShared
       - Branding/TyprWordmark.swift
     info:
-      path: HEXKeyboard/Info.plist
+      path: TyprKeyboard/Info.plist
       properties:
         CFBundleDisplayName: Typr
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -100,24 +100,24 @@ targets:
     settings:
       base:
         APPLICATION_EXTENSION_API_ONLY: YES
-        CODE_SIGN_ENTITLEMENTS: HEXKeyboard/HEXKeyboard.entitlements
+        CODE_SIGN_ENTITLEMENTS: TyprKeyboard/TyprKeyboard.entitlements
         CODE_SIGN_STYLE: Automatic
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: 0.2.0
         PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr.keyboard
-        PRODUCT_NAME: HEXKeyboard
+        PRODUCT_NAME: TyprKeyboard
         SKIP_INSTALL: YES
-  HEXWidgets:
+  TyprWidgets:
     type: app-extension
     platform: iOS
     sources:
-      - HEXWidgets
-      - HEXActivity
-      - HEXShared/HexTheme.swift
+      - TyprWidgets
+      - TyprActivity
+      - TyprShared/TyprTheme.swift
       - Branding/TyprWordmark.swift
     info:
-      path: HEXWidgets/Info.plist
+      path: TyprWidgets/Info.plist
       properties:
         CFBundleDisplayName: Typr
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -132,21 +132,21 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: 0.2.0
         PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr.widgets
-        PRODUCT_NAME: HEXWidgets
+        PRODUCT_NAME: TyprWidgets
         SKIP_INSTALL: YES
-  HEXMobileTests:
+  TyprTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - HEXMobileTests
+      - TyprTests
       - path: TestFixtures/term-hex-1.wav
         buildPhase: resources
     dependencies:
-      - target: HEXMobile
+      - target: Typr
     settings:
       base:
         BUNDLE_LOADER: $(TEST_HOST)
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr.tests
-        TEST_HOST: $(BUILT_PRODUCTS_DIR)/HEX.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HEX
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Typr.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Typr

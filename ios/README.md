@@ -2,9 +2,9 @@
 
 Typr is a standalone iPhone dictation keyboard.
 
-**Status:** Internal TestFlight app (`HEXMobile`), custom keyboard extension
-(`HEXKeyboard`), and Live Activity + Control Center widget extension
-(`HEXWidgets`). The containing app records a generation-scoped temporary WAV,
+**Status:** Internal TestFlight app (`Typr`), custom keyboard extension
+(`TyprKeyboard`), and Live Activity + Control Center widget extension
+(`TyprWidgets`). The containing app records a generation-scoped temporary WAV,
 transcribes on-device with Apple Speech (`SpeechTranscriber` on iOS 26+) or
 FluidAudio Parakeet V2 (iOS 18+), and removes each capture's file after
 inference, cancellation, or failure. The keyboard extension sends commands and
@@ -13,7 +13,7 @@ it never accesses the microphone, speech model, or network.
 
 ## Capabilities
 
-- **One-tap keyboard dictation (`HEXKeyboard`):**
+- **One-tap keyboard dictation (`TyprKeyboard`):**
   - **Setup:** The keyboard needs Full Access to reach Typr through the App
     Group. Without it, the keyboard shows the Settings path and an **Open Typr
     setup** button (`typr://keyboard/setup`). The app's setup card
@@ -35,13 +35,13 @@ it never accesses the microphone, speech model, or network.
     registered URL scheme fall back cleanly within ~1s to the bottom-edge swipe
     bar and quick-jump chips. **Edit apps…** in the app's return menu picks and
     orders the apps the keyboard tray and jump bar offer.
-  - **GPU Dot Scope (`HEXShared/DotScope.swift`, `DotScopeShader.metal`):**
-    Both `HEXMobile` and `HEXKeyboard` render Hex's desktop menu-bar braided
+  - **GPU Dot Scope (`TyprShared/DotScope.swift`, `DotScopeShader.metal`):**
+    Both `Typr` and `TyprKeyboard` render Hex's desktop menu-bar braided
     oscilloscope (in `anomalyco/hex` at `cae389a8`: `src/rune_hud/dot_scope.rs`,
     `src/rune_hud.wgsl`) at native display
     refresh via `CAMetalLayer` + `CADisplayLink`, pausing at 0% CPU/GPU once
     settled in idle. Lock Screen / Dynamic Island Live Activities render a
-    matching `Canvas` dot-matrix badge (`HexDotMatrixBadge`) because WidgetKit
+    matching `Canvas` dot-matrix badge (`TyprDotMatrixBadge`) because WidgetKit
     archives static view snapshots rather than hosting live `CAMetalLayer`s.
     Meter polling stays alive through a temporary non-recording state of the
     same capture; it resumes app levels and keyboard snapshots when the recorder
@@ -63,7 +63,7 @@ it never accesses the microphone, speech model, or network.
     starts dictation in a warm session (or opens Typr without one), with a
     haptic. Moving more than 10 pt before then opens the style and **Return
     to** menu; releasing over a row picks it, and releasing elsewhere leaves
-    the menu open for taps (`HexKeyGesture`). VoiceOver activation dictates,
+    the menu open for taps (`TyprKeyGesture`). VoiceOver activation dictates,
     and the **Dictation styles** action opens the menu.
   - **Apple Intelligence cleanup (Experiments › Clean up with Apple
     Intelligence, iOS 26+):** Off by default. For every style but `Verbatim`,
@@ -96,8 +96,8 @@ it never accesses the microphone, speech model, or network.
     input is opt-in (**Use Bluetooth headphones**, default off) so AirPods stay
     in full-fidelity output by default.
 - **Action Button, Control Center, Back Tap & Live Activity:**
-  - `DictateWithHexIntent` (`AudioRecordingIntent` + `LiveActivityIntent`) and
-    `HexDictationControl` (`ControlWidget`) start recording on first press with
+  - `DictateWithTyprIntent` (`AudioRecordingIntent` + `LiveActivityIntent`) and
+    `TyprDictationControl` (`ControlWidget`) start recording on first press with
     a Dynamic Island / Lock Screen Live Activity (`Stop` and `Cancel` buttons)
     and transcribe + copy to the clipboard on second press.
 
@@ -108,13 +108,13 @@ Prerequisites: Xcode 26+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2
 ```sh
 cd ios
 xcodegen generate
-xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=<SIM_UDID>"
+xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>"
 ```
 
 ## Simulator vs. Physical iPhone Proof Limits
 
-- **Verified in Simulator (`HEXMobileTests` + `--snap-state` scenes):** Compilation
-  across `HEXMobile`, `HEXKeyboard`, and `HEXWidgets`; App Group command/snapshot
+- **Verified in Simulator (`TyprTests` + `--snap-state` scenes):** Compilation
+  across `Typr`, `TyprKeyboard`, and `TyprWidgets`; App Group command/snapshot
   framing; the `DictationController` generation/expiry race and 30s post-close
   transcript delivery; 10s handoff window + URL-scheme auto-return fallback;
   interruption handling; meter recovery after injected startup and mid-capture

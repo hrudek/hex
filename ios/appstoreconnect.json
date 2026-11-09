@@ -1,7 +1,7 @@
 {
   "name": "Typr Keyboard",
-  "project": "HEXMobile.xcodeproj",
-  "scheme": "HEXMobile",
+  "project": "Typr.xcodeproj",
+  "scheme": "Typr",
   "teamId": "2ZNGF24932",
   "appId": "6832515139",
   "bundleId": "dev.rudek.typr",
