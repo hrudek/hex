@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One line per input, for comparing two commits without a full clone.
 # Usage: fingerprint.sh <git-dir> <commit> [app|pipeline]
-#   app       what changes the app binary that ships (pushes to hex-plus → TestFlight)
+#   app       what changes the app binary that ships (pushes to main → TestFlight)
 #   pipeline  app + Typr's CI scripts and workflow (PRs, so pipeline changes get tested)
 set -euo pipefail
 paths=(ios

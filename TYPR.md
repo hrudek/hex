@@ -3,9 +3,9 @@
 [hrudek/typr](https://github.com/hrudek/typr) is a standalone iPhone dictation
 keyboard. Typr is based on Hex by Kit Langton
 (https://github.com/kitlangton/hex / https://github.com/anomalyco/hex), MIT.
-The integration branch remains `hex-plus`.
+The default and integration branch is `main`.
 [PORTS.md](PORTS.md) records provenance and selected future adoptions.
-Features are built locally with Pi and reach `hex-plus` through reviewed PRs;
+Features are built locally with Pi and reach `main` through reviewed PRs;
 this file is the entry point for agents and the owner.
 
 ## For agents: start here
@@ -14,7 +14,7 @@ this file is the entry point for agents and the owner.
   label (CI's scope check fails otherwise), so automation permissions cannot
   be widened unnoticed. Follow [AGENTS.md](AGENTS.md) for worktrees.
 - Local development with Pi is **PR-first**: discuss the request in Pi → branch
-  `feature/<name>` from `hex-plus` → PR to `hex-plus` with label `feature` → squash
+  `feature/<name>` from `main` → PR to `main` with label `feature` → squash
   merge. No issue or issue number in the branch name is required. Do not create
   an issue retroactively just to document an already implemented change.
 - Use an existing relevant issue when there is one. Create an issue only for
@@ -44,7 +44,7 @@ this file is the entry point for agents and the owner.
     code path, set its table status to `permanent`. No separate issue is required.
 - Every feature brings simulator tests (`ios/TyprTests`) to protect its
   behavior. Hand over promptly: a successful local simulator
-  run is not required before the push; CI runs tests after merging to `hex-plus`.
+  run is not required before the push; CI runs tests after merging to `main`.
   Use targeted tests for debugging or when the owner asks to fix failures first,
   and report honestly which tests ran or are left to CI. On a macOS runner, use
   `bash .github/typr/agent-test.sh [Target/Class,…]` (it leaves the app's
@@ -70,8 +70,8 @@ this file is the entry point for agents and the owner.
 Orientation:
 
 ```sh
-git log --no-merges --oneline split/hex-upstream..hex-plus  # Typr commits on top of the adopted upstream base
-git diff split/base..hex-plus --stat                       # changes since the standalone split
+git log --no-merges --oneline split/hex-upstream..main  # Typr commits on top of the adopted upstream base
+git diff split/base..main --stat                       # changes since the standalone split
 gh pr list --state merged --label feature                 # features, with their reasons
 ```
 
@@ -101,13 +101,13 @@ may be listed for a feature. Documentation-only process changes need no feature 
 
 - **Default: develop here with Pi.** Describe the change in the conversation;
   Pi clarifies requirements as needed, implements on `feature/<name>`, performs
-  appropriate checks and opens a PR to `hex-plus`. No issue is needed. Use a
+  appropriate checks and opens a PR to `main`. No issue is needed. Use a
   draft PR if an early durable work-in-progress record helps. The PR preserves
   the agreed behaviour, decisions and verification; lasting product or
   architecture rules belong in repository documentation. Existing CI, merge
   requirements and distribution rules still apply. To try a PR before it
   merges, run **Typr PR to iPhone** with its number.
-- **Review agent (automatic).** Every same-repository PR into `hex-plus`
+- **Review agent (automatic).** Every same-repository PR into `main`
   (`feature/*`, `fix/*`, `infra/*`, …)
   is reviewed by Claude (`typr-review.yml`, Opus, read-only) when it is
   opened, reopened or marked ready, and again after **every new commit**; a
@@ -132,8 +132,8 @@ may be listed for a feature. Documentation-only process changes need no feature 
   ├─ ❌ FIX → in the same Pi session (a new one if the context is long or stale):
   │          "read the Typr review comment and fix the findings" → commit → push → review again
   ├─ ✅ PASS + checks green → owner: "merge" → squash merge
-  └─ hex-plus: archive → TestFlight at once; simulator tests in parallel
-     └─ tests red → status issue + GitHub mail → Pi: "hex-plus CI is red, read
+  └─ main: archive → TestFlight at once; simulator tests in parallel
+     └─ tests red → status issue + GitHub mail → Pi: "main CI is red, read
         `gh run view <id> --log-failed` and fix it" → branch fix/<name> → PR → same loop
   ```
 
@@ -155,11 +155,11 @@ may be listed for a feature. Documentation-only process changes need no feature 
   Other label events start no CI run (as in OpenCode).
   Draft PRs get only the Linux checks until marked ready.
 - **A merge conflict:** resolve a feature or fix PR locally with Pi. Merge
-  `hex-plus` into its branch, resolve, then push (the review runs again).
+  `main` into its branch, resolve, then push (the review runs again).
 
 The review agent is the only agent in CI. It uses the owner's Claude
 subscription (`CLAUDE_CODE_OAUTH_TOKEN`, environment `typr-agent`) and has
-no signing secrets. The review runs as `pull_request_target` from `hex-plus`'s copy of
+no signing secrets. The review runs as `pull_request_target` from `main`'s copy of
 its workflow, so a PR cannot change its own reviewer; it only reads the PR's
 code and never runs it. The previous automation (issue/`@claude` agent,
 Typr fix repair agent, automatic conflict resolver) is kept on branch
@@ -167,28 +167,28 @@ Typr fix repair agent, automatic conflict resolver) is kept on branch
 
 ## How the pipeline works
 
-The pinned issue **Typr status** is refreshed after each hex-plus push CI run,
+The pinned issue **Typr status** is refreshed after each main push CI run,
 weekly on Monday at 06:17 UTC for renewal warnings, or manually. Under
-*Needs you* it lists red hex-plus CI runs and `needs-human` issues. It also shows
+*Needs you* it lists red main CI runs and `needs-human` issues. It also shows
 the last TestFlight upload, open PRs and upcoming renewals from `expiry.json`.
 
 ```ts
 Typr CI (fast lane: only Linux checks and compiling block; tests never hold anything up)
 ├─ Linux checks: CI helper + offline dictation-log tests, actionlint, shell syntax; scope on PRs
-├─ Decide: did the app change (pushes to hex-plus) / the app or Typr CI scripts (PRs)? no → stop
+├─ Decide: did the app change (pushes to main) / the app or Typr CI scripts (PRs)? no → stop
 ├─ PRs: required archive, no simulator/screenshots
-├─ Push to hex-plus with app changes: archive and simulator tests in parallel
+├─ Push to main with app changes: archive and simulator tests in parallel
 │  └─ Test failures → status issue → fix locally → fix/<name> PR → review → merge → tests again
 ├─ Manual simulator mode: tests + screenshot artifacts, no device archive/signing
 └─ Sign
-   ├─ push to hex-plus → TestFlight as soon as the archive compiled
-   └─ by hand → ad-hoc (hex-plus or feature/*, needs approval) or testflight
+   ├─ push to main → TestFlight as soon as the archive compiled
+   └─ by hand → ad-hoc (main or feature/*, needs approval) or testflight
 
 Typr review (every same-repository PR, every new commit)
 ├─ sticky comment "reviewing <sha>" → Claude (Opus, read-only) reviews the PR diff
 └─ ✅ PASS (check green) | ❌ FIX + numbered findings (check red) | ⚠️ NO RESULT (re-run)
 
-Typr PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
+Typr PR to iPhone (by hand, from main, enter an open feature PR number)
 ├─ Verify current PR commit, successful Linux checks, Decide and unsigned archive
 ├─ No automatic PR simulator tests; optional manual checks do not block signing
 ├─ Your approval in typr-ad-hoc
@@ -196,8 +196,8 @@ Typr PR to iPhone (by hand, from hex-plus, enter an open feature PR number)
 └─ Sign → encrypted ad-hoc IPA (no rebuild, no TestFlight upload)
 ```
 
-`hex-plus` only moves forward: `git pull --ff-only` always works locally.
-Branch rules: changes reach `hex-plus` through PRs with green `Linux checks`,
+`main` only moves forward: `git pull --ff-only` always works locally.
+Branch rules: changes reach `main` through PRs with green `Linux checks`,
 `Decide` and `Unsigned archive` (skipped counts as passed);
 no force pushes or deletion. Repository admins can bypass; the owner decides
 when to merge. Nothing merges by itself.
@@ -210,7 +210,7 @@ runner, it retries that job after 5, 10, then 20 minutes. The job must have no
 assigned runner and no executed steps. Real test/build failures, user-cancelled
 runs, foreign repositories and unrelated workflows are never retried this way.
 The wait uses a Linux runner, not a macOS runner; no agent or signing secret is
-used. Control code always comes from trusted `hex-plus`, never the failed branch.
+used. Control code always comes from trusted `main`, never the failed branch.
 
 At most three retries are permitted per original run, using GitHub's
 `run_attempt` counter (manual reruns also consume this budget). Only one affected
@@ -248,8 +248,8 @@ GitHub cannot copy the old environment's write-only secret.
 
 ```sh
 # Fast path: sign the existing compiled feature PR archive (no rebuild, no test wait).
-# Run from hex-plus, enter the PR number, approve on the run page:
-gh workflow run typr-ad-hoc.yml -R hrudek/typr --ref hex-plus -f pr=123
+# Run from main, enter the PR number, approve on the run page:
+gh workflow run typr-ad-hoc.yml -R hrudek/typr --ref main -f pr=123
 
 # Optional pre-merge simulator tests + screenshots (no device archive/signing):
 gh workflow run typr-ci.yml -R hrudek/typr --ref feature/NAME \
@@ -257,7 +257,7 @@ gh workflow run typr-ci.yml -R hrudek/typr --ref feature/NAME \
 # Download screenshots from that run's typr-screenshots-RUN_ID artifact.
 # only_testing optionally restricts tests; none skips the simulator job and screenshots.
 
-# Fallback: build a fresh ad-hoc archive of hex-plus or a feature branch:
+# Fallback: build a fresh ad-hoc archive of main or a feature branch:
 gh workflow run typr-ci.yml -R hrudek/typr --ref feature/NAME -f distribution=ad-hoc
 
 # For either path, RUN_ID below is the signing workflow's run ID:
@@ -267,7 +267,7 @@ age --decrypt --identity ~/.local/share/ios-build-signing/artifacts.agekey \
   --output Typr.ipa ~/code/typr-downloads/RUN_ID/typr-ad-hoc-RUN_ID/Typr.ipa.age
 ~/code/apple-dev-setup/iphone-wifi install "$PWD/Typr.ipa"
 
-# TestFlight happens on its own for every hex-plus change to the app; by hand:
+# TestFlight happens on its own for every main change to the app; by hand:
 gh workflow run typr-ci.yml -R hrudek/typr -f distribution=testflight
 
 # Profiles (local only, uses ~/.local/share/ios-build-signing):
@@ -279,16 +279,16 @@ python3 -m unittest discover -s ios/tools/dictation_log/tests
 ```
 
 The fast path accepts only open, non-draft `feature/*` PRs from this repository
-into `hex-plus`. It requires the latest PR CI run for the current head commit,
+into `main`. It requires the latest PR CI run for the current head commit,
 with `Linux checks`, `Decide` and `Unsigned archive` successful (none may be
 skipped). PRs do not automatically run simulator tests or screenshots. Optional
 manual simulator checks do not gate archive reuse. Automated simulator tests run
-on `hex-plus` after app changes.
+on `main` after app changes.
 A cancelled or not-yet-started CI run is refused. It checks again after approval;
 if the PR changed, rerun once the new commit's required jobs pass.
 Artifacts expire after seven days: rerun PR CI if the archive is missing or
 expired, or use the fresh-build fallback. A changed Typr identity also requires
-a new PR build. Signing uses only control scripts from `hex-plus`, never scripts
+a new PR build. Signing uses only control scripts from `main`, never scripts
 from the PR; no signing secrets reach the PR build. The reused IPA keeps the
 original archive's build number and `build.json`. Merging still creates a fresh
 TestFlight build as before. Archive selection, provenance, digest and ZIP checks

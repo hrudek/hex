@@ -1,5 +1,5 @@
 # Typr: sign a compiled feature PR archive, without waiting for tests or rebuilding.
-# Dispatch from hex-plus only. All control scripts come from hex-plus, never the PR.
+# Dispatch from main only. All control scripts come from main, never the PR.
 name: Typr PR to iPhone
 run-name: "Typr PR #${{ inputs.pr }} → iPhone (no rebuild)"
 
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   select:
     name: Verify existing PR build
-    if: github.ref == 'refs/heads/hex-plus' && github.actor == github.repository_owner
+    if: github.ref == 'refs/heads/main' && github.actor == github.repository_owner
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: hex-plus
+          ref: main
           sparse-checkout: .github/typr
           persist-credentials: false
       - name: Require successful checks and archive for the current PR commit
@@ -57,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: hex-plus
+          ref: main
           sparse-checkout: .github/typr
           persist-credentials: false
       - name: Load current trusted Typr identity

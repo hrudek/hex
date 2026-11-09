@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Select and verify an existing PR archive; never run code from the PR.
 
-Runs only from hex-plus. GitHub supplies run/job/artifact identity; build.json
+Runs only from main. GitHub supplies run/job/artifact identity; build.json
 must agree with it. Revalidate after environment approval, before downloading.
 """
 import argparse
@@ -44,8 +44,8 @@ def pages(repo, endpoint, key):
 
 def validate_pr(pr, repo):
     require(pr['state'] == 'open' and not pr['draft'], 'PR must be open and ready for review')
-    require(pr['base']['repo']['full_name'] == repo and pr['base']['ref'] == 'hex-plus',
-            'PR must target this repository\'s hex-plus branch')
+    require(pr['base']['repo']['full_name'] == repo and pr['base']['ref'] == 'main',
+            'PR must target this repository\'s main branch')
     require(pr['head']['repo'] and pr['head']['repo']['full_name'] == repo,
             'Fork PR archives cannot be signed')
     require(pr['head']['ref'].startswith('feature/'), 'Only feature/* PRs can reuse archives')

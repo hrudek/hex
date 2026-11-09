@@ -1,6 +1,6 @@
 # Typr dictation improvement — revised delivery plan v2
 
-Base draft: /tmp/typr-feedback-plan.md. This document overrides vague/conflicting draft decisions. Worktree /home/hrudek/code/hex/dictation-feedback-loop, branch feature/dictation-feedback-loop, base hex-plus 235098eb. User explicitly authorizes implementation, PR push, review fixes, and merge. User explicitly wants ALL logs retained without 20-entry eviction, machine-readable export, quick good/bad with categories and optional reference/notes, keyboard feedback if sensible. No upload/background paid inference.
+Base draft: /tmp/typr-feedback-plan.md. This document overrides vague/conflicting draft decisions. Worktree /home/hrudek/code/hex/dictation-feedback-loop, branch feature/dictation-feedback-loop, base main 235098eb. User explicitly authorizes implementation, PR push, review fixes, and merge. User explicitly wants ALL logs retained without 20-entry eviction, machine-readable export, quick good/bad with categories and optional reference/notes, keyboard feedback if sensible. No upload/background paid inference.
 
 ## Agreed approach after independent review
 Accept reviewer B1–B5 and further changes 1–7 except refinements below. Read-only reviewer is Herdr agent hex-feedback-review in pane wP:pV; coordinator wP:pT. Repo edits only ios/ and TYPR.md, never .github or upstream files. Read full applicable AGENTS/TYPR/iOS docs. New tasks/PRs use own task worktree; reviewer never edits code.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Retry a single unallocated hosted macOS job, never a test/code failure.
 
-Runs from trusted hex-plus only. GitHub run_attempt bounds retries, including
+Runs from trusted main only. GitHub run_attempt bounds retries, including
 manual reruns. No branch code, signing secret, or agent is used here.
 """
 import json
@@ -72,7 +72,7 @@ def current_source(repo, run):
         return False
     if run['event'] == 'pull_request':
         owner = repo.split('/')[0]
-        pulls = api(repo, f'pulls?state=open&base=hex-plus&head={quote(owner + ":" + run["head_branch"], safe="")}')
+        pulls = api(repo, f'pulls?state=open&base=main&head={quote(owner + ":" + run["head_branch"], safe="")}')
         return any(not pr['draft'] and pr['head']['sha'] == run['head_sha']
                    and (pr['head'].get('repo') or {}).get('full_name') == repo for pr in pulls)
     return True

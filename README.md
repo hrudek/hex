@@ -29,4 +29,4 @@ configuration. CI validates the committed Typr identity without rewriting it.
 Start with [AGENTS.md](AGENTS.md) for development,
 [TYPR.md](TYPR.md) for the feature table, review and CI/TestFlight,
 and [ios/README.md](ios/README.md) for architecture and verification limits.
-The default integration branch is `hex-plus`; app code stays in `ios/`.
+The default integration branch is `main`; app code stays in `ios/`.
