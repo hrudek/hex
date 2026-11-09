@@ -92,6 +92,20 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         let pending = await f.pending(); XCTAssertTrue(pending.isEmpty)
         await f.dispose()
     }
+    /// The inline "What I said" editor saves only the reference and keeps the separate note.
+    func testInlineReferenceSaveKeepsNote() async throws {
+        let f = Fixture(); try await f.ready(); let offer = f.offer()
+        f.store.saveFeedback(for: offer.entryID, expectedText: "First.", note: "Keep me.")
+        f.store.saveFeedback(for: offer.entryID, expectedText: "What I actually said.", note: nil)
+        XCTAssertEqual(f.store.entry(offer.entryID)?.expectedText?.text, "What I actually said.")
+        XCTAssertEqual(f.store.entry(offer.entryID)?.feedbackNote?.text, "Keep me.")
+        f.store.saveFeedback(for: offer.entryID, expectedText: "", note: nil)
+        XCTAssertNil(f.store.entry(offer.entryID)?.expectedText)
+        XCTAssertEqual(f.store.entry(offer.entryID)?.feedbackNote?.text, "Keep me.")
+        await f.store.storage.flush()
+        XCTAssertEqual(try f.diskEntry(offer.entryID).feedbackNote?.text, "Keep me.")
+        await f.dispose()
+    }
     func testSameTimestampTotalOrderAndAppEditsResolveByDefinedOrder() async throws {
         let f = Fixture(); try await f.ready(); let offer = f.offer(), time = Date()
         let lower = event(offer, rating: "good", id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, date: time)
@@ -195,22 +209,90 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
     }
 
     #if canImport(UIKit)
+    private func visibleButtons(_ root: UIView) -> [UIButton] {
+        guard !root.isHidden, root.alpha > 0 else { return [] }
+        return (root as? UIButton).map { [$0] } ?? root.subviews.flatMap(visibleButtons)
+    }
+
+    private func pumpMainRunLoop() {
+        // FullKeyboardView observes the model with `receive(on: RunLoop.main)`.
+        for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+
     func testFullFeedbackProblemActionsInitiallyVisibleInBothAppearances() {
         for dark in [false, true] {
-            let bar = HexPlusFeedbackBar(frame: CGRect(x: 0, y: 0, width: 210, height: 33))
-            bar.update(.snapshotFixture(problem: true), palette: FullKeyboardPalette(isDark: dark))
-            bar.layoutIfNeeded()
-            func buttons(_ root: UIView) -> [UIButton] {
-                (root as? UIButton).map { [$0] } ?? root.subviews.flatMap(buttons)
+            let strip = KeyboardStripView(frame: CGRect(x: 0, y: 0, width: 393, height: 33))
+            strip.palette = FullKeyboardPalette(isDark: dark)
+            strip.updateFeedback(.snapshotFixture(problem: true), onRating: nil, onDismiss: {})
+            strip.update(suggestions: [], showsUndo: true, statusText: nil)
+            strip.layoutIfNeeded()
+            let buttons = visibleButtons(strip)
+            for label in ["Undo dictation", "Good", "Problem", HexPlusFeedbackBar.openAccessibilityLabel,
+                          "Dismiss dictation feedback"] {
+                guard let button = buttons.first(where: { $0.accessibilityLabel == label }) else {
+                    XCTFail("\(label) not visible (dark: \(dark))"); continue
+                }
+                let rect = button.convert(button.bounds, to: strip)
+                XCTAssertGreaterThanOrEqual(rect.minX, 0, label)
+                XCTAssertLessThanOrEqual(rect.maxX, strip.bounds.maxX, label)
+                XCTAssertGreaterThanOrEqual(rect.width, 44, label)
+                XCTAssertGreaterThan(rect.height, 0, label)
             }
-            for label in ["Good", "Problem", "Dismiss dictation feedback"] {
-                let button = buttons(bar).first { $0.accessibilityLabel == label }!
-                let rect = button.convert(button.bounds, to: bar)
-                XCTAssertGreaterThanOrEqual(rect.minX, 0)
-                XCTAssertLessThanOrEqual(rect.maxX, bar.bounds.maxX)
-                XCTAssertGreaterThanOrEqual(rect.width, 44)
-            }
+            // Categories moved into the app: the keyboard no longer lists them.
+            XCTAssertFalse(buttons.contains { $0.accessibilityLabel == "Misheard" })
         }
+    }
+
+    /// On a device the full keyboard is mounted first and the feedback arrives with the inserted
+    /// result. The bar must appear and be laid out then, not only when present at construction.
+    func testFullKeyboardShowsFeedbackThatArrivesAfterMount() {
+        let model = KeyboardViewModel()
+        model.configureFixture(snapshot: .offline, now: 10_000)
+        let view = FullKeyboardView(model: model, target: FixtureTextTarget(text: "Host text"))
+        view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardLayout.height(for: .portrait))
+        view.layoutIfNeeded()
+        pumpMainRunLoop()
+        XCTAssertFalse(visibleButtons(view).contains { $0.accessibilityLabel == "Good" })
+
+        view.didInsertDictation("dictated", keepUndoFor: 180)
+        model.feedback = .snapshotFixture()
+        pumpMainRunLoop()
+        view.layoutIfNeeded()
+        for label in ["Good", "Problem", "Dismiss dictation feedback"] {
+            guard let button = visibleButtons(view).first(where: { $0.accessibilityLabel == label }) else {
+                XCTFail("\(label) not visible after a late feedback offer"); continue
+            }
+            let rect = button.convert(button.bounds, to: view)
+            XCTAssertTrue(view.bounds.contains(rect), label)
+            XCTAssertGreaterThanOrEqual(rect.width, 44, label)
+        }
+
+        model.feedback?.rating = "bad"
+        pumpMainRunLoop()
+        view.layoutIfNeeded()
+        var opened: URL?
+        model.onOpenURL = { opened = $0 }
+        let open = visibleButtons(view).first { $0.accessibilityLabel == HexPlusFeedbackBar.openAccessibilityLabel }
+        XCTAssertNotNil(open)
+        open?.sendActions(for: .touchUpInside)
+        let entryID = DictationFeedbackPresentation.snapshotFixture().offer.entryID
+        XCTAssertEqual(opened, HexPlusFeedbackLink.url(entryID: entryID))
+        XCTAssertNil(model.feedback)
+    }
+
+    func testFeedbackLinkRoundTripAndRouting() {
+        let id = UUID()
+        let url = HexPlusFeedbackLink.url(entryID: id)
+        XCTAssertEqual(HexPlusFeedbackLink.entryID(from: url), id)
+        XCTAssertNil(KeyboardLaunchRequest(url: url), "must never start a dictation session")
+        XCTAssertNil(HexPlusFeedbackLink.entryID(from: KeyboardLaunchRequest.setup.url))
+        XCTAssertNil(HexPlusFeedbackLink.entryID(from: URL(string: "hex-dictation://hexplus/feedback?entry=nope")!))
+        let router = HexPlusFeedbackRouter()
+        XCTAssertFalse(router.handle(KeyboardLaunchRequest.setup.url))
+        XCTAssertNil(router.requestedEntry)
+        XCTAssertTrue(router.handle(url))
+        XCTAssertEqual(router.consume(), id)
+        XCTAssertNil(router.requestedEntry)
     }
 
     func testFullKeyboardFeedbackKeepsUndoDoesNotEditHostAndTypingDismisses() {
@@ -224,12 +306,8 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardLayout.height(for: .portrait))
         view.didInsertDictation("dictated", keepUndoFor: 180)
         view.layoutIfNeeded()
-        func buttons(_ root: UIView) -> [UIButton] {
-            guard !root.isHidden else { return [] }
-            return (root as? UIButton).map { [$0] } ?? root.subviews.flatMap(buttons)
-        }
-        let visible = buttons(view)
-        XCTAssertTrue(visible.contains { $0.configuration?.title == "Undo dictation" })
+        let visible = visibleButtons(view)
+        XCTAssertTrue(visible.contains { $0.accessibilityLabel == "Undo dictation" })
         let good = visible.first { $0.accessibilityLabel == "Good" }
         XCTAssertNotNil(good)
         good?.sendActions(for: .touchUpInside)

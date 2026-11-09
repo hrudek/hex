@@ -487,14 +487,15 @@ final class DictationLogStore {
         }
     }
     func loadRecent() { for row in metadata.prefix(Self.maximumEntries) { loadEntry(row.id) } }
-    func saveFeedback(for id: UUID, expectedText: String, note: String) {
-        guard expectedText.utf8.count <= 4_000, note.utf8.count <= 4_000 else { return }
+    /// A nil note keeps the saved note (the inline "What I said" editor owns only the reference).
+    func saveFeedback(for id: UUID, expectedText: String, note: String?) {
+        guard expectedText.utf8.count <= 4_000, (note?.utf8.count ?? 0) <= 4_000 else { return }
         let order = DictationFeedbackOrder.app()
         loadEntry(id) { [weak self] source in
             guard let self else { return }; var entry = source
             if let previous = entry.referenceOrder, order <= previous { return }
             entry.expectedText = expectedText.isEmpty ? nil : DictationLogText(expectedText)
-            entry.feedbackNote = note.isEmpty ? nil : DictationLogText(note)
+            if let note { entry.feedbackNote = note.isEmpty ? nil : DictationLogText(note) }
             entry.referenceOrder = order; entry.revision = (entry.revision ?? 1) + 1; self.put(entry)
         }
     }

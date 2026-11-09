@@ -15,6 +15,7 @@ struct HexPlusCard: View {
     @State private var feedbackStrip = HexPlusSettings().dictationFeedbackStrip
     @State private var log = DictationLogStore.shared
     @State private var showingLog = false
+    @State private var feedbackRouter = HexPlusFeedbackRouter.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -123,7 +124,11 @@ struct HexPlusCard: View {
                 in: RoundedRectangle(cornerRadius: HexTheme.cardRadius, style: .continuous)
             )
         }
-        .sheet(isPresented: $showingLog) { DictationLogView(store: log) }
+        .sheet(isPresented: $showingLog) { DictationLogView(store: log, router: feedbackRouter) }
+        // "Fix in Hex" from the keyboard: the log opens the requested entry itself.
+        .onChange(of: feedbackRouter.requestedEntry) { _, id in
+            if id != nil { showingLog = true }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 log.drainKeyboardFeedback(force: true)
@@ -147,6 +152,7 @@ struct HexPlusCard: View {
             }
         }
         .onAppear {
+            if feedbackRouter.requestedEntry != nil { showingLog = true }
             log.setEnabled(HexPlusSettings().dictationLog)
             TranscriptCleanupProduction.invalidateAvailability()
             aiCleanup = HexPlusSettings().aiCleanup

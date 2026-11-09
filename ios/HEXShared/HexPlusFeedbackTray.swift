@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Only categorical controls; never a text field or a replacement for document input.
+/// Only rating controls and a link into the app; never a text field or a replacement for document input.
+/// Problem details (what was recognized, what AI made of it, what was meant) are entered in the app,
+/// where the texts can be read: the keyboard cannot show them usefully.
 struct HexPlusFeedbackTray: View {
     @ObservedObject var model: KeyboardViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -14,23 +16,21 @@ struct HexPlusFeedbackTray: View {
                     Button { model.onFeedbackRating?("bad", nil) } label: {
                         Label("Problem", systemImage: feedback.rating == "bad" ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                     }.accessibilityLabel("Rate inserted dictation Problem")
+                    if feedback.rating == "bad" {
+                        Button {
+                            let url = HexPlusFeedbackLink.url(entryID: feedback.offer.entryID)
+                            model.dismissFeedback()
+                            model.onOpenURL?(url)
+                        } label: {
+                            Label(HexPlusFeedbackBar.openTitle, systemImage: "square.and.pencil")
+                        }.accessibilityLabel(HexPlusFeedbackBar.openAccessibilityLabel)
+                    }
                     Button { model.dismissFeedback() } label: { Image(systemName: "xmark") }
                         .accessibilityLabel("Dismiss dictation feedback")
                     if let message = feedback.message {
                         Text(message).accessibilityLabel(message)
                         if message.hasPrefix("Not queued") {
                             Button("Retry feedback") { model.onFeedbackRating?(feedback.retryRating ?? feedback.rating ?? "bad", feedback.retryIssues) }
-                        }
-                    }
-                    if feedback.rating == "bad" {
-                        ForEach(DictationIssue.choices, id: \.0) { code, title in
-                            Button {
-                                var issues = feedback.issues
-                                if issues.contains(code) { issues.removeAll { $0 == code } } else { issues.append(code) }
-                                model.onFeedbackRating?("bad", issues)
-                            } label: {
-                                Label(title, systemImage: feedback.issues.contains(code) ? "checkmark.circle.fill" : "circle")
-                            }.accessibilityLabel("\(title), \(feedback.issues.contains(code) ? "selected" : "not selected")")
                         }
                     }
                     Button("Style") {
