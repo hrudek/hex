@@ -104,6 +104,7 @@ struct DictationReferenceEditor: View {
     var focusesOnAppear = false
     @State private var text: String
     @State private var saved: String
+    @State private var didAutoFocus = false
     @FocusState private var focused: Bool
 
     init(store: DictationLogStore, entry: DictationLogEntry, focusesOnAppear: Bool = false) {
@@ -148,7 +149,9 @@ struct DictationReferenceEditor: View {
             Text("Copy a text above, paste it here and correct it to what you actually said or expected. Stored only on this iPhone and included in exports.")
         }
         .onAppear {
-            guard focusesOnAppear else { return }
+            // One-shot: a List re-fires onAppear when the section scrolls back into view.
+            guard focusesOnAppear, !didAutoFocus else { return }
+            didAutoFocus = true
             Task { try? await Task.sleep(for: .milliseconds(450)); focused = true }
         }
         .onChange(of: entry.expectedText?.text) { _, newValue in

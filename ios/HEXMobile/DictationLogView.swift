@@ -168,6 +168,8 @@ struct DictationLogView: View {
             }
             .onAppear { openRequestedEntry() }
             .onChange(of: router?.requestedEntry) { _, _ in openRequestedEntry() }
+            // The deep-link focus is one-time: back in the list, rows open without focusing.
+            .onChange(of: path) { _, newPath in if newPath.isEmpty { focusedEntry = nil } }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItemGroup(placement: .primaryAction) {

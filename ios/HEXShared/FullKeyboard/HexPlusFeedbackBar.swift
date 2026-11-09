@@ -91,7 +91,7 @@ final class HexPlusFeedbackBar: UIScrollView {
         add(button, width: max(44, ceil(fitting)))
     }
 
-    /// Total width of all items; the strip uses it to keep the bar on screen.
+    /// Total width of all items (the scrollable content width).
     var contentWidth: CGFloat {
         items.reduce(0) { $0 + $1.width } + Self.spacing * CGFloat(max(0, items.count - 1))
     }
