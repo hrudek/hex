@@ -12,6 +12,7 @@ struct HexPlusCard: View {
     @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
     @State private var germanAutocorrect = HexPlusSettings().germanAutocorrect
     @State private var keyboardSwitchKey = HexPlusSettings().keyboardSwitchKey
+    @State private var feedbackStrip = HexPlusSettings().dictationFeedbackStrip
     @State private var log = DictationLogStore.shared
     @State private var showingLog = false
 
@@ -81,6 +82,20 @@ struct HexPlusCard: View {
                 }
                 Divider().overlay(HexTheme.borderWeak).padding(.leading, 16)
 
+                if let notice = log.keyboardFeedbackNotice {
+                    Text(notice).font(.system(size: 12)).foregroundStyle(HexTheme.textMuted)
+                        .padding(.horizontal, 16)
+                    Button("Retry keyboard feedback") { log.retryKeyboardFeedback() }.padding(.horizontal, 16)
+                }
+                row("Keyboard dictation feedback",
+                    detail: "Good / Problem after this keyboard inserts your dictation. Noted means queued locally, not saved in the archive yet. Pending feedback expires after 30 days; maximum 100. No document text is read for feedback.",
+                    isOn: $feedbackStrip)
+                    .onChange(of: feedbackStrip) { _, enabled in
+                        HexPlusSettings().dictationFeedbackStrip = enabled
+                        log.feedbackSettingsChanged()
+                    }
+                Divider().overlay(HexTheme.borderWeak).padding(.leading, 16)
+
                 row(
                     "German autocorrect",
                     detail: "Turns ae, oe, ue into ä, ö, ü and fixes German typos (full keyboard)",
@@ -111,6 +126,7 @@ struct HexPlusCard: View {
         .sheet(isPresented: $showingLog) { DictationLogView(store: log) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                log.drainKeyboardFeedback(force: true)
                 TranscriptCleanupProduction.invalidateAvailability()
                 log.setEnabled(HexPlusSettings().dictationLog)
                 aiCleanup = HexPlusSettings().aiCleanup

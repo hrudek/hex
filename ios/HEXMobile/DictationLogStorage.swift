@@ -49,6 +49,9 @@ final class DictationLogStorage: @unchecked Sendable {
         try protect(target.deletingLastPathComponent(), directory: true)
         try data.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         try protect(target)
+        let handle = try FileHandle(forWritingTo: target)
+        defer { try? handle.close() }
+        try handle.synchronize() // Feedback queue removal may follow: source must be durable first.
     }
     private func writeEntry(_ source: DictationLogEntry) throws {
         guard !tombstones.contains(source.id) else { throw CocoaError(.fileWriteNoPermission) }

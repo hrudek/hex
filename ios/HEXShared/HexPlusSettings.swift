@@ -37,6 +37,12 @@ struct HexPlusSettings {
         nonmutating set { defaults?.set(newValue, forKey: Key.dictationLog) }
     }
 
+    /// Quick feedback for this keyboard instance's newly inserted dictation. Off keeps existing UI.
+    var dictationFeedbackStrip: Bool {
+        get { defaults?.object(forKey: DictationFeedbackBridge.stripKey) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: DictationFeedbackBridge.stripKey) }
+    }
+
     /// German autocorrect on the full keyboard (ae/oe/ue/ss to umlauts, German typo fixes). On by default.
     var germanAutocorrect: Bool {
         get { defaults?.object(forKey: Key.germanAutocorrect) as? Bool ?? true }

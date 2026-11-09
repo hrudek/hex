@@ -4,6 +4,11 @@ import UIKit
 @MainActor
 final class KeyboardViewController: UIInputViewController {
     private let bridge = KeyboardBridge()
+    private let feedbackBridge = DictationFeedbackBridge.shared
+    private var ownedFeedbackJobs = Set<String>()
+    private var lastFeedbackEventID: UUID?
+    private var confirmedFeedback: DictationFeedbackPresentation?
+    private var confirmedFeedbackOrder: DictationFeedbackOrder?
     private let viewModel = KeyboardViewModel()
     private var pollTimer: Timer?
     private var coldStartJobID = UUID().uuidString
@@ -24,6 +29,8 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        ownedFeedbackJobs.insert(coldStartJobID)
+        if ownedFeedbackJobs.count > 32 { ownedFeedbackJobs = [coldStartJobID] }
         coldStartJobID = UUID().uuidString
         didHandOffCurrentField = false
         mountSurface()
@@ -42,6 +49,7 @@ final class KeyboardViewController: UIInputViewController {
         super.viewWillDisappear(animated)
         pollTimer?.invalidate()
         pollTimer = nil
+        viewModel.dismissFeedback()
     }
 
     override func didReceiveMemoryWarning() {
@@ -118,9 +126,10 @@ final class KeyboardViewController: UIInputViewController {
             }
             self.refreshColdStartURL(now: Date().timeIntervalSince1970, force: true)
         }
-        viewModel.onSpace = { [weak self] in self?.textDocumentProxy.insertText(" ") }
-        viewModel.onDelete = { [weak self] in self?.textDocumentProxy.deleteBackward() }
-        viewModel.onReturn = { [weak self] in self?.textDocumentProxy.insertText("\n") }
+        viewModel.onFeedbackRating = { [weak self] rating, issues in self?.queueFeedback(rating: rating, issues: issues) }
+        viewModel.onSpace = { [weak self] in self?.viewModel.dismissFeedback(); self?.textDocumentProxy.insertText(" ") }
+        viewModel.onDelete = { [weak self] in self?.viewModel.dismissFeedback(); self?.textDocumentProxy.deleteBackward() }
+        viewModel.onReturn = { [weak self] in self?.viewModel.dismissFeedback(); self?.textDocumentProxy.insertText("\n") }
         viewModel.onOpenURL = { [weak self] url in
             guard let self else { return }
             ContainingAppOpener.open(url, from: self)
@@ -227,6 +236,35 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    private func queueFeedback(rating: String, issues: [String]?) {
+        guard hasFullAccess, feedbackBridge.switchesEnabled, let presentation = viewModel.feedback else { return }
+        let offer = presentation.offer
+        if confirmedFeedback?.offer != offer { confirmedFeedback = presentation; confirmedFeedbackOrder = nil }
+        viewModel.feedback?.message = "Queuing…"
+        viewModel.feedback?.rating = rating
+        if let issues { viewModel.feedback?.issues = issues }
+        let event = DictationFeedbackEvent(eventID: UUID(), offer: offer, rating: rating,
+            issues: issues, createdAt: Date())
+        lastFeedbackEventID = event.eventID
+        feedbackBridge.enqueue(event) { [weak self] success in
+            Task { @MainActor [weak self] in
+                guard let self, self.viewModel.feedback?.offer == offer else { return }
+                if success, self.confirmedFeedbackOrder.map({ $0 < event.order }) ?? true {
+                    self.confirmedFeedbackOrder = event.order
+                    self.confirmedFeedback?.rating = event.rating
+                    if let issues = event.issues { self.confirmedFeedback?.issues = issues }
+                }
+                guard self.lastFeedbackEventID == event.eventID else { return }
+                self.viewModel.feedback = self.confirmedFeedback
+                self.viewModel.feedback?.message = success ? "Noted on keyboard" : "Not queued: full, expired or unavailable"
+                if !success {
+                    self.viewModel.feedback?.retryRating = event.rating
+                    self.viewModel.feedback?.retryIssues = event.issues
+                }
+            }
+        }
+    }
+
     private func syncFromBridge(animated: Bool) {
         let now = Date().timeIntervalSince1970
         updateKeyboardTraits()
@@ -240,6 +278,7 @@ final class KeyboardViewController: UIInputViewController {
         #endif
 
         guard effectiveFullAccess else {
+            viewModel.dismissFeedback()
             viewModel.applyBridgeState(
                 hasFullAccess: false,
                 snapshot: .offline,
@@ -259,6 +298,11 @@ final class KeyboardViewController: UIInputViewController {
         }
 
         let snap = bridge.snapshot()
+        let permission = feedbackBridge.permission
+        if !feedbackBridge.switchesEnabled || permission?.enabled != true || snap.state == .recording || snap.state == .transcribing
+            || (viewModel.feedback.map { $0.offer.expiresAt < Date() || $0.offer.generation != permission?.generation } ?? false) {
+            viewModel.dismissFeedback()
+        }
         var insertedResult = false
 
         if snap.hasDeliverableResult(at: now),
@@ -274,6 +318,11 @@ final class KeyboardViewController: UIInputViewController {
             fullKeyboard?.didInsertDictation(insertion)
             bridge.lastInsertedResultID = resultID
             insertedResult = true
+            if feedbackBridge.switchesEnabled, snap.state != .recording, snap.state != .transcribing {
+                viewModel.feedback = DictationFeedbackPresentation.inserted(offer: snap.feedbackOffer,
+                    resultID: resultID, ownedJobs: ownedFeedbackJobs.union([coldStartJobID]),
+                    permission: permission, now: Date(timeIntervalSince1970: now))
+            }
             coldStartJobID = UUID().uuidString
         }
 
@@ -348,6 +397,8 @@ final class KeyboardViewController: UIInputViewController {
         let now = Date().timeIntervalSince1970
         guard viewModel.hasFullAccess, viewModel.currentSnapshot.isAvailable(at: now) else { return }
         let jobID = UUID().uuidString
+        ownedFeedbackJobs.insert(jobID)
+        viewModel.dismissFeedback()
         viewModel.setPendingCommand(
             KeyboardViewModel.PendingCommand(kind: .start, jobID: jobID, sentAt: now),
             now: now,

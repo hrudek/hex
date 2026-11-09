@@ -94,6 +94,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         engine.onSelectionStep = { [weak self] in self?.selectionFeedback() }
         engine.onChange = { [weak self] in self?.engineChanged() }
         engine.onEdit = { [weak self] in
+            self?.model.dismissFeedback()
             self?.hideUndo()
             self?.refreshReturnKey()
             self?.refreshStrip()
@@ -229,13 +230,13 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     }
 
     /// Hex inserted a dictation; offer to take it back until the next edit.
-    func didInsertDictation(_ text: String) {
+    func didInsertDictation(_ text: String, keepUndoFor: TimeInterval = 12) {
         lastDictation = text
         refreshStrip()
         undoHideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.hideUndo() }
         undoHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + keepUndoFor, execute: work)
         engine.textDidChange()
         refreshReturnKey()
     }
@@ -388,6 +389,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         } else {
             nil
         }
+        stripView.updateFeedback(model.hasFullAccess ? model.feedback : nil, onRating: model.onFeedbackRating,
+                                 onDismiss: { [weak model] in model?.dismissFeedback() })
         stripView.update(
             suggestions: engine.suggestions,
             showsUndo: lastDictation != nil,

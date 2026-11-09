@@ -21,6 +21,9 @@ final class KeyboardStripView: UIView {
 
     private let statusLabel = UILabel()
     private let undoChip = UIButton(type: .custom)
+    private let feedbackBar = HexPlusFeedbackBar()
+    private var feedback: DictationFeedbackPresentation?
+    private var wasFeedbackVisible = false
     private let slotButtons: [SlotButton] = [SlotButton(), SlotButton(), SlotButton()]
     private var currentSuggestions: [KeyboardSuggestion] = []
     private var showsUndo = false
@@ -59,21 +62,33 @@ final class KeyboardStripView: UIView {
             button.isHidden = true
             addSubview(button)
         }
+        addSubview(feedbackBar)
+        feedbackBar.isHidden = true
         applyPalette()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    func updateFeedback(_ feedback: DictationFeedbackPresentation?, onRating: ((String, [String]?) -> Void)?,
+                        onDismiss: @escaping () -> Void) {
+        self.feedback = feedback
+        feedbackBar.onRating = onRating; feedbackBar.onDismiss = onDismiss
+        feedbackBar.update(feedback, palette: palette)
+        setNeedsLayout(); setNeedsDisplay()
+    }
+
     func update(suggestions: [KeyboardSuggestion], showsUndo: Bool, statusText: String?) {
         let changed = suggestions != currentSuggestions || showsUndo != self.showsUndo || statusText != self.statusText
+            || wasFeedbackVisible != !feedbackBar.isHidden
         guard changed else { return }
         currentSuggestions = suggestions
         self.showsUndo = showsUndo
         self.statusText = statusText
+        wasFeedbackVisible = !feedbackBar.isHidden
 
         undoChip.isHidden = !showsUndo
-        if showsUndo {
+        if showsUndo || !feedbackBar.isHidden {
             statusLabel.isHidden = true
             slotButtons.forEach { $0.isHidden = true }
         } else if let statusText, suggestions.isEmpty {
@@ -96,6 +111,7 @@ final class KeyboardStripView: UIView {
     }
 
     private func applyPalette() {
+        feedbackBar.update(feedback, palette: palette)
         statusLabel.textColor = palette.textMuted
         var chip = undoChip.configuration
         chip?.baseForegroundColor = palette.textMuted
@@ -123,6 +139,14 @@ final class KeyboardStripView: UIView {
             width: chipSize.width,
             height: chipH
         )
+        if !feedbackBar.isHidden {
+            if showsUndo {
+                undoChip.frame.origin.x = 4
+                undoChip.frame.size.width = min(chipSize.width, bounds.width * 0.45)
+            }
+            let x = showsUndo ? undoChip.frame.maxX + 6 : 4
+            feedbackBar.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - 4), height: bounds.height)
+        }
         let slotW = bounds.width / 3
         for (idx, button) in slotButtons.enumerated() {
             button.inSystemPlatter = inSystemPlatter
@@ -131,7 +155,7 @@ final class KeyboardStripView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        guard !showsUndo, statusLabel.isHidden, bounds.width > 60 else { return }
+        guard !showsUndo, feedbackBar.isHidden, statusLabel.isHidden, bounds.width > 60 else { return }
         // Hide the divider adjacent to a highlighted primary pill, matching Apple's strip.
         let primaryHighlighted = currentSuggestions.count > 1 && currentSuggestions[1].willAutoReplace
         guard !primaryHighlighted else { return }

@@ -82,6 +82,10 @@ struct KeyboardSnapshotStage: View {
                 hasFullAccess: false
             )
 
+        case "keyboard-feedback", "keyboard-feedback-problem":
+            viewModel.configureFixture(snapshot: KeyboardSnapshot(state: .ready, heartbeat: now, expiresAt: now + 600), now: now)
+            viewModel.feedback = .snapshotFixture(problem: scene.hasSuffix("-problem"))
+
         case "keyboard-warm":
             viewModel.configureFixture(
                 snapshot: KeyboardSnapshot(

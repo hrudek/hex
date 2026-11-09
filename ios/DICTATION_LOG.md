@@ -151,3 +151,59 @@ build, XCTest run, protection proof, UI/VoiceOver proof or real device test.
 Native unsigned archive and optional targeted simulator CI results belong in the
 PR. Real iPhone file protection/lock, background lifecycle, share recipients,
 VoiceOver and on-device model quality still require hardware verification.
+
+
+## Keyboard quick feedback (B)
+
+Hex+ › Keyboard dictation feedback is **on by default** (independent of the
+archive collection switch). Good / Problem / dismiss use the existing compact
+tray or full-keyboard suggestion strip. The full keyboard retains Undo dictation
+as a separate sibling. Optional categories scroll horizontally; no keyboard text
+editor, document inspection for feedback, clipboard copy or network request.
+The compact targets are at least 44 pt wide, **26 pt high**, matching the existing
+tray; they are not 44 pt tall. The full strip retains its existing 33 pt height.
+
+Only this keyboard instance's newly inserted, locally initiated result gets an
+offer. Entry/job/result IDs, archive lineage, generation and a ten-minute offer
+expiry match explicitly. A stored previous result alone never prompts. First
+editing, another recording, keyboard disappearance, dismiss, expiry, no Full
+Access, either switch off or generation revocation hide it. Style and next
+recording remain reachable. The opt-out preserves ordinary keyboard behavior.
+
+One protected, backup-excluded, text-free App Group JSON file per event carries
+rating, optional **whole category set**, IDs and creation time. At most 100 valid
+pending events, expiring after 30 days, with no eviction of valid events to make
+room. Full/unavailable queues say **Not queued** and offer Retry; selection rolls
+back to the last successfully queued state. **Noted on keyboard means queued,
+NOT saved in the archive.** No ACK is inferred from an event disappearing.
+
+The app drains during its existing keyboard poll, activation and archive load.
+Loading/retry is not consent revocation: it neither rotates an existing generation
+nor discards previous-session events. Off, strip opt-out and Clear revoke offers;
+Clear creates a new archive lineage. Exact-entry feedback can load an evicted
+entry, but never recreate a deleted entry. The durable source order is
+`(modifiedAt, origin, eventID)` (lexicographic, strictly newer only); app and
+keyboard use UUID event IDs. Reference/note ownership remains separate. Source
+write + file synchronization precede removal; replay after commit-before-removal
+is a no-op. Unreadable sources retain pending evidence for Retry. Queue notices
+are separate from storage errors. Snapshot protocol adds only an optional offer,
+atomically alongside its result rather than a racing separate defaults key.
+
+Queue I/O uses a cross-process nonblocking exclusive file lock with three short
+attempts on its utility queue. Busy operations fail honestly for explicit retry.
+The archive's serial writes now synchronize files (potential extra I/O, never
+awaited by dictation output). Device suspension while an App Group lock is held,
+locked-device protection, background delivery, real Full Access transitions,
+VoiceOver and actual host text/cursor behavior still require device verification.
+No native iOS proof is claimed from Linux.
+
+Synthetic checks: `DictationKeyboardFeedbackTests` covers exact inserted matching,
+ordering, separate reference ownership, durable-write retry, replay, Off/Clear/
+Delete/opt-out, simultaneous writers/cap, malformed/expired events, unloaded
+entries, load-with-new-offer generation stability, and full-keyboard Undo/host
+text/typing dismissal. New scene names: `keyboard-feedback`,
+`keyboard-feedback-problem`, `full-keyboard-feedback[-dark]` and
+`full-keyboard-feedback-problem[-dark]`. Fixtures are synthetic, not real extension
+or device proof. Linux strict Swift 6 typechecking uses platform stubs; all eight
+non-UIKit XCTest cases also passed under the Linux XCTest runner after the
+independent review fixes (Swift 5 mode for its Linux XCTest discovery adapter). Native CI results are recorded on the PR, not inferred here.

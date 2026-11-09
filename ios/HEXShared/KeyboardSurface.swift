@@ -61,6 +61,9 @@ final class KeyboardViewModel: ObservableObject {
     @Published var activeTray: PickerTray = .none
     /// Hex+: the utility row starts with a key that shows the full keyboard.
     @Published var showsFullKeyboardSwitch = false
+    @Published var feedback: DictationFeedbackPresentation?
+    var onFeedbackRating: ((String, [String]?) -> Void)?
+    func dismissFeedback() { feedback = nil }
 
     // Non-published live telemetry read directly by `DotScopeHostView` / button tap handlers
     // so 25–30 Hz polling never invalidates SwiftUI views mid-spring.
@@ -513,7 +516,10 @@ struct KeyboardSurfaceView: View {
     private var topBar: some View {
         let p = palette
         return ZStack {
-            defaultTopBar(palette: p)
+            Group {
+                if model.feedback != nil { HexPlusFeedbackTray(model: model) }
+                else { defaultTopBar(palette: p) }
+            }
                 .hexTrayReveal(model.activeTray == .none, reduceMotion: reduceMotion, offsetY: -3)
 
             styleTrayBar(palette: p)
