@@ -71,7 +71,7 @@ the entry point for agents and the owner.
 Orientation:
 
 ```sh
-git log --no-merges --oneline split/hex-upstream..hex-plus  # adopted base to current project
+git log --no-merges --oneline split/hex-upstream..hex-plus  # Hex+ commits on top of the adopted upstream base
 git diff split/base..hex-plus --stat                       # changes since the standalone split
 gh pr list --state merged --label feature                 # features, with their reasons
 ```
@@ -267,8 +267,9 @@ gh workflow run hexplus-ci.yml -R hrudek/hex -f distribution=testflight
 # Profiles (local only, uses ~/.local/share/ios-build-signing):
 python3 -I .github/hexplus/provision.py ad-hoc|testflight
 
-# CI scripts on Linux:
+# CI scripts and offline dictation-log tooling on Linux:
 python3 -m unittest discover -s .github/hexplus/tests
+python3 -m unittest discover -s ios/tools/dictation_log/tests
 ```
 
 The fast path accepts only open, non-draft `feature/*` PRs from this repository

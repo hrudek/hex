@@ -1,9 +1,11 @@
 # Adopted sources
 
 Hex+ is a standalone iPhone project, not an automatically synchronized fork.
-The local annotated split tags identify the inherited upstream tip
+The annotated split tags identify the inherited upstream tip
 (`split/hex-upstream`) and the last pre-split project state (`split/base`).
-Tags are provenance anchors, not release tags.
+Tags are provenance anchors, not release tags. The owner will push them after
+merging the standalone split. The Orientation commands in [HEXPLUS.md](HEXPLUS.md)
+require these tags; run `git fetch --tags` locally if they are missing.
 
 | Feature | Source (repo) | Paths there | Last adopted commit | Files here | License |
 | --- | --- | --- | --- | --- | --- |
@@ -45,7 +47,7 @@ configuration, retained unchanged and unused by Hex+ CI, which uses
 
 1. Configure read-only source remotes. Use the repository owner's lowercase
    name (for example `anomalyco` or `avgvstvs96`); `origin` stays `hrudek/hex`.
-   These are local setup commands, not automatic automation:
+   These commands are manual local setup, not automation:
 
    ```sh
    git remote add anomalyco https://github.com/anomalyco/hex.git

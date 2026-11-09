@@ -126,9 +126,10 @@ xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=
   `AVAudioRecorder.isRecording` changes during warm handoff or Bluetooth route
   changes have not been reproduced on hardware; the meter recovery tests inject
   that condition through `ActiveAudioCapture`.
-- **Apple Speech hint:** Custom vocabulary's contextual strings are best effort
-  and unverified on a physical iPhone. Apple documents contextual strings only
-  for `DictationTranscriber`, Hex sets them on `SpeechTranscriber`, and
+- **Apple Speech hint:** Custom vocabulary is covered by unit tests only.
+  Its contextual strings are best effort and unverified on a physical iPhone.
+  Apple documents contextual strings only for `DictationTranscriber`, Hex sets
+  them on `SpeechTranscriber`, and
   Parakeet's batch path gets no hint.
 - **Hex+ CI:** PRs compile an unsigned device archive (app, keyboard and
   widgets); they do not build the test bundle or automatically run simulator
