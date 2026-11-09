@@ -110,6 +110,8 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     /// Every saved Custom vocabulary term at recording start, in saved order, even while the
     /// experiment is off (`vocabularyEnabled` says whether they were applied). nil means not recorded.
     var vocabularyTerms: [String]?
+    /// `TechGlossary.revision` used for this entry's spelling fixes. nil means not recorded.
+    var glossaryRevision: String?
 
     static let maximumLoggedVocabularyTerms = CustomVocabularySettings.maxTermCount
     static func cappedVocabularyTerms(_ terms: [String]) -> [String] {
@@ -145,6 +147,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.upstreamCleanupEnabled = upstreamCleanupEnabled
         context.typrCleanupEnabled = typrCleanupEnabled
         context.vocabularyTerms = vocabularyTerms.map(cappedVocabularyTerms)
+        context.glossaryRevision = TechGlossary.revision
         return context
     }
 }
@@ -153,6 +156,8 @@ struct DictationLogReplacement: Codable, Equatable, Sendable {
     var before: DictationLogText
     var after: DictationLogText
     var term: DictationLogText
+    /// "built-in" for a tech glossary fix; nil for Custom vocabulary (and older entries).
+    var source: String?
 
     mutating func recap() {
         before = before.recapped()
@@ -166,11 +171,11 @@ struct DictationLogSpellingPass: Codable, Equatable, Sendable {
     var changes: [DictationLogReplacement] = []
     var totalChanges = 0
 
-    mutating func record(before: String, after: String, term: String) {
+    mutating func record(before: String, after: String, term: String, source: String? = nil) {
         totalChanges += 1
         guard changes.count < Self.maximumReplacements else { return }
         changes.append(DictationLogReplacement(before: DictationLogText(before),
-            after: DictationLogText(after), term: DictationLogText(term)))
+            after: DictationLogText(after), term: DictationLogText(term), source: source))
     }
 
     mutating func recap() {

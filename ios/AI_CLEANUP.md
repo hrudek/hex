@@ -29,6 +29,50 @@ with upstream's `TranscriptCleanup.swift`, Typr's files and types carry a `Typr`
   Limits: the model can only fix what sounds similar and fits the context; more terms make the
   prompt longer and a little slower. Not proven on a device yet.
 
+## Built-in tech glossary and sounds-like forms (before cleanup)
+
+Apple Speech mishears developer vocabulary ("Pulrigquest", "Gitub", "Orcherator",
+"Hurder Pain"), and the model then guessed wrong words ("Puzzle-Quest", "Gmail",
+"Ansprechpartner", "Pizza"). Typr therefore fixes known mishearings **deterministically, before** cleanup, and
+names the intended terms to both engines. This is a normal feature without a switch; the
+Custom vocabulary experiment keeps its own switch.
+
+- **Pipeline** (`DictationVocabulary`, frozen at recording start): Apple Speech gets the
+  user's active terms first, then the glossary's listed terms as contextual strings (deduplicated,
+  capped at Apple's 100). After recognition: Custom vocabulary terms and their **sounds-like**
+  forms, then the built-in glossary, then cleanup with `vocabulary:` = the user's active terms +
+  the glossary terms that appear in this dictation (at most 15). After formatting only the user's
+  spellings are restored, as before. Verbatim and cleanup-off paths get the same spelling fixes.
+- **Glossary** (`TechGlossary.entries`, a data table): an intended `term`, `heardAs` forms that
+  are never meant literally (replaced always), and `heardInContext` forms that are real words
+  ("gemerkt", "Brunch", "Herder", "Pain"), replaced only when the same dictation mentions one
+  of the entry's `context` words (PR, Pull Request, Branch, Commit, merge… for "gemerkt" →
+  "gemergt"; pane, Tab, Terminal, Agent… for "Herder" → "herdr"). Neighbour-dependent fixes
+  are phrase entries: "paar/Pay/Pi Agent(en)" → "pi Agent(en)" ("ein paar Minuten" stays),
+  "Herder/Herda/Hurder/Hda Pain/Payne" → "herdr pane". English/tech terms are written with
+  spaces ("Pull Request", "Feature Flag", "Speech to Text"). Matching reuses the Custom
+  vocabulary matcher: case, spaces, a single hyphen and possessives, longest phrase first.
+- **User wins:** a glossary form is skipped when its key equals a user term, a word of a user
+  term, or a user's sounds-like form. Glossary terms the user already lists are not named twice.
+- **Sounds like:** each Custom vocabulary term can carry up to ten forms the speech engine writes
+  instead (waveform button in the list, comma-separated, e.g. `herdr` ← Herder, Herda, Hörder).
+  They are stored in a separate App Group key (`customVocabulary.soundsLike`, keyed by the term's
+  spelling key), so the existing term list keeps its format; forms of a removed term are dropped.
+- **Log:** glossary replacements are recorded in the first spelling pass with `source:
+  "built-in"` (shown as `built-in:`); every new entry records `context.glossaryRevision`.
+
+**Extending the glossary from a log:** take the misheard form from *Recognized* (not from the
+AI answer). Not a real word → add it to `heardAs`. A real word → `heardInContext` with context
+words, or a phrase entry with its neighbour. Add a synthetic test to `TechGlossaryTests` (no
+real transcripts) and bump `TechGlossary.revision`. Owner-specific names are better added as
+Custom vocabulary with sounds-like forms.
+
+**Limits:** only forms seen in logs or obvious variants are covered; a compound like
+"Text As Beach to Textnachrichten" is not matched. Context is the whole dictation, not the
+sentence. "ein paar Agenten" always becomes "ein pi Agenten" (owner rule). Apple Speech
+contextual strings remain best effort. No model behaviour changes here (prompt and guard are
+unchanged by this feature).
+
 ## Contract
 
 The **AI cleanup** switch in Typr settings is on by default, stored as

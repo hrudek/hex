@@ -52,6 +52,8 @@ final class DictationController {
         let style: DictationStyle
         let usesCleanup: Bool
         let vocabularyTerms: [String]
+        /// Speech hints, spelling passes and cleanup terms (Custom vocabulary + built-in glossary).
+        let vocabulary: DictationVocabulary
         /// Every saved term, frozen for the log even while the experiment is off.
         let savedVocabularyTerms: [String]
         let vocabularyEnabled: Bool
@@ -715,6 +717,7 @@ final class DictationController {
         let vocabularyEnabled = customVocabularySettings.isEnabled
         let savedVocabularyTerms = customVocabularySettings.terms
         let vocabularyTerms = vocabularyEnabled ? savedVocabularyTerms : []
+        let vocabulary = DictationVocabulary(settings: customVocabularySettings)
         let enabled = cleanup?.isEnabled() == true
         let logToken = dictationLog?.token()
         let logCleanupPath: DictationLogCleanupPath = effectiveStyle == .verbatim ? .none
@@ -776,6 +779,7 @@ final class DictationController {
                     style: effectiveStyle,
                     usesCleanup: usesCleanup,
                     vocabularyTerms: vocabularyTerms,
+                    vocabulary: vocabulary,
                     savedVocabularyTerms: savedVocabularyTerms,
                     vocabularyEnabled: vocabularyEnabled,
                     typrCleanupEnabled: enabled,
@@ -883,20 +887,24 @@ final class DictationController {
             do {
                 let rawText = try await activeTranscriber.transcribe(
                     captureURL,
-                    vocabulary: session.vocabularyTerms
+                    vocabulary: session.vocabulary.speechHints
                 )
                 guard let self, self.jobGeneration == captureGeneration, !Task.isCancelled else {
                     return
                 }
-                // Spelling runs before optional cleanup so cleanup sees the preferred
-                // words, then again after formatting because a style can lowercase a
-                // term or capitalize a sentence start ("iPhone" -> "IPhone").
+                // Spelling (Custom vocabulary, then the built-in tech glossary) runs before
+                // optional cleanup so cleanup sees the intended words, then the user's terms
+                // again after formatting because a style can lowercase a term or capitalize a
+                // sentence start ("iPhone" -> "IPhone").
                 let asrMilliseconds = dictationLogMilliseconds(from: asrStarted)
                 var firstPass = DictationLogSpellingPass()
-                let observeFirst: ((String, String, String) -> Void)? = recording == nil ? nil : { before, after, term in
-                    firstPass.record(before: before, after: after, term: term)
+                let observeFirst: ((String, String, String, DictationVocabulary.Source) -> Void)? = recording == nil ? nil : {
+                    before, after, term, source in
+                    firstPass.record(before: before, after: after, term: term,
+                                     source: source == .builtIn ? source.rawValue : nil)
                 }
-                let spelled = VocabularySpelling.apply(session.vocabularyTerms, to: rawText, onReplacement: observeFirst)
+                let prepared = session.vocabulary.beforeCleanup(rawText, onReplacement: observeFirst)
+                let spelled = prepared.text
                 recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds, spellingPass: firstPass)
                 var text = spelled
                 if let cleanup = self.cleanup, session.cleanupSkipReason != .off {
@@ -907,7 +915,7 @@ final class DictationController {
                     } else {
                         text = await self.cleanupCoordinator.clean(spelled, style: session.style, job: session.cleanupJob,
                             dependencies: cleanup, skipReason: session.cleanupSkipReason,
-                            vocabulary: session.vocabularyTerms, diagnostics: recording)
+                            vocabulary: prepared.cleanupTerms, diagnostics: recording)
                         guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
                     }
                 } else {
@@ -926,7 +934,7 @@ final class DictationController {
                 let observeSecond: ((String, String, String) -> Void)? = recording == nil ? nil : { before, after, term in
                     secondPass.record(before: before, after: after, term: term)
                 }
-                let formatted = VocabularySpelling.apply(session.vocabularyTerms, to: beforeSpelling, onReplacement: observeSecond)
+                let formatted = session.vocabulary.afterFormatting(beforeSpelling, onReplacement: observeSecond)
                 recording?.finish(text: formatted, beforeSpelling: beforeSpelling, spellingPass: secondPass)
                 self.recordingDuration = 0
                 self.transcript = formatted
