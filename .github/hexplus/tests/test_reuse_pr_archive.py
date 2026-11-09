@@ -55,7 +55,7 @@ class ReuseTests(unittest.TestCase):
             {'base': {'repo': {'full_name': 'other/hex'}, 'ref': 'hex-plus'}},
             {'head': {**self.pr['head'], 'repo': {'full_name': 'other/hex'}}},
             {'head': {**self.pr['head'], 'repo': None}},
-            {'head': {**self.pr['head'], 'ref': 'sync/upstream'}},
+            {'head': {**self.pr['head'], 'ref': 'infra/x'}},
         ):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 reuse.validate_pr({**self.pr, **change}, REPO)

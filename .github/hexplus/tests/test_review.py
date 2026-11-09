@@ -13,10 +13,11 @@ class ReviewWorkflowTest(unittest.TestCase):
         self.assertIn('group: hexplus-review-${{ github.event.pull_request.number }}', SOURCE)
         self.assertIn('cancel-in-progress: true', SOURCE)
 
-    def test_only_own_prs_and_never_upstream_code(self):
+    def test_only_same_repository_prs_without_branch_exclusions(self):
         self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', SOURCE)
-        self.assertIn("github.event.pull_request.head.ref != 'sync/upstream'", SOURCE)
-        self.assertIn("!startsWith(github.event.pull_request.head.ref, 'upstream-pr/')", SOURCE)
+        self.assertIn("if: github.event.pull_request.head.repo.full_name == github.repository", SOURCE)
+        self.assertNotIn("sync/upstream", SOURCE)
+        self.assertNotIn("upstream-pr/", SOURCE)
 
     def test_reviewer_reads_only(self):
         self.assertIn('persist-credentials: false', SOURCE)

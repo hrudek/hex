@@ -1,4 +1,4 @@
-# Hex+ (fork-only): Claude reviews every Hex+ PR, and again after every new commit.
+# Hex+: Claude reviews every Hex+ PR, and again after every new commit.
 # Development happens locally (Pi); no agent starts from issues or comments any more.
 #
 #   PR opened / reopened / new commit pushed / marked ready
@@ -10,8 +10,7 @@
 #
 # pull_request_target: this file and the token come from hex-plus, so a PR cannot change
 # its own reviewer. The PR head is checked out only to be read; nothing from it runs.
-# Same-repository PRs only; the upstream sync and carried upstream PRs (upstream's code)
-# are not reviewed. A newer commit cancels the running review of the older one.
+# Same-repository PRs only. A newer commit cancels the running review of the older one.
 name: Hex+ review
 run-name: "Hex+ review · PR #${{ github.event.pull_request.number }} · ${{ github.event.pull_request.head.sha }}"
 
@@ -30,10 +29,7 @@ concurrency:
 jobs:
   review:
     name: Hex+ review
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && github.event.pull_request.head.ref != 'sync/upstream'
-      && !startsWith(github.event.pull_request.head.ref, 'upstream-pr/')
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: hexplus-agent
@@ -97,8 +93,8 @@ jobs:
           path_to_bun_executable: ${{ steps.bun.outputs.path }}
           prompt: |
             You are the code REVIEWER for Hex+ pull request #${{ github.event.pull_request.number }}
-            in ${{ github.repository }}. Hex+ is a personal fork of anomalyco/hex for the iPhone
-            app; read HEXPLUS.md first, and AGENTS.md / ios/README.md where the change touches
+            in ${{ github.repository }}. Hex+ is a standalone iPhone project, originally from
+            anomalyco/hex; read HEXPLUS.md first, and AGENTS.md / ios/README.md where the change touches
             their rules.
 
             Review exactly commit ${{ github.event.pull_request.head.sha }} (checked out) against
@@ -111,9 +107,9 @@ jobs:
             Report as a finding only what must change before merging:
             - bugs, crashes, races, data loss, wrong behaviour versus the PR description;
             - security or privacy problems (secrets, signing, untrusted input, workflow injection);
-            - violations of HEXPLUS.md's rules (scope outside ios/ and HEXPLUS.md without the
-              infra label, Hex+ switch rules, upstream identity, missing simulator tests for new
-              behaviour, missing or wrong feature-table row);
+            - violations of HEXPLUS.md's rules (changes under .github/ without the infra label,
+              Hex+ switch rules, committed app identity (identity.py; never commit com.bearylabs
+              identifiers), missing simulator tests for new behaviour, missing or wrong feature-table row);
             - conflict markers, broken builds you can see from the code, tests that were weakened.
             Everything optional (style, naming, small refactors, ideas) goes into `notes`, never
             into `findings`. Do not invent problems: an empty findings list is the right answer

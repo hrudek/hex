@@ -8,7 +8,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 scheme=$(python3 -c 'import json,os; print(json.loads(os.environ["APP_CONFIG"])["scheme"])')
 project=$(python3 -c 'import json,os; print(json.loads(os.environ["APP_CONFIG"])["project"])')
-# HEXPLUS_IDENTITY=keep tests upstream's identity unchanged (the agent's local
+# HEXPLUS_IDENTITY=keep tests the committed app identity unchanged (the agent's local
 # runs), so a rewrite never lands in its commits.
 if [[ "${HEXPLUS_IDENTITY:-}" != keep ]]; then
   : "${APPLE_TEAM_ID:?}"
