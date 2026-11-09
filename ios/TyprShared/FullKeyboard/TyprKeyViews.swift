@@ -319,23 +319,17 @@ final class PanelKeyButton: UIControl {
     }
 }
 
-/// Holding the Typr key: dictation styles, then "Return to" for the app Typr goes back to.
+/// Holding the Typr key: dictation styles.
 @MainActor
 final class TyprStyleMenuView: UIView {
-    enum Page { case styles, returnApps }
-
     var palette = FullKeyboardPalette(isDark: false) { didSet { rebuild() } }
     var style: DictationStyle = .polished { didSet { rebuild() } }
-    var returnAppID: String? { didSet { rebuild() } }
-    var quickReturnApps: [HostApp] = HostAppCatalog.quickChips { didSet { if quickReturnApps != oldValue { rebuild() } } }
     var onStyle: ((DictationStyle) -> Void)?
-    var onReturnApp: ((String?) -> Void)?
     var onDismiss: (() -> Void)?
     var onHoverChanged: (() -> Void)?
     /// The Typr key's keycap, in this view's coordinates; the panel opens above it.
     var anchor: CGRect = .zero { didSet { setNeedsLayout() } }
 
-    private var page: Page = .styles
     private let panel = UIView()
     private var rows: [MenuRow] = []
     private var hoveredIndex: Int?
@@ -356,12 +350,6 @@ final class TyprStyleMenuView: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
-    func show(page: Page) {
-        self.page = page
-        hoveredIndex = nil
-        rebuild()
-    }
 
     /// Updates row highlight while the user holds the Typr key and slides into the menu (`point` in this view's coordinates).
     func updateDrag(at point: CGPoint) {
@@ -403,53 +391,17 @@ final class TyprStyleMenuView: UIView {
         panel.layer.shadowColor = palette.popupShadow.cgColor
         rows.forEach { $0.removeFromSuperview() }
         rows = []
-        switch page {
-        case .styles:
-            for option in DictationStyle.allCases {
-                rows.append(makeRow(title: option.label, selected: option == style) { [weak self] in
-                    self?.onStyle?(option)
-                })
-            }
-            let appName = HostAppCatalog.app(for: returnAppID)?.name ?? "None"
-            rows.append(makeRow(title: "Return to", detail: appName, chevron: true, selected: false, showsTopDivider: true) { [weak self] in
-                self?.show(page: .returnApps)
+        for option in DictationStyle.allCases {
+            rows.append(makeRow(title: option.label, selected: option == style) { [weak self] in
+                self?.onStyle?(option)
             })
-        case .returnApps:
-            rows.append(makeRow(title: "None", selected: returnAppID == nil) { [weak self] in
-                self?.onReturnApp?(nil)
-            })
-            var apps = quickReturnApps.isEmpty ? HostAppCatalog.quickChips : quickReturnApps
-            if let current = HostAppCatalog.app(for: returnAppID), !apps.contains(current) {
-                apps.insert(current, at: 0)
-            }
-            for app in apps {
-                rows.append(makeRow(title: app.name, selected: app.id == returnAppID) { [weak self] in
-                    self?.onReturnApp?(app.id)
-                })
-            }
         }
         rows.forEach(panel.addSubview)
         setNeedsLayout()
     }
 
-    private func makeRow(
-        title: String,
-        detail: String? = nil,
-        chevron: Bool = false,
-        selected: Bool,
-        showsTopDivider: Bool = false,
-        action: @escaping () -> Void
-    ) -> MenuRow {
-        let row = MenuRow(
-            palette: palette,
-            title: title,
-            detail: detail,
-            chevron: chevron,
-            selected: selected,
-            showsTopDivider: showsTopDivider,
-            onTrigger: action
-        )
-        return row
+    private func makeRow(title: String, selected: Bool, action: @escaping () -> Void) -> MenuRow {
+        MenuRow(palette: palette, title: title, selected: selected, onTrigger: action)
     }
 
     override func layoutSubviews() {
@@ -470,35 +422,26 @@ final class TyprStyleMenuView: UIView {
     private final class MenuRow: UIControl {
         private let palette: FullKeyboardPalette
         private let title: String
-        private let detail: String?
-        private let chevron: Bool
         private let isChosen: Bool
-        private let showsTopDivider: Bool
         private let onTrigger: () -> Void
         var isSlideHovered = false { didSet { if isSlideHovered != oldValue { setNeedsDisplay() } } }
 
         init(
             palette: FullKeyboardPalette,
             title: String,
-            detail: String?,
-            chevron: Bool,
             selected: Bool,
-            showsTopDivider: Bool,
             onTrigger: @escaping () -> Void
         ) {
             self.palette = palette
             self.title = title
-            self.detail = detail
-            self.chevron = chevron
             self.isChosen = selected
-            self.showsTopDivider = showsTopDivider
             self.onTrigger = onTrigger
             super.init(frame: .zero)
             isOpaque = false
             backgroundColor = .clear
             contentMode = .redraw
             isAccessibilityElement = true
-            accessibilityLabel = detail.map { "\(title), \($0)" } ?? title
+            accessibilityLabel = title
             accessibilityTraits = isChosen ? [.button, .selected] : .button
             addAction(UIAction { [weak self] _ in self?.onTrigger() }, for: .touchUpInside)
             addTarget(self, action: #selector(redraw), for: [.touchDown, .touchDragEnter, .touchDragExit, .touchCancel, .touchUpInside, .touchUpOutside])
@@ -516,11 +459,6 @@ final class TyprStyleMenuView: UIView {
         }
 
         override func draw(_ rect: CGRect) {
-            if showsTopDivider {
-                let hairline = 1 / max(1, traitCollection.displayScale)
-                palette.separator.setFill()
-                UIRectFill(CGRect(x: 10, y: 0, width: bounds.width - 20, height: hairline))
-            }
             let activeHover = isHighlighted || isSlideHovered
             let lit = isChosen || activeHover
             if lit {
@@ -534,28 +472,15 @@ final class TyprStyleMenuView: UIView {
             let size = (title as NSString).size(withAttributes: attributes)
             (title as NSString).draw(at: CGPoint(x: 12, y: bounds.midY - size.height / 2), withAttributes: attributes)
 
-            var trailing = bounds.maxX - 12
-            if isChosen || chevron {
+            if isChosen {
                 let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-                let name = chevron ? "chevron.right" : "checkmark"
-                if let image = UIImage(systemName: name, withConfiguration: config)?
-                    .withTintColor(chevron ? palette.textMuted : ink, renderingMode: .alwaysOriginal) {
-                    trailing -= image.size.width
-                    image.draw(at: CGPoint(x: trailing, y: bounds.midY - image.size.height / 2))
-                    trailing -= 6
+                if let image = UIImage(systemName: "checkmark", withConfiguration: config)?
+                    .withTintColor(ink, renderingMode: .alwaysOriginal) {
+                    image.draw(at: CGPoint(
+                        x: bounds.maxX - 12 - image.size.width,
+                        y: bounds.midY - image.size.height / 2
+                    ))
                 }
-            }
-            if let detail {
-                let detailAttributes: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 14),
-                    .foregroundColor: palette.textMuted,
-                ]
-                let detailSize = (detail as NSString).size(withAttributes: detailAttributes)
-                guard trailing - detailSize.width > 12 + size.width + 8 else { return }
-                (detail as NSString).draw(
-                    at: CGPoint(x: trailing - detailSize.width, y: bounds.midY - detailSize.height / 2),
-                    withAttributes: detailAttributes
-                )
             }
         }
     }

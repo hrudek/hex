@@ -229,15 +229,15 @@ final class DictationControllerTests: XCTestCase {
             transcriber: transcriber,
             transcriberFactory: { transcriber },
             now: { now },
-            autoPrepareOnInit: false
+            autoPrepareOnInit: false,
+            hostReturner: HostReturner(openByBundleID: { _ in false }, openURL: { _ in false })
         )
         controller.prepareModel()
         try await settle()
 
         controller.setWarmDuration(.off)
         controller.handleKeyboardLaunch(
-            .startRecording(jobID: "one-shot-job", requestedAt: now, style: .casual, returnAppID: nil),
-            urlOpener: { _ in false }
+            .startRecording(jobID: "one-shot-job", requestedAt: now, style: .casual, host: nil)
         )
         try await settle()
         XCTAssertEqual(controller.phase, .recording)
@@ -259,37 +259,12 @@ final class DictationControllerTests: XCTestCase {
         XCTAssertEqual(snap.transcript, "ship it tonight")
     }
 
-    func testChosenReturnAppsKeepTheirOrderAndUntickingTheSavedAppForgetsIt() throws {
-        let bridge = KeyboardBridge(defaults: defaults)
-        XCTAssertEqual(bridge.quickReturnApps, HostAppCatalog.quickChips)
-
-        let transcriber = ControlledTranscriber()
-        let controller = DictationController(
-            audio: FakeAudioManager(),
-            keyboardBridge: bridge,
-            transcriber: transcriber,
-            transcriberFactory: { transcriber },
-            autoPrepareOnInit: false
-        )
-        let signal = try XCTUnwrap(HostAppCatalog.app(for: "signal"))
-        let t3Code = try XCTUnwrap(HostAppCatalog.app(for: "t3code"))
-        controller.setReturnAppID("t3code")
-
-        controller.setQuickReturnApps([t3Code, signal])
-        XCTAssertEqual(bridge.quickReturnApps, [t3Code, signal])
-        XCTAssertEqual(bridge.returnAppID, "t3code")
-
-        controller.setQuickReturnApps([signal])
-        XCTAssertEqual(bridge.quickReturnApps, [signal])
-        XCTAssertNil(bridge.returnAppID)
-        XCTAssertNil(controller.returnAppID)
-    }
-
     func testTenSecondHandoffWindowAndAutoReturnBehavior() async throws {
         var now = 5_000.0
         let audio = FakeAudioManager()
         let transcriber = ControlledTranscriber()
         let bridge = KeyboardBridge(defaults: defaults)
+        var openedBundleIDs: [String] = []
         var openedURLs: [URL] = []
 
         let controller = DictationController(
@@ -299,41 +274,86 @@ final class DictationControllerTests: XCTestCase {
             transcriberFactory: { transcriber },
             now: { now },
             autoPrepareOnInit: false,
-            urlOpener: { url in
-                openedURLs.append(url)
-                return url.scheme == "claude"
-            }
+            hostReturner: HostReturner(
+                openByBundleID: { id in
+                    openedBundleIDs.append(id)
+                    return id == "com.openai.chat"
+                },
+                openURL: { url in
+                    openedURLs.append(url)
+                    return url.scheme == "ichat"
+                }
+            )
         )
         controller.prepareModel()
         try await settle()
 
-        // 1. Expired (>10s) handoff warms session without surprise-recording.
+        // 1. Expired (>10s) handoff warms session without surprise-recording or returning.
         controller.handleKeyboardLaunch(
-            .startRecording(jobID: "expired-job", requestedAt: now - 11.5, style: .polished, returnAppID: "claude")
+            .startRecording(jobID: "expired-job", requestedAt: now - 11.5, style: .polished, host: "com.openai.chat")
         )
         try await settle()
         XCTAssertTrue(controller.keyboardSessionEnabled)
         XCTAssertEqual(controller.phase, .ready)
         XCTAssertNotNil(controller.handoffNotice)
+        XCTAssertTrue(openedBundleIDs.isEmpty)
         XCTAssertTrue(openedURLs.isEmpty)
 
-        // 2. Fresh handoff starts recording and opens configured host URL scheme.
+        // 2. Fresh handoff starts recording and returns to the host by bundle ID first.
         now += 1
         controller.handleKeyboardLaunch(
-            .startRecording(jobID: "fresh-job", requestedAt: now - 0.4, style: .polished, returnAppID: "claude")
+            .startRecording(jobID: "fresh-job", requestedAt: now - 0.4, style: .polished, host: "com.openai.chat")
         )
         try await settle()
         XCTAssertEqual(controller.phase, .recording)
-        XCTAssertEqual(openedURLs.map(\.absoluteString), ["claude://"])
+        XCTAssertEqual(openedBundleIDs, ["com.openai.chat"])
+        XCTAssertTrue(openedURLs.isEmpty)
+        XCTAssertEqual(controller.autoReturnState, .attempting)
+        controller.noteSceneDidEnterBackground()
+        XCTAssertEqual(controller.autoReturnState, .succeeded)
 
-        // 3. Unsupported scheme immediately falls back to swipe guide.
+        // 3. When opening by bundle ID fails, the host's own resuming URL is used.
         controller.cancelCurrentJob()
         now += 1
         controller.handleKeyboardLaunch(
-            .startRecording(jobID: "fallback-job", requestedAt: now - 0.2, style: .polished, returnAppID: "slack")
+            .startRecording(jobID: "scheme-job", requestedAt: now - 0.2, style: .polished, host: "com.apple.MobileSMS")
         )
         try await settle()
+        XCTAssertEqual(openedBundleIDs.last, "com.apple.MobileSMS")
+        XCTAssertEqual(openedURLs.map(\.absoluteString), ["ichat://"])
+        XCTAssertEqual(controller.autoReturnState, .attempting)
+
+        // 4. An app with neither way back falls back to the swipe cue.
+        controller.cancelCurrentJob()
+        now += 1
+        controller.handleKeyboardLaunch(
+            .startRecording(jobID: "unknown-job", requestedAt: now - 0.2, style: .polished, host: "com.example.noscheme")
+        )
+        try await settle()
+        XCTAssertEqual(openedBundleIDs.last, "com.example.noscheme")
+        XCTAssertEqual(openedURLs.count, 1)
         XCTAssertEqual(controller.autoReturnState, .swipeFallback)
+
+        // 5. A host the keyboard could not name gets the swipe cue without opening anything.
+        controller.cancelCurrentJob()
+        now += 1
+        let opensBefore = openedBundleIDs.count
+        controller.handleKeyboardLaunch(
+            .startRecording(jobID: "nameless-job", requestedAt: now - 0.2, style: .polished, host: nil)
+        )
+        try await settle()
+        XCTAssertEqual(openedBundleIDs.count, opensBefore)
+        XCTAssertEqual(controller.autoReturnState, .swipeFallback)
+
+        // 6. A field inside Typr itself needs no return.
+        controller.cancelCurrentJob()
+        now += 1
+        controller.handleKeyboardLaunch(
+            .startRecording(jobID: "self-job", requestedAt: now - 0.2, style: .polished, host: HostReturnCatalog.typrBundleID)
+        )
+        try await settle()
+        XCTAssertEqual(openedBundleIDs.count, opensBefore)
+        XCTAssertEqual(controller.autoReturnState, .idle)
         controller.cancelCurrentJob()
     }
 

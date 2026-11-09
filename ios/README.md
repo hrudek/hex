@@ -24,17 +24,29 @@ it never accesses the microphone, speech model, or network.
     do nothing in a keyboard extension, so the keyboard opens Typr through
     the `UIApplication` at the end of its responder chain
     (`ContainingAppOpener`).
-  - **Cold start:** Tapping **Dictate** opens the containing app
-    (`typr://keyboard/record?...`) with a 10-second
-    handoff window, starts recording, and opens the selected host app's URL
-    scheme (`messages://`, `slack://`, `claude://`, `chatgpt://`,
-    `mobilenotes://`, `discord://`, `mail://`, `x-web-search://`, etc.) using
-    public `UIApplication.shared.open(_:)`. Because iOS keyboard extensions
-    cannot inspect the host app's bundle ID without private APIs, you pick your
-    usual return app once on the `↩` chip (or jump bar), and apps without a
-    registered URL scheme fall back cleanly within ~1s to the bottom-edge swipe
-    bar and quick-jump chips. **Edit apps…** in the app's return menu picks and
-    orders the apps the keyboard tray and jump bar offer.
+  - **Cold start and automatic return:** Without a warm mic, tapping
+    **Dictate** opens the containing app (`typr://keyboard/record?...&host=<bundle ID>`)
+    with a 10-second handoff window. Typr starts recording, then returns to
+    the app the keyboard was typing in, with no setting to choose:
+    1. **Host detection (keyboard, private API):** since iOS 26.4 a keyboard's
+       own properties no longer name its host. `KeyboardArbiter.c` switches on
+       UIKit's `_UIKeyboardArbiterClient` as the keyboard binary loads;
+       `KeyboardHost` keeps the arbiter's process ID → bundle ID pairs in
+       memory (`HostProcessTable`) and answers with the name under the
+       keyboard's `_hostProcessIdentifier`, never the arbiter's latest answer,
+       which can name an app already left. Unknown means no bundle ID.
+    2. **Return (app):** `HostReturner` opens the bundle ID through
+       `LSApplicationWorkspace` (private API; resumes the app as it was left),
+       else the app's resuming URL from `HostReturnCatalog` (`ichat://` for
+       Messages, `whatsapp-consumer://`, `slack://open`, …), else the
+       bottom-edge swipe cue appears within ~1 s. An unknown host gets the
+       swipe cue directly; a field in Typr itself is not returned from.
+    3. **Hosts Typr cannot return to:** a share sheet, a notification's reply,
+       Spotlight and similar surfaces close when left, taking their text. There
+       the keyboard does not open Typr and says *Turn on Keep mic warm in Typr
+       first*; with a warm mic, dictation works in place as anywhere.
+    None of the private calls is linked; each is resolved by name and degrades
+    to the next step. Translated from iikb and Dictus (see `PORTS.md`).
   - **GPU Dot Scope (`TyprShared/DotScope.swift`, `DotScopeShader.metal`):**
     Both `Typr` and `TyprKeyboard` render Hex's desktop menu-bar braided
     oscilloscope (in `anomalyco/hex` at `cae389a8`: `src/rune_hud/dot_scope.rs`,
@@ -61,9 +73,9 @@ it never accesses the microphone, speech model, or network.
   - **Full keyboard Typr key (Experiments › Full keyboard):** A tap does
     nothing, so a stray one while typing is harmless. A still hold of 0.35 s
     starts dictation in a warm session (or opens Typr without one), with a
-    haptic. Moving more than 10 pt before then opens the style and **Return
-    to** menu; releasing over a row picks it, and releasing elsewhere leaves
-    the menu open for taps (`TyprKeyGesture`). VoiceOver activation dictates,
+    haptic. Moving more than 10 pt before then opens the style menu;
+    releasing over a row picks it, and releasing elsewhere leaves the menu
+    open for taps (`TyprKeyGesture`). VoiceOver activation dictates,
     and the **Dictation styles** action opens the menu.
   - **Apple Intelligence cleanup (Experiments › Clean up with Apple
     Intelligence, iOS 26+):** Off by default. For every style but `Verbatim`,
@@ -119,11 +131,14 @@ xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>
   transcript delivery; 10s handoff window + URL-scheme auto-return fallback;
   interruption handling; meter recovery after injected startup and mid-capture
   recorder unavailability (including keyboard levels and heartbeat); deterministic
-  style formatting; and UI layouts.
+  style formatting; host-return order (bundle ID → resuming URL → swipe),
+  host process table and share-sheet refusal logic with injected openers;
+  and UI layouts.
 - **Requires a physical iPhone:** Real `AVAudioSession` background keepalive
   survival across lock/app switches, live orange indicator behavior, on-device
-  `SpeechTranscriber` / Neural Engine Parakeet latency, URL-scheme return into
-  installed third-party apps (Messages, Slack, Claude, ChatGPT), Dynamic Island
+  `SpeechTranscriber` / Neural Engine Parakeet latency, keyboard-arbiter host
+  detection, `LSApplicationWorkspace` and URL-scheme return into installed
+  apps (and where each lands), share-sheet refusal, Dynamic Island
   Live Activity interaction, and hardware Action Button invocation. Transient
   `AVAudioRecorder.isRecording` changes during warm handoff or Bluetooth route
   changes have not been reproduced on hardware; the meter recovery tests inject

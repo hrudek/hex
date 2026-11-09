@@ -12,7 +12,7 @@ final class KeyboardViewController: UIInputViewController {
     private let viewModel = KeyboardViewModel()
     private var pollTimer: Timer?
     private var coldStartJobID = UUID().uuidString
-    private var lastURLRefreshBucket: Int = 0
+    private var lastRemountBucket: Int = 0
     private var lastFullAccessNote: TimeInterval = 0
     private var surface: UIView?
     private var fullKeyboard: FullKeyboardView?
@@ -33,6 +33,8 @@ final class KeyboardViewController: UIInputViewController {
         if ownedFeedbackJobs.count > 32 { ownedFeedbackJobs = [coldStartJobID] }
         coldStartJobID = UUID().uuidString
         didHandOffCurrentField = false
+        KeyboardHost.appeared()
+        viewModel.hostNotice = nil
         mountSurface()
         fullKeyboard?.prepareForField()
         handOffNumericPadIfNeeded()
@@ -67,13 +69,20 @@ final class KeyboardViewController: UIInputViewController {
 
     override func textWillChange(_ textInput: UITextInput?) {
         super.textWillChange(textInput)
+        KeyboardHost.harvest()
         if KeyboardFieldRouting.route(for: textDocumentProxy.keyboardType) != .handOff {
             didHandOffCurrentField = false
         }
     }
 
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        super.selectionDidChange(textInput)
+        KeyboardHost.harvest()
+    }
+
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
+        KeyboardHost.harvest()
         updateKeyboardTraits()
         fullKeyboard?.textDidChange()
         handOffNumericPadIfNeeded()
@@ -116,16 +125,8 @@ final class KeyboardViewController: UIInputViewController {
             if self.viewModel.style != style {
                 self.viewModel.style = style
             }
-            self.refreshColdStartURL(now: Date().timeIntervalSince1970, force: true)
         }
-        viewModel.onReturnAppSelected = { [weak self] appID in
-            guard let self else { return }
-            self.bridge.returnAppID = appID
-            if self.viewModel.returnAppID != appID {
-                self.viewModel.returnAppID = appID
-            }
-            self.refreshColdStartURL(now: Date().timeIntervalSince1970, force: true)
-        }
+        viewModel.onColdStart = { [weak self] in self?.coldStart() }
         viewModel.onFeedbackRating = { [weak self] rating, issues in self?.queueFeedback(rating: rating, issues: issues) }
         viewModel.onSpace = { [weak self] in self?.viewModel.dismissFeedback(); self?.textDocumentProxy.insertText(" ") }
         viewModel.onDelete = { [weak self] in self?.viewModel.dismissFeedback(); self?.textDocumentProxy.deleteBackward() }
@@ -284,7 +285,6 @@ final class KeyboardViewController: UIInputViewController {
                 snapshot: .offline,
                 isModelInstalled: false,
                 style: viewModel.style,
-                returnAppID: viewModel.returnAppID,
                 now: now,
                 clearPending: true,
                 animated: animated
@@ -326,47 +326,45 @@ final class KeyboardViewController: UIInputViewController {
             coldStartJobID = UUID().uuidString
         }
 
-        let quickReturnApps = bridge.quickReturnApps
-        if viewModel.quickReturnApps != quickReturnApps {
-            viewModel.quickReturnApps = quickReturnApps
-        }
-
         viewModel.applyBridgeState(
             hasFullAccess: true,
             snapshot: snap,
             isModelInstalled: bridge.isModelInstalled,
             style: bridge.style,
-            returnAppID: bridge.returnAppID,
             now: now,
             clearPending: insertedResult,
             animated: animated
         )
 
-        refreshColdStartURL(now: now, force: false)
+        remountIfNeeded(now: now)
         schedulePoll(force: false)
     }
 
-    private func refreshColdStartURL(now: TimeInterval, force: Bool) {
+    /// Picks up a changed keyboard setting (full keyboard, switch key) every 2 s.
+    private func remountIfNeeded(now: TimeInterval) {
         let bucket = Int(now / 2.0)
-        guard force || bucket != lastURLRefreshBucket else { return }
-        lastURLRefreshBucket = bucket
+        guard bucket != lastRemountBucket else { return }
+        lastRemountBucket = bucket
         mountSurface()
+    }
 
-        let request: KeyboardLaunchRequest
-        if bridge.isModelInstalled {
-            request = .startRecording(
-                jobID: coldStartJobID,
-                requestedAt: now,
-                style: bridge.style,
-                returnAppID: bridge.returnAppID
-            )
-        } else {
-            request = .startSession(
-                requestedAt: now,
-                returnAppID: bridge.returnAppID
-            )
+    /// Opens Typr to start the microphone, naming the app to return to (`KeyboardHost`).
+    /// A share sheet, a notification's reply or Spotlight closes once left, taking its text
+    /// with it, so from there Typr is not opened; dictation needs a warm mic instead.
+    private func coldStart() {
+        let host = KeyboardHost.app(of: self)
+        guard KeyboardHost.canReturn(to: host) else {
+            viewModel.hostNotice = "Turn on Keep mic warm in Typr first"
+            return
         }
-        viewModel.coldStartURL = request.url
+        viewModel.hostNotice = nil
+        let now = Date().timeIntervalSince1970
+        let request: KeyboardLaunchRequest = if bridge.isModelInstalled {
+            .startRecording(jobID: coldStartJobID, requestedAt: now, style: bridge.style, host: host)
+        } else {
+            .startSession(requestedAt: now, host: host)
+        }
+        ContainingAppOpener.open(request.url, from: self)
     }
 
     private func updateKeyboardTraits() {
