@@ -40,12 +40,26 @@ extension DictationLogEntry {
         } else if context.cleanupPath == .upstream {
             lines.append("Upstream: \(upstreamOutcome ?? "not recorded")\(upstreamReason.map { "; \($0)" } ?? "")")
         }
-        if let terms = context.vocabularySnapshot {
+        if let terms = vocabularyTermsLine {
+            lines.append(terms)
+        } else if let terms = context.vocabularySnapshot {
             lines.append("Active vocabulary: \(terms.text.isEmpty ? "(none)" : terms.text)\(terms.truncated ? " [TRUNCATED]" : "")")
         } else if context.vocabularyCount > 0 {
             lines.append("Active vocabulary spellings: not recorded")
         }
         return lines
+    }
+
+    /// Every saved vocabulary term, quoted so multi-word terms stay unambiguous.
+    var vocabularyTermsLine: String? {
+        guard let terms = context.vocabularyTerms else { return nil }
+        let applied = switch context.vocabularyEnabled {
+        case true?: "applied"
+        case false?: "saved, not applied"
+        case nil: "application not recorded"
+        }
+        let list = terms.isEmpty ? "(none)" : terms.map { String(reflecting: $0) }.joined(separator: ", ")
+        return "Vocabulary terms (\(terms.count); \(applied)): \(list)"
     }
 
     /// Only a complete exact match may be abbreviated; matching truncated prefixes prove nothing.

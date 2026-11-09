@@ -158,7 +158,11 @@ text. Technical diagnostics remain collapsed. Exact complete duplicate stages
 reference earlier stages in improvement text; truncated prefixes never dedupe.
 Missing older evidence means not recorded, not unchanged/off.
 
-Frozen active vocabulary is capped to 100 terms / 4,000 bytes. Each spelling pass
+Every entry freezes the complete saved Custom vocabulary as `context.vocabularyTerms`
+(a JSON string array, in saved order, max 100 terms × 64 characters), even while
+the experiment is off; `vocabularyEnabled` says whether the terms were applied and
+`vocabularyCount` counts the applied ones. Older entries may instead carry the
+legacy joined `vocabularySnapshot` (active terms only, capped to 4,000 bytes). Each spelling pass
 keeps the first 20 replacements plus total count. Per-field truncation, original
 byte/word counts and bounded 400-token comparisons remain explicit. Speech hints
 are best effort; counts are not correctness scores. Selected model configuration

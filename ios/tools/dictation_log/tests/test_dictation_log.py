@@ -13,7 +13,7 @@ from unittest import mock
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from archive import Invalid, canonical, read_export
+from archive import Invalid, canonical, read_export, validate_entry
 from cli import main
 from report import edit_metric, fingerprint, make_report, settings
 from store import Store, outside_checkout
@@ -205,6 +205,28 @@ class ToolTests(unittest.TestCase):
         unknown = copy.deepcopy(value); unknown["context"].pop("upstreamCleanupEnabled")
         self.assertEqual(settings(unknown, b"x" * 32)["upstreamCleanupEnabled"], "unknown")
         self.assertIs(settings(value, b"x" * 32)["upstreamCleanupEnabled"], False)
+
+    def test_vocabulary_terms_list_is_validated_private_and_fingerprinted(self):
+        value = entry(); value["context"]["vocabularyTerms"] = [SECRET, "herdr pane"]
+        value["context"].pop("vocabularySnapshot")
+        self.put(envelope([value]))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["--store", str(self.store), "report", "--json"]), 0)
+        self.assertNotIn(SECRET, output.getvalue())
+        rows = self.report(show_text=True)["text"]
+        self.assertEqual(rows[0]["vocabularyTerms"], [SECRET, "herdr pane"])
+        baseline = settings(value, b"x" * 32)
+        changed = copy.deepcopy(value); changed["context"]["vocabularyTerms"] = ["other"]
+        self.assertNotEqual(settings(changed, b"x" * 32), baseline)
+        inactive = copy.deepcopy(value); inactive["context"]["vocabularyEnabled"] = False
+        other = copy.deepcopy(inactive); other["context"]["vocabularyTerms"] = ["other"]
+        self.assertEqual(settings(inactive, b"x" * 32)["activeVocabulary"],
+                         settings(other, b"x" * 32)["activeVocabulary"])
+        for bad in ("not a list", [1], ["x" * 65], ["t"] * 101):
+            broken = copy.deepcopy(value); broken["context"]["vocabularyTerms"] = bad
+            with self.assertRaises(Invalid):
+                validate_entry(broken, "entry")
 
     def test_default_output_and_errors_never_print_synthetic_private_text(self):
         value = entry(rating=SECRET, issues=[SECRET]); value["context"]["appBuild"] = SECRET
