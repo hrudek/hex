@@ -22,8 +22,8 @@ struct TyprFeedbackTray: View {
                             model.dismissFeedback()
                             model.onOpenURL?(url)
                         } label: {
-                            Label(TyprFeedbackBar.openTitle, systemImage: "square.and.pencil")
-                        }.accessibilityLabel(TyprFeedbackBar.openAccessibilityLabel)
+                            Label(TyprFeedbackPanel.openTitle, systemImage: "square.and.pencil")
+                        }.accessibilityLabel(TyprFeedbackPanel.openAccessibilityLabel)
                     }
                     Button { model.dismissFeedback() } label: { Image(systemName: "xmark") }
                         .accessibilityLabel("Dismiss dictation feedback")

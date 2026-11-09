@@ -219,65 +219,103 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
     }
 
-    func testFullFeedbackProblemActionsInitiallyVisibleInBothAppearances() {
+    private func visibleButton(_ label: String, in root: UIView) -> UIButton? {
+        visibleButtons(root).first { $0.accessibilityLabel == label }
+    }
+
+    private func makeKeyboard(
+        model: KeyboardViewModel,
+        target: FixtureTextTarget = FixtureTextTarget(text: "Host text"),
+        showsBar: Bool = false
+    ) -> FullKeyboardView {
+        let view = FullKeyboardView(model: model, target: target)
+        view.suggestionBarOverride = showsBar
+        view.frame = CGRect(x: 0, y: 0, width: 393, height: view.preferredHeight)
+        view.layoutIfNeeded()
+        return view
+    }
+
+    func testFeedbackPanelTilesAreLargeAndInsideInBothAppearances() {
         for dark in [false, true] {
-            let strip = KeyboardStripView(frame: CGRect(x: 0, y: 0, width: 393, height: 33))
-            strip.palette = FullKeyboardPalette(isDark: dark)
-            strip.updateFeedback(.snapshotFixture(problem: true), onRating: nil, onDismiss: {})
-            strip.update(suggestions: [], showsUndo: true, statusText: nil)
-            strip.layoutIfNeeded()
-            let buttons = visibleButtons(strip)
-            for label in ["Undo dictation", "Good", "Problem", TyprFeedbackBar.openAccessibilityLabel,
-                          "Dismiss dictation feedback"] {
-                guard let button = buttons.first(where: { $0.accessibilityLabel == label }) else {
-                    XCTFail("\(label) not visible (dark: \(dark))"); continue
+            let height = KeyboardLayout.height(for: .portrait, showsStrip: false)
+            let panel = TyprFeedbackPanel(frame: CGRect(x: 0, y: 0, width: 393, height: height))
+            panel.palette = FullKeyboardPalette(isDark: dark)
+            panel.metrics = KeyboardMetrics.for(.portrait, innerWidth: 393, showsStrip: false)
+            let cases: [(TyprFeedbackPanel.Content, [String])] = [
+                (.ask, ["Good", "Problem", TyprFeedbackPanel.dismissFeedbackLabel]),
+                (.problem, [TyprFeedbackPanel.openAccessibilityLabel, TyprFeedbackPanel.dismissFeedbackLabel]),
+                (.retry("Not queued: full, expired or unavailable"), ["Retry feedback", TyprFeedbackPanel.dismissFeedbackLabel]),
+                (.notice("Turn on Keep mic warm in Typr first"), [TyprFeedbackPanel.dismissMessageLabel]),
+            ]
+            for (content, labels) in cases {
+                panel.content = content
+                panel.layoutIfNeeded()
+                for label in labels {
+                    guard let button = visibleButton(label, in: panel) else {
+                        XCTFail("\(label) not visible (\(content), dark: \(dark))"); continue
+                    }
+                    let rect = button.convert(button.bounds, to: panel)
+                    XCTAssertTrue(panel.bounds.contains(rect), label)
+                    XCTAssertGreaterThanOrEqual(rect.width, 44, label)
+                    XCTAssertGreaterThanOrEqual(rect.height, 30, label)
                 }
-                let rect = button.convert(button.bounds, to: strip)
-                XCTAssertGreaterThanOrEqual(rect.minX, 0, label)
-                XCTAssertLessThanOrEqual(rect.maxX, strip.bounds.maxX, label)
-                XCTAssertGreaterThanOrEqual(rect.width, 44, label)
-                XCTAssertGreaterThan(rect.height, 0, label)
             }
-            // Categories moved into the app: the keyboard no longer lists them.
-            XCTAssertFalse(buttons.contains { $0.accessibilityLabel == "Misheard" })
+            panel.content = .ask
+            panel.layoutIfNeeded()
+            // The rating tiles take the room the keys had.
+            let goodButton = visibleButton("Good", in: panel)!
+            let good = goodButton.convert(goodButton.bounds, to: panel)
+            XCTAssertGreaterThan(good.height, 120)
+            XCTAssertGreaterThan(good.width, 150)
+            // Problem offers only Fix in Typr and ✕.
+            panel.content = .problem
+            panel.layoutIfNeeded()
+            XCTAssertNil(visibleButton("Good", in: panel))
+            XCTAssertNil(visibleButton("Problem", in: panel))
         }
     }
 
     /// On a device the full keyboard is mounted first and the feedback arrives with the inserted
-    /// result. The bar must appear and be laid out then, not only when present at construction.
-    func testFullKeyboardShowsFeedbackThatArrivesAfterMount() {
+    /// result. The panel must cover the keys then, not only when present at construction.
+    func testFullKeyboardShowsFeedbackPanelThatArrivesAfterMount() {
         let model = KeyboardViewModel()
         model.configureFixture(snapshot: .offline, now: 10_000)
-        let view = FullKeyboardView(model: model, target: FixtureTextTarget(text: "Host text"))
-        view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardLayout.height(for: .portrait))
-        view.layoutIfNeeded()
+        var received: [String] = []
+        model.onFeedbackRating = { rating, _ in received.append(rating) }
+        let view = makeKeyboard(model: model)
         pumpMainRunLoop()
-        XCTAssertFalse(visibleButtons(view).contains { $0.accessibilityLabel == "Good" })
+        XCTAssertNil(visibleButton("Good", in: view))
+        XCTAssertNotNil(view.engine.layout.key(.character("q")))
 
-        view.didInsertDictation("dictated", keepUndoFor: 180)
+        view.didInsertDictation()
         model.feedback = .snapshotFixture()
         pumpMainRunLoop()
         view.layoutIfNeeded()
-        for label in ["Good", "Problem", "Dismiss dictation feedback"] {
-            guard let button = visibleButtons(view).first(where: { $0.accessibilityLabel == label }) else {
+        XCTAssertEqual(view.shownPanelContent, .ask)
+        for label in ["Good", "Problem", TyprFeedbackPanel.dismissFeedbackLabel] {
+            guard let button = visibleButton(label, in: view) else {
                 XCTFail("\(label) not visible after a late feedback offer"); continue
             }
-            let rect = button.convert(button.bounds, to: view)
-            XCTAssertTrue(view.bounds.contains(rect), label)
-            XCTAssertGreaterThanOrEqual(rect.width, 44, label)
+            XCTAssertTrue(view.bounds.contains(button.convert(button.bounds, to: view)), label)
         }
 
-        model.feedback?.rating = "bad"
+        visibleButton("Problem", in: view)?.sendActions(for: .touchUpInside)
         pumpMainRunLoop()
         view.layoutIfNeeded()
+        XCTAssertEqual(received, ["bad"])
+        XCTAssertEqual(view.shownPanelContent, .problem)
+        XCTAssertNil(visibleButton("Good", in: view))
+        XCTAssertNotNil(visibleButton(TyprFeedbackPanel.dismissFeedbackLabel, in: view))
         var opened: URL?
         model.onOpenURL = { opened = $0 }
-        let open = visibleButtons(view).first { $0.accessibilityLabel == TyprFeedbackBar.openAccessibilityLabel }
+        let open = visibleButton(TyprFeedbackPanel.openAccessibilityLabel, in: view)
         XCTAssertNotNil(open)
         open?.sendActions(for: .touchUpInside)
         let entryID = DictationFeedbackPresentation.snapshotFixture().offer.entryID
         XCTAssertEqual(opened, TyprFeedbackLink.url(entryID: entryID))
         XCTAssertNil(model.feedback)
+        pumpMainRunLoop()
+        XCTAssertNil(view.shownPanelContent)
     }
 
     func testFeedbackLinkRoundTripAndRouting() {
@@ -295,29 +333,83 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         XCTAssertNil(router.requestedEntry)
     }
 
-    func testFullKeyboardFeedbackKeepsUndoDoesNotEditHostAndTypingDismisses() {
+    func testFullKeyboardGoodClosesThePanelAtOnceAndLeavesHostText() {
         let target = FixtureTextTarget(text: "Original host text")
         let model = KeyboardViewModel()
         model.configureFixture(snapshot: .offline, now: 10_000)
         model.feedback = .snapshotFixture()
         var received: String?
         model.onFeedbackRating = { rating, _ in received = rating }
-        let view = FullKeyboardView(model: model, target: target)
-        view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardLayout.height(for: .portrait))
-        view.didInsertDictation("dictated", keepUndoFor: 180)
-        view.layoutIfNeeded()
-        let visible = visibleButtons(view)
-        XCTAssertTrue(visible.contains { $0.accessibilityLabel == "Undo dictation" })
-        let good = visible.first { $0.accessibilityLabel == "Good" }
-        XCTAssertNotNil(good)
-        good?.sendActions(for: .touchUpInside)
+        let view = makeKeyboard(model: model, target: target)
+        XCTAssertEqual(view.shownPanelContent, .ask)
+        XCTAssertNil(visibleButton("Undo dictation", in: view), "Undo dictation is gone")
+        visibleButton("Good", in: view)?.sendActions(for: .touchUpInside)
         XCTAssertEqual(received, "good")
+        XCTAssertNil(model.feedback)
+        pumpMainRunLoop()
+        XCTAssertNil(view.shownPanelContent)
         XCTAssertEqual(target.text, "Original host text")
         let key = view.engine.layout.key(.character("x"))!
         let point = CGPoint(x: key.frame.midX, y: key.frame.midY)
         view.engine.touchBegan(id: 99, at: point); view.engine.touchEnded(id: 99, at: point)
-        XCTAssertNil(model.feedback)
         XCTAssertTrue(target.text.contains("x"))
+    }
+
+    func testFeedbackPanelCloseAndProblemTimeout() {
+        let model = KeyboardViewModel()
+        model.configureFixture(snapshot: .offline, now: 10_000)
+        model.feedback = .snapshotFixture()
+        var received: [String] = []
+        model.onFeedbackRating = { rating, _ in received.append(rating) }
+        let view = makeKeyboard(model: model)
+        visibleButton(TyprFeedbackPanel.dismissFeedbackLabel, in: view)?.sendActions(for: .touchUpInside)
+        XCTAssertNil(model.feedback)
+        XCTAssertTrue(received.isEmpty, "✕ rates nothing")
+        pumpMainRunLoop()
+        XCTAssertNil(view.shownPanelContent)
+
+        view.problemPanelDuration = 0.05
+        model.feedback = .snapshotFixture(problem: true)
+        pumpMainRunLoop()
+        XCTAssertEqual(view.shownPanelContent, .problem)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertNil(model.feedback, "Fix in Typr stays only for a moment")
+        pumpMainRunLoop()
+        XCTAssertNil(view.shownPanelContent)
+    }
+
+    func testFeedbackThatFailedToQueueOffersRetry() {
+        let model = KeyboardViewModel()
+        model.configureFixture(snapshot: .offline, now: 10_000)
+        var feedback = DictationFeedbackPresentation.snapshotFixture()
+        feedback.message = "Not queued: full, expired or unavailable"
+        feedback.retryRating = "good"
+        model.feedback = feedback
+        var received: [String] = []
+        model.onFeedbackRating = { rating, _ in received.append(rating) }
+        let view = makeKeyboard(model: model)
+        XCTAssertEqual(view.shownPanelContent, .retry("Not queued: full, expired or unavailable"))
+        visibleButton("Retry feedback", in: view)?.sendActions(for: .touchUpInside)
+        XCTAssertEqual(received, ["good"])
+        XCTAssertNil(model.feedback)
+    }
+
+    func testHiddenBarShowsTyprMessagesInThePanel() {
+        let model = KeyboardViewModel()
+        let failed = KeyboardSnapshot(state: .failed, heartbeat: 9_999.9, expiresAt: 10_600, message: "Microphone unavailable")
+        model.configureFixture(snapshot: failed, now: 10_000)
+        let view = makeKeyboard(model: model)
+        XCTAssertEqual(view.shownPanelContent, .notice("Microphone unavailable"))
+        visibleButton(TyprFeedbackPanel.dismissMessageLabel, in: view)?.sendActions(for: .touchUpInside)
+        XCTAssertNil(view.shownPanelContent, "a closed message stays closed")
+        pumpMainRunLoop()
+        XCTAssertNil(view.shownPanelContent)
+
+        // With the bar on, the message stays in the bar as before.
+        let barModel = KeyboardViewModel()
+        barModel.configureFixture(snapshot: failed, now: 10_000)
+        let withBar = makeKeyboard(model: barModel, showsBar: true)
+        XCTAssertNil(withBar.shownPanelContent)
     }
     #endif
 

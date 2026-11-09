@@ -330,6 +330,9 @@ final class KeyCalloutView: UIView {
 
     /// Key at the bottom, wider bubble above, joined by a smooth downward neck.
     static func path(for balloon: KeyBalloon) -> CGPath {
+        if balloon.isInline {
+            return UIBezierPath(roundedRect: balloon.bubble, cornerRadius: 11).cgPath
+        }
         let kr = FullKeyboardPalette.cornerRadius
         let br: CGFloat = 11
         let kl = balloon.keyFrame.minX

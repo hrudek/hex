@@ -262,7 +262,7 @@ final class TyprKeyRecordingPanel: UIView {
         let innerRight = bounds.width - horizontalInset - metrics.side
         let innerW = max(120, innerRight - innerLeft)
         let headerTop = metrics.stripTop
-        let headerH = metrics.stripHeight
+        let headerH = KeyboardMetrics.headerHeight
         var x = innerLeft + 8
         if !dot.isHidden {
             dot.frame = CGRect(x: x, y: headerTop + headerH / 2 - 3.5, width: 7, height: 7)

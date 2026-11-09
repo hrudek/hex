@@ -250,13 +250,17 @@ final class KeyboardViewController: UIInputViewController {
         lastFeedbackEventID = event.eventID
         feedbackBridge.enqueue(event) { [weak self] success in
             Task { @MainActor [weak self] in
-                guard let self, self.viewModel.feedback?.offer == offer else { return }
+                guard let self, self.confirmedFeedback?.offer == offer else { return }
+                let current = self.viewModel.feedback
+                guard current == nil || current?.offer == offer else { return }
                 if success, self.confirmedFeedbackOrder.map({ $0 < event.order }) ?? true {
                     self.confirmedFeedbackOrder = event.order
                     self.confirmedFeedback?.rating = event.rating
                     if let issues = event.issues { self.confirmedFeedback?.issues = issues }
                 }
                 guard self.lastFeedbackEventID == event.eventID else { return }
+                // The full keyboard closes its panel on Good at once: only a failure brings it back.
+                guard current != nil || !success else { return }
                 self.viewModel.feedback = self.confirmedFeedback
                 self.viewModel.feedback?.message = success ? "Noted on keyboard" : "Not queued: full, expired or unavailable"
                 if !success {
@@ -316,7 +320,7 @@ final class KeyboardViewController: UIInputViewController {
                 afterContext: textDocumentProxy.documentContextAfterInput
             )
             textDocumentProxy.insertText(insertion)
-            fullKeyboard?.didInsertDictation(insertion)
+            fullKeyboard?.didInsertDictation()
             bridge.lastInsertedResultID = resultID
             insertedResult = true
             if feedbackBridge.switchesEnabled, snap.state != .recording, snap.state != .transcribing {

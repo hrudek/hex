@@ -1,8 +1,9 @@
 import Combine
 import UIKit
 
-/// The experimental full keyboard: a 3-slot suggestion strip, QWERTY keys with the Typr key
-/// right of space, long-press accents, and the recording panel that replaces both while Typr records.
+/// The experimental full keyboard: a 3-slot suggestion strip (Typr: optional), QWERTY keys with
+/// the Typr key right of space, long-press accents, the recording panel that replaces both while
+/// Typr records, and the feedback panel that replaces them after a dictation.
 /// Dictation state comes from the same `KeyboardViewModel` the dictation bar uses.
 @MainActor
 final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
@@ -26,6 +27,10 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     }
     /// Typr: the Typr key was slid down.
     var onShowCompactBar: (() -> Void)?
+    /// Fixtures force the suggestion bar on or off; the keyboard follows Typr's switch.
+    var suggestionBarOverride: Bool? { didSet { applySuggestionBarSetting() } }
+    /// How long Fix in Typr stays after Problem before the panel closes itself.
+    var problemPanelDuration: TimeInterval = 6
 
     private let stripView = KeyboardStripView()
     private let plane: KeyboardKeyPlaneView
@@ -34,18 +39,24 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private let typrKey = TyprKeyControl()
     private let globeButton = UIButton(type: .custom)
     private var recordingPanel: TyprKeyRecordingPanel?
+    private var feedbackPanel: TyprFeedbackPanel?
+    /// What the feedback panel shows; `nil` while the keys are up.
+    private var panelContent: TyprFeedbackPanel.Content?
+    /// A failure message closed with ✕ stays closed until it changes.
+    private var dismissedNotice: String?
+    private var problemCloseWork: DispatchWorkItem?
     private var styleMenu: TyprStyleMenuView?
     private var palette = FullKeyboardPalette(isDark: false)
     private var didApplyPalette = false
     private var subscriptions: Set<AnyCancellable> = []
     private var showsRecording = false
-    private var lastDictation: String?
-    private var undoHideWork: DispatchWorkItem?
     private let haptics = UIImpactFeedbackGenerator(style: .light)
     private let selectionHaptics = UISelectionFeedbackGenerator()
 
     /// Exposed so unit tests can verify lazy allocation and teardown of the Metal recording panel.
     var hasAllocatedRecordingPanel: Bool { recordingPanel != nil }
+    /// What the feedback panel shows, for tests; `nil` while the keys are up.
+    var shownPanelContent: TyprFeedbackPanel.Content? { panelContent }
 
     init(model: KeyboardViewModel, target: KeyboardTextTarget, autocorrect: AutocorrectEngine? = nil) {
         self.model = model
@@ -67,7 +78,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             self.keyFeedback()
             self.engine.acceptSuggestion(suggestion)
         }
-        stripView.onUndoDictation = { [weak self] in self?.undoDictation() }
 
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
@@ -89,7 +99,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         engine.onChange = { [weak self] in self?.engineChanged() }
         engine.onEdit = { [weak self] in
             self?.model.dismissFeedback()
-            self?.hideUndo()
             self?.refreshReturnKey()
             self?.refreshStrip()
         }
@@ -114,6 +123,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             cachedGerman = instance
             engine.autocorrect.german = instance
         }
+        applySuggestionBarSetting()
         engine.configureForField()
         applyAppearance()
         refreshFromModel()
@@ -133,7 +143,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     }
 
     var preferredHeight: CGFloat {
-        KeyboardLayout.height(for: orientation)
+        KeyboardLayout.height(for: orientation, showsStrip: engine.showsStrip)
     }
 
     // MARK: - Host events
@@ -163,6 +173,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     }
 
     func syncSettings() {
+        applySuggestionBarSetting()
         let wantsAutocorrect = FullKeyboardSettings().autocorrect
         if engine.autocorrect.isEnabled != wantsAutocorrect {
             engine.autocorrect.isEnabled = wantsAutocorrect
@@ -223,16 +234,24 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
-    /// Typr inserted a dictation; offer to take it back until the next edit.
-    func didInsertDictation(_ text: String, keepUndoFor: TimeInterval = 12) {
-        lastDictation = text
-        refreshStrip()
-        undoHideWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.hideUndo() }
-        undoHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + keepUndoFor, execute: work)
+    /// Typr inserted a dictation.
+    func didInsertDictation() {
         engine.textDidChange()
         refreshReturnKey()
+    }
+
+    /// Typr: the suggestion bar follows its switch; the keyboard's height changes with it.
+    private func applySuggestionBarSetting() {
+        let shows = suggestionBarOverride ?? !TyprSettings().hideSuggestionBar
+        guard shows != engine.showsStrip else { return }
+        engine.showsStrip = shows
+        let visible = shows && !showsRecording && panelContent == nil
+        stripView.isHidden = !visible
+        stripView.alpha = visible ? 1 : 0
+        refreshStrip()
+        refreshFeedbackPanel()
+        setNeedsLayout()
+        hostController?.view.setNeedsLayout()
     }
 
     /// Fixtures: show a key held down.
@@ -288,6 +307,11 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             panel.metrics = layout.metrics
             panel.sideKeyWidth = layout.letterWidth * KeyboardLayout.modifierWidthRatio
         }
+        if let panel = feedbackPanel {
+            panel.frame = bounds
+            panel.horizontalInset = layout.horizontalInset
+            panel.metrics = layout.metrics
+        }
         if let menu = styleMenu, let key = layout.key(.typr) {
             menu.frame = bounds
             menu.anchor = key.frame
@@ -314,6 +338,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         accentCallout.palette = next
         typrKey.palette = next
         recordingPanel?.palette = next
+        feedbackPanel?.palette = next
         styleMenu?.palette = next
     }
 
@@ -361,6 +386,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             menu.style = model.style
         }
         refreshStrip()
+        refreshFeedbackPanel()
     }
 
     private func refreshStrip() {
@@ -373,17 +399,125 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         } else {
             nil
         }
-        stripView.updateFeedback(model.hasFullAccess ? model.feedback : nil, onRating: model.onFeedbackRating,
-                                 onDismiss: { [weak model] in model?.dismissFeedback() },
-                                 onOpenEntry: { [weak model] entryID in
-                                     model?.dismissFeedback()
-                                     model?.onOpenURL?(TyprFeedbackLink.url(entryID: entryID))
-                                 })
-        stripView.update(
-            suggestions: engine.suggestions,
-            showsUndo: lastDictation != nil,
-            statusText: status
-        )
+        stripView.update(suggestions: engine.suggestions, statusText: status)
+    }
+
+    // MARK: - Feedback panel
+
+    /// The Typr message the hidden suggestion bar would show. Without Full Access there is none:
+    /// holding the Typr key opens Typr instead.
+    private var hiddenBarNotice: String? {
+        guard !engine.showsStrip, model.hasFullAccess else { return nil }
+        if model.stagePhase == .failed { return model.statusMessage }
+        return model.isWarmAvailable ? nil : model.hostNotice
+    }
+
+    private var wantedPanelContent: TyprFeedbackPanel.Content? {
+        guard !showsRecording else { return nil }
+        if model.hasFullAccess, let feedback = model.feedback {
+            if let message = feedback.message, message.hasPrefix("Not queued") {
+                return .retry(message)
+            }
+            return feedback.rating == "bad" ? .problem : .ask
+        }
+        guard let notice = hiddenBarNotice, notice != dismissedNotice else { return nil }
+        return .notice(notice)
+    }
+
+    /// Shows, updates or hides the panel over the keys.
+    private func refreshFeedbackPanel() {
+        if hiddenBarNotice == nil { dismissedNotice = nil }
+        let next = wantedPanelContent
+        guard next != panelContent else { return }
+        let wasShown = panelContent != nil
+        panelContent = next
+        if next == .problem { scheduleProblemClose() } else { cancelProblemClose() }
+        if let next {
+            let panel = feedbackPanel ?? makeFeedbackPanel()
+            panel.palette = palette
+            panel.content = next
+            guard !wasShown else { return }
+            plane.cancelAllTouches()
+            dismissStyleMenu()
+            panel.frame = bounds
+            panel.isHidden = false
+            var covered = keyViews
+            covered.append(accentCallout)
+            fade(in: [panel], out: covered)
+        } else if let panel = feedbackPanel, wasShown {
+            fade(in: showsRecording ? [] : keyViews, out: [panel])
+        }
+    }
+
+    private func makeFeedbackPanel() -> TyprFeedbackPanel {
+        let panel = TyprFeedbackPanel()
+        panel.alpha = 0
+        panel.isHidden = true
+        panel.onGood = { [weak self] in self?.rate("good") }
+        panel.onProblem = { [weak self] in self?.rate("bad") }
+        panel.onRetry = { [weak self] in
+            guard let self, let feedback = self.model.feedback else { return }
+            self.rate(feedback.retryRating ?? feedback.rating ?? "bad", issues: feedback.retryIssues)
+        }
+        panel.onOpen = { [weak self] in
+            guard let self, let entryID = self.model.feedback?.offer.entryID else { return }
+            self.keyFeedback()
+            self.model.dismissFeedback()
+            self.model.onOpenURL?(TyprFeedbackLink.url(entryID: entryID))
+        }
+        panel.onDismiss = { [weak self] in self?.dismissPanel() }
+        insertSubview(panel, belowSubview: callout)
+        feedbackPanel = panel
+        setNeedsLayout()
+        return panel
+    }
+
+    /// Good closes the panel at once; Problem leaves Fix in Typr and ✕ for a moment.
+    private func rate(_ rating: String, issues: [String]? = nil) {
+        keyFeedback()
+        model.onFeedbackRating?(rating, issues)
+        if rating == "bad" {
+            model.feedback?.rating = "bad"
+        } else {
+            model.dismissFeedback()
+        }
+    }
+
+    private func dismissPanel() {
+        keyFeedback()
+        if model.feedback != nil {
+            model.dismissFeedback()
+        } else if case .notice(let notice)? = panelContent {
+            if model.hostNotice == notice {
+                model.hostNotice = nil
+            } else {
+                dismissedNotice = notice
+            }
+            refreshFeedbackPanel()
+        }
+    }
+
+    private func scheduleProblemClose() {
+        cancelProblemClose()
+        guard let offer = model.feedback?.offer else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.panelContent == .problem, self.model.feedback?.offer == offer else { return }
+            self.model.dismissFeedback()
+        }
+        problemCloseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + problemPanelDuration, execute: work)
+    }
+
+    private func cancelProblemClose() {
+        problemCloseWork?.cancel()
+        problemCloseWork = nil
+    }
+
+    /// The views a panel covers; the suggestion bar only when it is on.
+    private var keyViews: [UIView] {
+        var views: [UIView] = [plane, typrKey, globeButton, callout]
+        if engine.showsStrip { views.insert(stripView, at: 0) }
+        return views
     }
 
     private func refreshRecordingPanel() {
@@ -400,16 +534,18 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         dismissStyleMenu()
         if recording {
             plane.cancelAllTouches()
-            hideUndo()
             let panel = recordingPanel ?? makeRecordingPanel()
             panel.palette = palette
             panel.frame = bounds
             refreshRecordingPanel()
             panel.isHidden = false
-            fade(in: [panel], out: [stripView, plane, typrKey, globeButton, callout, accentCallout])
+            var covered = keyViews
+            covered.append(accentCallout)
+            if let feedbackPanel { covered.append(feedbackPanel) }
+            fade(in: [panel], out: covered)
         } else if let panel = recordingPanel {
             panel.scope.phase = .hidden
-            fade(in: [stripView, plane, typrKey, globeButton, callout], out: [panel]) { [weak self, weak panel] in
+            fade(in: keyViews, out: [panel]) { [weak self, weak panel] in
                 guard let self, !self.showsRecording, let panel, panel === self.recordingPanel else { return }
                 panel.tearDown()
                 panel.removeFromSuperview()
@@ -572,29 +708,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// Fixtures: open the menu without a long press.
     func debugShowStyleMenu() {
         showStyleMenu()
-    }
-
-    private func undoDictation() {
-        guard let text = lastDictation else { return }
-        let before = engine.target.documentContextBeforeInput ?? ""
-        // Only take back text that is still right before the cursor.
-        if before.hasSuffix(text) || (!before.isEmpty && before.count < text.count && text.hasSuffix(before)) {
-            for _ in 0..<text.count {
-                engine.target.deleteBackward()
-            }
-        }
-        hideUndo()
-        engine.textDidChange()
-        refreshReturnKey()
-    }
-
-    private func hideUndo() {
-        undoHideWork?.cancel()
-        undoHideWork = nil
-        if lastDictation != nil {
-            lastDictation = nil
-            refreshStrip()
-        }
     }
 
     private func configureGlobe() {

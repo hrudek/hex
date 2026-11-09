@@ -53,11 +53,16 @@ nonisolated struct KeyBalloon: Equatable, Sendable {
     static let neck: CGFloat = 8
     static let extraWidth: CGFloat = 20
 
+    /// How far an in-place balloon reaches above its key.
+    static let inlineLift: CGFloat = 8
+
     let keyFrame: CGRect
     let bubble: CGRect
 
     /// Bubble centre minus key centre; nonzero when an edge key's bubble is pushed inward.
     var offsetX: CGFloat { bubble.midX - keyFrame.midX }
+    /// No room above the key (top row without the suggestion bar): the bubble is a widened key in place.
+    var isInline: Bool { bubble.maxY >= keyFrame.maxY }
     /// The balloon's whole outline, bubble through key.
     var bounds: CGRect { bubble.union(keyFrame) }
 }
@@ -90,7 +95,28 @@ nonisolated struct KeyboardMetrics: Equatable, Sendable {
         keysTop: 0, keysBottom: 3, cornerRadius: 7.5
     )
 
-    static func `for`(_ orientation: KeyboardOrientation, innerWidth: CGFloat? = nil) -> KeyboardMetrics {
+    /// Height of a panel's header row (recording, feedback), with or without the suggestion bar.
+    static let headerHeight: CGFloat = 33
+
+    /// Typr: `showsStrip: false` drops the suggestion bar; the keys move up to a small top margin.
+    static func `for`(
+        _ orientation: KeyboardOrientation,
+        innerWidth: CGFloat? = nil,
+        showsStrip: Bool = true
+    ) -> KeyboardMetrics {
+        let metrics = withStrip(orientation, innerWidth: innerWidth)
+        return showsStrip ? metrics : metrics.withoutStrip(orientation)
+    }
+
+    private func withoutStrip(_ orientation: KeyboardOrientation) -> KeyboardMetrics {
+        KeyboardMetrics(
+            side: side, gap: gap, rowGap: rowGap, keyHeight: keyHeight,
+            stripTop: 0, stripHeight: 0, stripBottom: 0,
+            keysTop: orientation == .portrait ? 6 : 4, keysBottom: keysBottom, cornerRadius: cornerRadius
+        )
+    }
+
+    private static func withStrip(_ orientation: KeyboardOrientation, innerWidth: CGFloat?) -> KeyboardMetrics {
         guard orientation == .portrait else { return .landscape }
         guard let innerWidth else { return .portrait }
         let side: CGFloat = if innerWidth >= 390 {
@@ -135,6 +161,8 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
     let field: KeyboardFieldKind
     let showsGlobe: Bool
     let horizontalInset: CGFloat
+    /// Typr: whether the suggestion bar sits above the keys.
+    let showsStrip: Bool
     let metrics: KeyboardMetrics
     let keys: [KeyboardKey]
 
@@ -144,7 +172,8 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         layer: KeyboardLayer = .letters,
         field: KeyboardFieldKind = .text,
         showsGlobe: Bool = false,
-        horizontalInset: CGFloat = 0
+        horizontalInset: CGFloat = 0,
+        showsStrip: Bool = true
     ) {
         self.width = width
         self.orientation = orientation
@@ -152,8 +181,9 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         self.field = field
         self.showsGlobe = showsGlobe
         self.horizontalInset = max(0, horizontalInset)
+        self.showsStrip = showsStrip
         let innerWidth = width - 2 * self.horizontalInset
-        let metrics = KeyboardMetrics.for(orientation, innerWidth: innerWidth)
+        let metrics = KeyboardMetrics.for(orientation, innerWidth: innerWidth, showsStrip: showsStrip)
         self.metrics = metrics
         self.keys = Self.buildKeys(
             width: width,
@@ -165,13 +195,13 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         )
     }
 
-    static func height(for orientation: KeyboardOrientation) -> CGFloat {
-        KeyboardMetrics.for(orientation).totalHeight
+    static func height(for orientation: KeyboardOrientation, showsStrip: Bool = true) -> CGFloat {
+        KeyboardMetrics.for(orientation, showsStrip: showsStrip).totalHeight
     }
 
     var totalHeight: CGFloat { metrics.totalHeight }
 
-    /// Where the suggestion / undo strip sits.
+    /// Where the suggestion strip sits (zero height when hidden).
     var stripFrame: CGRect {
         CGRect(x: horizontalInset, y: metrics.stripTop, width: width - 2 * horizontalInset, height: metrics.stripHeight)
     }
@@ -199,14 +229,22 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
     func balloon(for key: KeyboardKey) -> KeyBalloon? {
         guard showsBalloons, key.character != nil else { return nil }
         let bubbleWidth = key.frame.width + KeyBalloon.extraWidth
-        let bubbleY = max(0, key.frame.minY - KeyBalloon.neck - KeyBalloon.bubbleHeight)
+        let raisedY = key.frame.minY - KeyBalloon.neck - KeyBalloon.bubbleHeight
         let minX = max(0, horizontalInset + 2)
         let maxX = max(minX, width - horizontalInset - 2 - bubbleWidth)
         var x = key.frame.midX - bubbleWidth / 2
         x = max(minX, min(maxX, x))
+        // Typr: without the suggestion bar the top row has no room above it; widen the key in place.
+        if raisedY < -KeyBalloon.bubbleHeight / 2 {
+            let top = max(0, key.frame.minY - KeyBalloon.inlineLift)
+            return KeyBalloon(
+                keyFrame: key.frame,
+                bubble: CGRect(x: x, y: top, width: bubbleWidth, height: key.frame.maxY - top)
+            )
+        }
         let bubble = CGRect(
             x: x,
-            y: bubbleY,
+            y: max(0, raisedY),
             width: bubbleWidth,
             height: KeyBalloon.bubbleHeight
         )

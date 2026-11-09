@@ -2,7 +2,7 @@ import UIKit
 
 /// The 3-slot top bar above the keys, matching Apple's iOS 26 suggestion strip:
 /// two 1 pt vertical hairlines at 1/3 and 2/3 width when idle or suggesting, replaced by
-/// the centered `Undo dictation` chip or a status message when needed.
+/// a status message when needed. Dictation feedback has its own panel (`TyprFeedbackPanel`).
 @MainActor
 final class KeyboardStripView: UIView {
     var palette = FullKeyboardPalette(isDark: false) { didSet { if palette != oldValue { applyPalette() } } }
@@ -17,16 +17,10 @@ final class KeyboardStripView: UIView {
         }
     }
     var onSelectSuggestion: ((KeyboardSuggestion) -> Void)?
-    var onUndoDictation: (() -> Void)?
 
     private let statusLabel = UILabel()
-    private let undoChip = UIButton(type: .custom)
-    private let feedbackBar = TyprFeedbackBar()
-    private var feedback: DictationFeedbackPresentation?
-    private var wasFeedbackVisible = false
     private let slotButtons: [SlotButton] = [SlotButton(), SlotButton(), SlotButton()]
     private var currentSuggestions: [KeyboardSuggestion] = []
-    private var showsUndo = false
     private var statusText: String?
 
     override init(frame: CGRect) {
@@ -42,71 +36,24 @@ final class KeyboardStripView: UIView {
         statusLabel.isHidden = true
         addSubview(statusLabel)
 
-        var chip = UIButton.Configuration.plain()
-        chip.image = UIImage(
-            systemName: "arrow.uturn.backward",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.5, weight: .medium)
-        )
-        chip.imagePadding = 6
-        chip.title = "Undo dictation"
-        chip.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 13, bottom: 0, trailing: 13)
-        chip.background.cornerRadius = 15
-        undoChip.configuration = chip
-        undoChip.isHidden = true
-        undoChip.accessibilityLabel = "Undo dictation"
-        undoChip.addTarget(self, action: #selector(handleUndo), for: .touchUpInside)
-        addSubview(undoChip)
-
         for (index, button) in slotButtons.enumerated() {
             button.tag = index
             button.addTarget(self, action: #selector(handleSlotTap(_:)), for: .touchUpInside)
             button.isHidden = true
             addSubview(button)
         }
-        addSubview(feedbackBar)
-        feedbackBar.isHidden = true
         applyPalette()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func updateFeedback(_ feedback: DictationFeedbackPresentation?, onRating: ((String, [String]?) -> Void)?,
-                        onDismiss: @escaping () -> Void, onOpenEntry: ((UUID) -> Void)? = nil) {
-        self.feedback = feedback
-        feedbackBar.onRating = onRating; feedbackBar.onDismiss = onDismiss; feedbackBar.onOpenEntry = onOpenEntry
-        feedbackBar.update(feedback, palette: palette)
-        applyUndoChipStyle()
-        setNeedsLayout(); setNeedsDisplay()
-    }
-
-    /// Typr: while feedback shows, Undo stays available as an icon so the feedback actions fit.
-    private func applyUndoChipStyle() {
-        let compact = !feedbackBar.isHidden
-        guard var chip = undoChip.configuration, (chip.title == nil) != compact else { return }
-        chip.title = compact ? nil : "Undo dictation"
-        chip.imagePadding = compact ? 0 : 6
-        chip.contentInsets = compact
-            ? NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12)
-            : NSDirectionalEdgeInsets(top: 0, leading: 13, bottom: 0, trailing: 13)
-        undoChip.configuration = chip
-        undoChip.accessibilityLabel = "Undo dictation"
-    }
-
-    func update(suggestions: [KeyboardSuggestion], showsUndo: Bool, statusText: String?) {
-        let changed = suggestions != currentSuggestions || showsUndo != self.showsUndo || statusText != self.statusText
-            || wasFeedbackVisible != !feedbackBar.isHidden
-        guard changed else { return }
+    func update(suggestions: [KeyboardSuggestion], statusText: String?) {
+        guard suggestions != currentSuggestions || statusText != self.statusText else { return }
         currentSuggestions = suggestions
-        self.showsUndo = showsUndo
         self.statusText = statusText
-        wasFeedbackVisible = !feedbackBar.isHidden
 
-        undoChip.isHidden = !showsUndo
-        if showsUndo || !feedbackBar.isHidden {
-            statusLabel.isHidden = true
-            slotButtons.forEach { $0.isHidden = true }
-        } else if let statusText, suggestions.isEmpty {
+        if let statusText, suggestions.isEmpty {
             statusLabel.text = statusText
             statusLabel.isHidden = false
             slotButtons.forEach { $0.isHidden = true }
@@ -126,12 +73,7 @@ final class KeyboardStripView: UIView {
     }
 
     private func applyPalette() {
-        feedbackBar.update(feedback, palette: palette)
         statusLabel.textColor = palette.textMuted
-        var chip = undoChip.configuration
-        chip?.baseForegroundColor = palette.textMuted
-        chip?.background.backgroundColor = palette.chipFill
-        undoChip.configuration = chip
         for (idx, button) in slotButtons.enumerated() where idx < currentSuggestions.count {
             button.configure(with: currentSuggestions[idx], palette: palette)
         }
@@ -146,22 +88,6 @@ final class KeyboardStripView: UIView {
         super.layoutSubviews()
         let midY = contentCenterY
         statusLabel.frame = CGRect(x: 16, y: max(0, midY - 12), width: max(0, bounds.width - 32), height: 24)
-        let chipH = min(28, max(24, bounds.height - 5))
-        let chipSize = undoChip.sizeThatFits(CGSize(width: bounds.width, height: chipH))
-        undoChip.frame = CGRect(
-            x: (bounds.width - chipSize.width) / 2,
-            y: max(0, midY - chipH / 2),
-            width: chipSize.width,
-            height: chipH
-        )
-        if !feedbackBar.isHidden {
-            if showsUndo {
-                undoChip.frame.origin.x = 4
-                undoChip.frame.size.width = max(44, min(chipSize.width, bounds.width * 0.45))
-            }
-            let x = showsUndo ? undoChip.frame.maxX + 6 : 4
-            feedbackBar.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - 4), height: bounds.height)
-        }
         let slotW = bounds.width / 3
         for (idx, button) in slotButtons.enumerated() {
             button.inSystemPlatter = inSystemPlatter
@@ -170,7 +96,7 @@ final class KeyboardStripView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        guard !showsUndo, feedbackBar.isHidden, statusLabel.isHidden, bounds.width > 60 else { return }
+        guard statusLabel.isHidden, bounds.width > 60 else { return }
         // Hide the divider adjacent to a highlighted primary pill, matching Apple's strip.
         let primaryHighlighted = currentSuggestions.count > 1 && currentSuggestions[1].willAutoReplace
         guard !primaryHighlighted else { return }
@@ -184,10 +110,6 @@ final class KeyboardStripView: UIView {
         palette.separator.setFill()
         UIRectFill(CGRect(x: (slotW * 1).rounded() - hairline / 2, y: y, width: hairline, height: lineH))
         UIRectFill(CGRect(x: (slotW * 2).rounded() - hairline / 2, y: y, width: hairline, height: lineH))
-    }
-
-    @objc private func handleUndo() {
-        onUndoDictation?()
     }
 
     @objc private func handleSlotTap(_ sender: SlotButton) {

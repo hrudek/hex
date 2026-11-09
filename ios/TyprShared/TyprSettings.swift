@@ -11,6 +11,7 @@ struct TyprSettings {
         static let showCleanupModel = "typr.showCleanupModel"
         static let germanAutocorrect = "typr.germanAutocorrect"
         static let keyboardSwitchKey = "typr.keyboardSwitchKey"
+        static let hideSuggestionBar = "typr.hideSuggestionBar"
     }
 
     private let defaults: UserDefaults?
@@ -54,5 +55,12 @@ struct TyprSettings {
     var keyboardSwitchKey: Bool {
         get { defaults?.object(forKey: Key.keyboardSwitchKey) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.keyboardSwitchKey) }
+    }
+
+    /// The full keyboard without its suggestion bar: the keys move up and the keyboard gets
+    /// shorter. Autocorrect on space still applies. On by default; off keeps the bar.
+    var hideSuggestionBar: Bool {
+        get { defaults?.object(forKey: Key.hideSuggestionBar) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.hideSuggestionBar) }
     }
 }
