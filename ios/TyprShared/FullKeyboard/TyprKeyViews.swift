@@ -2,7 +2,8 @@ import UIKit
 
 /// The Typr key right of space. Warm session: an orange core, and a hold records here.
 /// Otherwise the mark is faded with ↗, and a hold leaves for Typr to start one.
-/// A tap does nothing; holding and sliding opens the style menu (`TyprKeyGesture`).
+/// A tap types a space; sliding up opens the style menu and, with the switch key on,
+/// sliding down shows the compact dictation bar (`TyprKeyGesture`).
 @MainActor
 final class TyprKeyControl: UIControl {
     var palette = FullKeyboardPalette(isDark: false) { didSet { if palette != oldValue { setNeedsDisplay() } } }
@@ -11,8 +12,15 @@ final class TyprKeyControl: UIControl {
     /// The drawn keycap inside the control's (larger) touch target.
     var keycapFrame: CGRect = .zero { didSet { if keycapFrame != oldValue { setNeedsDisplay() } } }
 
+    /// Typr: a downward slide shows the compact dictation bar.
+    var allowsCompactBar = false { didSet { if allowsCompactBar != oldValue { updateAccessibility() } } }
+
     /// A still hold: dictate, or open Typr.
     var onHold: (() -> Void)?
+    /// Typr: a quick tap types a space.
+    var onTap: (() -> Void)?
+    /// Typr: a downward slide shows the compact dictation bar.
+    var onShowCompactBar: (() -> Void)?
     /// Points are in this control's coordinates.
     var onMenuOpen: ((CGPoint) -> Void)?
     var onMenuDrag: ((CGPoint) -> Void)?
@@ -29,13 +37,6 @@ final class TyprKeyControl: UIControl {
         isAccessibilityElement = true
         accessibilityTraits = .button
         updateAccessibility()
-        accessibilityCustomActions = [
-            UIAccessibilityCustomAction(name: "Dictation styles") { [weak self] _ in
-                guard let self else { return false }
-                self.onMenuOpen?(CGPoint(x: self.bounds.midX, y: self.bounds.midY))
-                return true
-            },
-        ]
     }
 
     @available(*, unavailable)
@@ -47,7 +48,27 @@ final class TyprKeyControl: UIControl {
 
     private func updateAccessibility() {
         accessibilityLabel = isWarm ? "Dictate with Typr" : "Open Typr to dictate"
-        accessibilityHint = "Hold to dictate, hold and slide for styles"
+        accessibilityHint = allowsCompactBar
+            ? "Tap for space, hold to dictate, slide up for styles, slide down for the dictation bar"
+            : "Tap for space, hold to dictate, slide up for styles"
+        var actions = [
+            UIAccessibilityCustomAction(name: "Space") { [weak self] _ in
+                self?.onTap?()
+                return true
+            },
+            UIAccessibilityCustomAction(name: "Dictation styles") { [weak self] _ in
+                guard let self else { return false }
+                self.onMenuOpen?(CGPoint(x: self.bounds.midX, y: self.bounds.midY))
+                return true
+            },
+        ]
+        if allowsCompactBar {
+            actions.append(UIAccessibilityCustomAction(name: "Show dictation bar") { [weak self] _ in
+                self?.onShowCompactBar?()
+                return true
+            })
+        }
+        accessibilityCustomActions = actions
     }
 
     override func accessibilityActivate() -> Bool {
@@ -67,7 +88,11 @@ final class TyprKeyControl: UIControl {
 
     override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         let point = touch.location(in: self)
-        switch gesture.touchMoved(to: point) {
+        switch gesture.touchMoved(to: point, allowsCompactBar: allowsCompactBar) {
+        case .showCompactBar:
+            stopTimer()
+            isHighlighted = false
+            onShowCompactBar?()
         case .openMenu:
             stopTimer()
             isHighlighted = false
@@ -83,8 +108,13 @@ final class TyprKeyControl: UIControl {
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
         stopTimer()
         isHighlighted = false
-        if gesture.touchUp() == .releaseMenu, let touch {
-            onMenuRelease?(touch.location(in: self))
+        switch gesture.touchUp() {
+        case .releaseMenu:
+            if let touch { onMenuRelease?(touch.location(in: self)) }
+        case .tap:
+            onTap?()
+        default:
+            break
         }
     }
 

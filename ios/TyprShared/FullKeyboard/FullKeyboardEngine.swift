@@ -86,7 +86,6 @@ final class FullKeyboardEngine {
     var orientation: KeyboardOrientation = .portrait { didSet { if orientation != oldValue { rebuildLayout() } } }
     var showsGlobe = false { didSet { if showsGlobe != oldValue { rebuildLayout() } } }
     /// Typr: the bottom row starts with the compact-bar switch key.
-    var showsCompactSwitch = false { didSet { if showsCompactSwitch != oldValue { rebuildLayout() } } }
     var horizontalInset: CGFloat = 0 { didSet { if horizontalInset != oldValue { rebuildLayout() } } }
     private(set) var layout = KeyboardLayout(width: 375)
 
@@ -232,7 +231,7 @@ final class FullKeyboardEngine {
             if next == .letters { shift.reset() }
             rebuildLayout()
             if next == .letters { refreshAutoCapitalization() }
-        case .character, .space, .returnKey, .typr, .globe, .compactSwitch:
+        case .character, .space, .returnKey, .typr, .globe:
             break
         }
         touches[id] = touch
@@ -366,7 +365,7 @@ final class FullKeyboardEngine {
                 rebuildLayout()
                 refreshAutoCapitalization()
             }
-        case .delete, .typr, .globe, .compactSwitch:
+        case .delete, .typr, .globe:
             break
         }
         onChange?()
@@ -475,6 +474,13 @@ final class FullKeyboardEngine {
         insert(chosen)
     }
 
+    /// Typr: a tap on the Typr key types a space, exactly like the space bar
+    /// (autocorrect, double-space period).
+    func typeSpaceFromTyprKey() {
+        typeSpace()
+        onChange?()
+    }
+
     private func typeSpace() {
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
@@ -538,8 +544,7 @@ final class FullKeyboardEngine {
             layer: layerState.layer,
             field: field,
             showsGlobe: showsGlobe,
-            horizontalInset: horizontalInset,
-            showsCompactSwitch: showsCompactSwitch
+            horizontalInset: horizontalInset
         )
     }
 }

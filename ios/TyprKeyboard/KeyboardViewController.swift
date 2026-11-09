@@ -145,7 +145,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// The dictation bar, or the full keyboard when its experiment is on (iPhone only).
-    /// Typr: with the switch key on, the compact bar when it was picked with that key.
+    /// Typr: with the Keyboard switch key setting on, the compact bar when it was picked.
     /// Only switches while idle.
     private func mountSurface() {
         let experimentOn = FullKeyboardSettings().isEnabled && UIDevice.current.userInterfaceIdiom == .phone
@@ -158,7 +158,7 @@ final class KeyboardViewController: UIInputViewController {
         if viewModel.showsFullKeyboardSwitch != switchKeyOn {
             viewModel.showsFullKeyboardSwitch = switchKeyOn
         }
-        fullKeyboard?.showsCompactSwitch = switchKeyOn
+        fullKeyboard?.allowsCompactBar = switchKeyOn
         guard surface == nil || wantsFull != (fullKeyboard != nil) else { return }
         guard surface == nil || viewModel.stagePhase == .idle || viewModel.stagePhase == .failed else { return }
 
@@ -178,7 +178,7 @@ final class KeyboardViewController: UIInputViewController {
             )
             keyboard.hostController = self
             keyboard.allowsHaptics = { [weak self] in self?.hasFullAccess ?? false }
-            keyboard.showsCompactSwitch = switchKeyOn
+            keyboard.allowsCompactBar = switchKeyOn
             keyboard.onShowCompactBar = { [weak self] in self?.switchSurface(toCompactBar: true) }
             fullKeyboard = keyboard
             mounted = keyboard
@@ -204,7 +204,8 @@ final class KeyboardViewController: UIInputViewController {
         schedulePoll(force: false)
     }
 
-    /// Typr: the switch key picked the compact bar or the full keyboard. Only while idle.
+    /// Typr: the compact bar's keyboard key or a slide down on the Typr key picked a surface.
+    /// Only while idle.
     private func switchSurface(toCompactBar compact: Bool) {
         guard viewModel.stagePhase == .idle || viewModel.stagePhase == .failed else { return }
         KeyboardSurfaceChoice().showsCompactBar = compact
