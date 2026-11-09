@@ -168,6 +168,91 @@ The NVIDIA Parakeet TDT 0.6B v2 model is licensed under
 The Core ML conversion is provided by FluidInference.
 [Original NVIDIA model and attribution](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
 
+## Argmax OSS (WhisperKit) 1.1.1
+
+The iPhone app (only the Typr app target, not the keyboard or widgets) uses the
+`WhisperKit` product of the Swift package
+[argmaxinc/argmax-oss-swift](https://github.com/argmaxinc/argmax-oss-swift/tree/v1.1.1),
+pinned with `exactVersion: 1.1.1` in `ios/project.yml` (tag commit
+`1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4`), under the MIT license below.
+Portions under `Sources/ArgmaxCore/External` (the Hub client and tokenizers that
+WhisperKit uses) are derived from
+[huggingface/swift-transformers](https://github.com/huggingface/swift-transformers),
+Copyright 2022 Hugging Face SAS, modified by Argmax, Inc., and licensed under the
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0); the package's
+[NOTICES](https://github.com/argmaxinc/argmax-oss-swift/blob/v1.1.1/NOTICES) file carries
+that notice and the full license text and must accompany redistribution.
+
+`ios/Typr/WhisperTokenizer.swift` follows the special-token table and language-token
+set of WhisperKit's `WhisperTokenizerWrapper` (`Sources/WhisperKit/Core/Models.swift`
+at v1.1.1); see [PORTS.md](PORTS.md).
+
+```text
+MIT License
+
+Copyright (c) 2024 argmax, inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Whisper Large V3 Turbo model and tokenizer
+
+Typr downloads these at runtime, only when the user taps Download; nothing is
+bundled in this repository or the app:
+
+- Core ML model folder `openai_whisper-large-v3-v20240930_626MB` from
+  [argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/0f63a7800b00dd0226abd051b906c246e1907482/openai_whisper-large-v3-v20240930_626MB)
+  at revision `0f63a7800b00dd0226abd051b906c246e1907482`, MIT license (Core ML
+  conversion by Argmax, Inc.). It is a conversion of OpenAI's Whisper Large V3 Turbo
+  ([openai/whisper](https://github.com/openai/whisper), model weights released by
+  OpenAI under the MIT license).
+- `config.json`, `tokenizer.json` and `tokenizer_config.json` from
+  [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3/tree/06f233fe06e710322aca913c1bc4249a0d71fce1)
+  at revision `06f233fe06e710322aca913c1bc4249a0d71fce1`, Apache License 2.0.
+
+The OpenAI Whisper model-weight license is reproduced below (the Argmax Core ML
+conversion is covered by the Argmax MIT notice above):
+
+```text
+MIT License
+
+Copyright (c) 2022 OpenAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## OpenWhispr cleanup prompt and output check
 
 Typr's AI cleanup instructions (`ios/Typr/CleanupPrompt.swift`) follow the structure of

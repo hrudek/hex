@@ -140,16 +140,16 @@ struct KeyboardSetupCard: View {
     }
 
     private var modelStatus: String {
-        if dictation.isModelReady {
-            return dictation.engineName
-        }
+        // Preparation or failure (also while switching engines) wins over an earlier ready state.
         switch dictation.phase {
+        case .modelRequired where dictation.preferredEngine == .whisperLargeV3Turbo:
+            return "Download required"
         case .preparingModel:
             return "\(Int(dictation.modelPreparation.fractionCompleted * 100))%"
-        case .failed:
+        case .failed where !dictation.isModelReady || dictation.currentEngine == nil:
             return "Failed"
         default:
-            return "Preparing"
+            return dictation.isModelReady ? dictation.engineName : "Preparing"
         }
     }
 

@@ -13,6 +13,7 @@ struct TyprSettings {
         static let keyboardSwitchKey = "typr.keyboardSwitchKey"
         static let hideSuggestionBar = "typr.hideSuggestionBar"
         static let dictationLanguage = "typr.dictationLanguage"
+        static let preferredSpeechEngine = "typr.preferredSpeechEngine"
     }
 
     private let defaults: UserDefaults?
@@ -63,6 +64,20 @@ struct TyprSettings {
     var dictationLanguage: DictationLanguage {
         get { defaults?.string(forKey: Key.dictationLanguage).flatMap(DictationLanguage.init(rawValue:)) ?? .automatic }
         nonmutating set { defaults?.set(newValue.rawValue, forKey: Key.dictationLanguage) }
+    }
+
+    /// The speech engine the user explicitly chose (a picker, not a switch). nil, the default and
+    /// any unknown stored value, keeps the original automatic choice (Apple Speech when available,
+    /// else Parakeet V2). An explicit choice is never replaced by another engine.
+    var preferredSpeechEngine: SpeechEngineChoice? {
+        get { defaults?.string(forKey: Key.preferredSpeechEngine).flatMap(SpeechEngineChoice.init(rawValue:)) }
+        nonmutating set {
+            if let newValue {
+                defaults?.set(newValue.rawValue, forKey: Key.preferredSpeechEngine)
+            } else {
+                defaults?.removeObject(forKey: Key.preferredSpeechEngine)
+            }
+        }
     }
 
     /// The full keyboard without its suggestion bar: the keys move up and the keyboard gets

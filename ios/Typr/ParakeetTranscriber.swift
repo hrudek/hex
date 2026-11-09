@@ -16,12 +16,38 @@ protocol LocalTranscribing: Actor {
 
     func transcribe(_ audioURL: URL) async throws -> String
     func transcribe(_ audioURL: URL, vocabulary: [String]) async throws -> String
+    /// The controller's call: `language` is the dictation language frozen at capture start.
+    /// Engines prepared for one language (Apple Speech's locale, English-only Parakeet) ignore it.
+    func transcribe(_ audioURL: URL, vocabulary: [String], language: DictationLanguage) async throws -> String
 }
 
 extension LocalTranscribing {
     /// Engines without a recognition hint ignore the list and transcribe exactly as before.
     nonisolated func transcribe(_ audioURL: URL, vocabulary: [String]) async throws -> String {
         try await transcribe(audioURL)
+    }
+
+    nonisolated func transcribe(_ audioURL: URL, vocabulary: [String], language: DictationLanguage) async throws -> String {
+        try await transcribe(audioURL, vocabulary: vocabulary)
+    }
+}
+
+/// The controller's transcriber before any engine is ready and while switching engines, so the
+/// previous engine's model is released before the next one loads.
+actor UnpreparedTranscriber: LocalTranscribing {
+    nonisolated let displayName: String
+    let languageName = ""
+
+    init(displayName: String = "Local speech") {
+        self.displayName = displayName
+    }
+
+    func prepare(progressHandler: @escaping @Sendable (ModelPreparationProgress) -> Void) async throws {
+        throw SpeechEngineError.notReady
+    }
+
+    func transcribe(_ audioURL: URL) async throws -> String {
+        throw SpeechEngineError.notReady
     }
 }
 
