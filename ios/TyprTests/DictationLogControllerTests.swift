@@ -86,13 +86,20 @@ private final class LogControllerFixture {
         // themselves are continuation-driven, not simulated four-second wall-clock waits.
         for _ in 0..<8 { try await Task.sleep(for: .milliseconds(25)) }
     }
-    func waitUntilFinished(file: StaticString = #filePath, line: UInt = #line) async throws {
-        // Keyboard completion also waits for cold archive readiness.
+    func waitUntil(_ description: String, file: StaticString = #filePath, line: UInt = #line,
+                   _ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while env.store.entries.first?.status != .finished, ContinuousClock.now < deadline {
+        while !condition(), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertEqual(env.store.entries.first?.status, .finished, file: file, line: line)
+        // Stop the test on timeout rather than cancelling an unfinished job with the next one.
+        _ = try XCTUnwrap(condition() ? true : nil, description, file: file, line: line)
+    }
+    func waitUntilFinished(file: StaticString = #filePath, line: UInt = #line) async throws {
+        // Keyboard completion also waits for cold archive readiness.
+        try await waitUntil("Expected the newest dictation to finish", file: file, line: line) {
+            env.store.entries.first?.status == .finished
+        }
     }
     func start() async throws {
         controller.prepareModel(); try await settle()
@@ -312,21 +319,30 @@ final class DictationLogControllerTests: XCTestCase {
             let f = LogControllerFixture()
             f.model.suspend = true
             try await f.start()
-            f.controller.finishRecording(); try await f.settle()
-            XCTAssertNotNil(f.model.gate)
+            f.controller.finishRecording()
+            try await f.waitUntil("Expected suspended cleanup and its deadline/expiry hooks") {
+                f.model.gate != nil && !f.sleeper.gates.isEmpty && f.background.expiration != nil
+            }
             if expire { f.background.expiration?() } else { f.sleeper.fire() }
-            try await f.settle()
+            // Fallback delivery can await cold archive readiness for longer than settle's 200 ms.
+            // Do not start B until A has actually finished, or B cancels A instead.
+            try await f.waitUntilFinished()
             let first = try XCTUnwrap(f.env.store.entries.first)
             XCTAssertEqual(first.status, .finished)
             XCTAssertEqual(first.finalText?.text, "Die Katze sitzt auf der Mathe.")
             XCTAssertEqual(first.cleanupOutcome, expire ? "failed(expired)" : "failed(deadline)")
             // A second dictation skips busy while A still owns the model reservation.
             f.controller.startRecording(keyboardJobID: "b"); try await f.settle()
-            f.controller.finishRecording(); try await f.settle()
-            let b = f.env.store.entries.first
-            XCTAssertEqual(b?.cleanupOutcome, "skipped(busy)")
+            f.controller.finishRecording()
+            try await f.waitUntilFinished()
+            let b = try XCTUnwrap(f.env.store.entries.first)
+            XCTAssertNotEqual(b.id, first.id)
+            XCTAssertEqual(b.cleanupOutcome, "skipped(busy)")
             let delivered = f.bridge.snapshot().resultID
-            f.model.resume(); try await f.settle()
+            f.model.resume()
+            try await f.waitUntil("Expected A's late model answer to be recorded") {
+                f.env.store.entries.first { $0.id == first.id }?.aiAnswer != nil
+            }
             let late = try XCTUnwrap(f.env.store.entries.first { $0.id == first.id })
             XCTAssertEqual(late.status, .finished)
             XCTAssertEqual(late.finalText, first.finalText)
