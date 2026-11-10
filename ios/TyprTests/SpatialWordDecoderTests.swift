@@ -453,6 +453,40 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertTrue(completion.decode(evidence("help", aimedAt: "help"), languages: [.english])?.candidates.isEmpty ?? false)
     }
 
+    func testStructuralCandidatesStillNeedToBeatTheLiteral() throws {
+        // A centred missing-letter typo has no geometric gain over the literal.
+        // Realistic prior ratios do not pay for log(.01); this is not search failure.
+        let word = evidence("helo", aimedAt: "helo")
+        let conservative = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 10_000), ("world", 1)])])
+        let result = try XCTUnwrap(conservative.decode(word, languages: [.english]))
+        XCTAssertTrue(result.complete)
+        XCTAssertTrue(result.candidates.isEmpty)
+        let stronger = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 1_000_000), ("world", 1)])])
+        let suggested = try XCTUnwrap(stronger.decode(word, languages: [.english]))
+        XCTAssertTrue(suggested.complete)
+        XCTAssertEqual(suggested.candidates.first?.word, "hello")
+        XCTAssertNil(suggested.automaticCandidate, "beating literal is still not the 3-unit auto margin")
+    }
+
+    func testSubtreePriorIndexRequiresUniqueSpellingsPerNode() throws {
+        let source = lexicon([("cat", 2), ("car", 30), ("dog", 7)])
+        XCTAssertEqual(source.bestLogPrior(at: 0), log(30.0 / 39), accuracy: 1e-12)
+        let root = try XCTUnwrap(source.node(0))
+        let c = root.children.lowerBound, d = c + 1
+        let cNode = try XCTUnwrap(source.node(c))
+        XCTAssertEqual(source.bestLogPrior(at: c), log(30.0 / 39), accuracy: 1e-12)
+        XCTAssertEqual(source.bestLogPrior(at: d), log(7.0 / 39), accuracy: 1e-12)
+        // Sharing a child would make a node's spelling ambiguous and invalidate
+        // dominance. Such forward-only DAGs must not be accepted as tries.
+        var shared = source.data
+        let offset = 24 + d * 12 + 4
+        for shift in 0..<4 { shared[offset + shift] = UInt8(truncatingIfNeeded: cNode.children.lowerBound >> (shift * 8)) }
+        XCTAssertNil(SpatialWordLexicon(data: shared))
+        var duplicate = source.data
+        duplicate[24 + d * 12] = UInt8(try XCTUnwrap(source.node(c)).label)
+        XCTAssertNil(SpatialWordLexicon(data: duplicate))
+    }
+
     func testPolicyRefusalsAndGeometryOnlyVeto() {
         typealias Decoder = SpatialWordDecoder
         func candidate(_ word: String, score: Double, spatial: Double, edit: Decoder.Edit = .none) -> Decoder.Candidate {
@@ -608,16 +642,27 @@ final class SpatialWordDecoderTests: XCTestCase {
     }
 
     func testGeneratedArenaCapRefusesAutomaticReplacement() throws {
-        // All binary spellings have equal geometry at the g/h midpoint. The loose
-        // admissible prior bound cannot prove a winner before a hard limit is reached.
-        let entries: [(String, UInt32)] = (0..<4_096).map { value in
-            (String((0..<12).map { value & (1 << $0) == 0 ? Character("g") : Character("h") }), 1)
+        // Four equidistant letters on a pitch-coordinate circle. Other keys are
+        // closer, so the remaining-tap bound stays loose despite exact subtree priors.
+        // Four-way branching exercises the arena independently of the pop budget.
+        let letters = Array("ghtu")
+        let entries: [(String, UInt32)] = (0..<16_384).map { value in
+            var digits = value
+            let spelling = (0..<7).map { _ -> Character in
+                let letter = letters[digits % 4]
+                digits /= 4
+                return letter
+            }
+            return (String(spelling), 1)
         }
         let decoder = SpatialWordDecoder(lexicons: [.english: lexicon(entries + [("world", 1_000_000_000)])])
-        var word = evidence(String(repeating: "g", count: 12), aimedAt: String(repeating: "g", count: 12))
+        var word = evidence(String(repeating: "g", count: 7), aimedAt: String(repeating: "g", count: 7))
         let g = try XCTUnwrap(word.layout.key(.character("g"))).frame
         let h = try XCTUnwrap(word.layout.key(.character("h"))).frame
-        word.samples = word.samples.map { .init(text: $0.text, point: CGPoint(x: (g.midX + h.midX) / 2, y: g.midY), key: $0.key) }
+        let y = try XCTUnwrap(word.layout.key(.character("y"))).frame
+        let point = CGPoint(x: (g.midX + h.midX) / 2,
+                            y: y.midY + 0.125 * (g.height + word.layout.metrics.rowGap))
+        word.samples = word.samples.map { .init(text: $0.text, point: point, key: $0.key) }
         let result = try XCTUnwrap(decoder.decode(word, languages: [.english]))
         XCTAssertFalse(result.complete)
         XCTAssertLessThanOrEqual(result.generated, 12_000)

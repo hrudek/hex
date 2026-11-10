@@ -9,6 +9,7 @@ nonisolated struct SpatialWordLexicon {
     let data: Data
     let nodeCount: Int
     let total: Double
+    private var subtreeCounts: [UInt32] = []
 
     init?(data: Data) {
         guard data.count >= 36, data.count <= Self.maxBytes,
@@ -23,6 +24,32 @@ nonisolated struct SpatialWordLexicon {
         self.nodeCount = nodes
         self.total = total
         guard node(0)?.label == 255 else { return nil }
+        // TSW1 stores terminal counts, not subtree masses. Derive a max-count index
+        // once, in reverse (edges are forward-only). Also establish the unique
+        // spelling per node required by max-path state dominance below.
+        subtreeCounts = [UInt32](repeating: 0, count: nodes)
+        var parents = [Bool](repeating: false, count: nodes)
+        for index in (0..<nodes).reversed() {
+            guard let record = node(index) else { return nil }
+            var maximum = UInt32(record.count)
+            var labels: UInt32 = 0
+            for child in record.children {
+                // Forward children were already validated in this reverse pass.
+                let label = Int(data[data.startIndex + 24 + child * 12])
+                let bit = UInt32(1) << label
+                guard !parents[child], labels & bit == 0 else { return nil }
+                labels |= bit
+                parents[child] = true
+                maximum = max(maximum, subtreeCounts[child])
+            }
+            subtreeCounts[index] = maximum
+        }
+        guard parents.dropFirst().allSatisfy({ $0 }) else { return nil }
+    }
+
+    /// Upper bound on the terminal prior of any descendant (including this node).
+    func bestLogPrior(at index: Int) -> Double {
+        log(Double(subtreeCounts[index]) / total)
     }
 
     struct Node {
@@ -132,6 +159,8 @@ final class SpatialWordDecoder {
     nonisolated static let maxLetters = 32
     private static let priorWeight = 0.35
     private static let editPenalty = log(0.01)
+    // Conservatively cover rounding from regrouping <= 32 finite density terms.
+    private static let boundSlack = 1e-10
     private var lexicons: [Language: SpatialWordLexicon]
     private var attempted: Set<Language> = []
     private let bundle: Bundle?
@@ -177,18 +206,34 @@ final class SpatialWordDecoder {
         var states: [State] = []
         var trails: [Trail] = []
         var heap: [Int] = []
+        var best: [Int: Double] = [:]
         var capped = false
+
+        private func key(_ state: State) -> Int {
+            // At most two sources, 33 tap positions and two edit-used states.
+            ((state.node * 33 + state.tap) * 2 + (state.edit == .none ? 0 : 1)) * 2 + state.source
+        }
+        func isDominated(_ state: State) -> Bool {
+            state.spatial + state.penalty < (best[key(state)] ?? -.infinity)
+        }
 
         func precedes(_ a: Int, _ b: Int) -> Bool {
             states[a].bound == states[b].bound ? a < b : states[a].bound > states[b].bound
         }
         mutating func push(_ state: State, letters: [(Int, Int?)]) {
+            // A trie node fixes the spelling; future scores depend only on the tap
+            // position and edit-used flag. Max-path scoring can discard worse or
+            // equal readings, retaining the first deterministic alignment on ties.
+            let key = key(state)
+            let score = state.spatial + state.penalty
+            guard score > (best[key] ?? -.infinity) else { return }
             // Cap both arenas. A transposition needs two spelling records.
             guard states.count < SpatialWordDecoder.maxGenerated,
                   trails.count + letters.count <= SpatialWordDecoder.maxGenerated else {
                 capped = true
                 return
             }
+            best[key] = score
             var trail = state.trail
             for (label, tap) in letters {
                 trails.append(Trail(parent: trail, label: label, tap: tap))
@@ -352,13 +397,15 @@ final class SpatialWordDecoder {
                              spatialScore: reading.spatial, edit: reading.edit, alignment: reading.alignment))
         }
         var frontier = Frontier()
-        // Prior <= 0, personal bonus <= 1, every remaining tap contributes at most its
-        // best density (including stray), future edit penalties <= 0. This admissible
-        // upper bound also handles POSITIVE normalized Gaussian densities.
+        // A subtree's best terminal prior and the snapshot's largest bonus tighten
+        // the bound without changing the objective. Remaining tap densities include
+        // stray taps and may be POSITIVE; future edit penalties are nonpositive.
+        let maxBonus = personal.counts.keys.map { personal.bonus(for: $0) }.max() ?? 0
         for source in sources.indices {
             frontier.push(State(source: source, node: 0, tap: 0, depth: 0, trail: -1,
                                 spatial: 0, penalty: 0, edit: .none,
-                                bound: suffix[0] + PersonalLexiconSnapshot.maxBonus), letters: [])
+                                bound: suffix[0] + Self.priorWeight * sources[source].1.bestLogPrior(at: 0)
+                                    + maxBonus + Self.boundSlack), letters: [])
         }
         var visits = 0
         var proven = false
@@ -367,6 +414,7 @@ final class SpatialWordDecoder {
             guard visits < max(0, min(budget, Self.searchBudget)), !frontier.capped else { break }
             guard let state = frontier.pop() else { break }
             visits += 1
+            if frontier.isDominated(state) { continue }
             let (language, source) = sources[state.source]
             guard let node = source.node(state.node) else { return .unavailable(.resource) }
             if state.tap == count, node.count > 0 {
@@ -381,7 +429,8 @@ final class SpatialWordDecoder {
                 let depth = state.depth + letters.count
                 guard depth <= Self.maxLetters else { return }
                 let penalty = edit == .none ? 0 : Self.editPenalty
-                let bound = spatial + penalty + suffix[tap] + PersonalLexiconSnapshot.maxBonus
+                let bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
+                    + maxBonus + Self.boundSlack
                 guard bound >= threshold else { return }
                 frontier.push(State(source: state.source, node: node, tap: tap, depth: depth,
                                     trail: state.trail, spatial: spatial, penalty: penalty,
