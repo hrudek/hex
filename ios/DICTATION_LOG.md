@@ -179,7 +179,9 @@ Each spelling pass keeps the first 20 replacements plus total count. The first p
 contains the built-in tech glossary's fixes, marked `"source": "built-in"` (Custom vocabulary
 replacements and older entries have no source); new entries record `context.glossaryRevision`.
 Sounds-like forms are not frozen in the context; their replacements show the term they were
-written as. Per-field truncation, original
+written as. Hyphens turned into spaces before the first pass
+([AI cleanup](AI_CLEANUP.md#language-context-and-hyphens)) are part of the AI input text and
+mark the first pass as changed, but have no replacement entry. Per-field truncation, original
 byte/word counts and bounded 400-token comparisons remain explicit. Speech hints
 are best effort; counts are not correctness scores. Selected model configuration
 is not proof a model ran; Apple controls its exact checkpoint. Provided-to-keyboard

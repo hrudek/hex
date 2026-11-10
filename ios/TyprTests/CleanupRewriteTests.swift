@@ -195,6 +195,85 @@ final class CleanupRewriteTests: XCTestCase {
         XCTAssertFalse(CleanupHyphens.splits("pull-to"))
     }
 
+    func testSpaceCompoundsTurnsHyphensBetweenWordsIntoSpaces() {
+        let cases: [(String, String)] = [
+            ("Das Feedback-Menü hat Know-how", "Das Feedback Menü hat Know how"),
+            ("Ein Pull-Request, ein Follow-up und ein To-do.", "Ein Pull Request, ein Follow up und ein To do."),
+            ("PR-Feedback für das AI-Modell", "PR Feedback für das AI Modell"),
+            ("Open-Source-Build und Speech-to-Text-App", "Open Source Build und Speech to Text App"),
+            ("testflight-e-mails", "testflight e-mails"),
+            ("Das iPhone-17 und Covid-19", "Das iPhone 17 und Covid 19"),
+            ("Baden-Württemberg", "Baden Württemberg"),
+        ]
+        for (input, expected) in cases {
+            XCTAssertEqual(CleanupHyphens.spaceCompounds(input), expected, input)
+        }
+        for kept in ["Schreib eine E-Mail", "Ein T-Shirt, x-mal", "Seiten 5-10 am 2026-11-10",
+                     "siehe https://example.org/pull-request", "an pull-request@example.org", "die Datei pull-request.md",
+                     "Ein- und Ausgang", "Milch - Brot", "- Erster Punkt\n- Zweiter Punkt"] {
+            XCTAssertEqual(CleanupHyphens.spaceCompounds(kept), kept, kept)
+        }
+    }
+
+    /// The radical pass runs on the speech engine's text in every style: with AI cleanup off, in
+    /// Verbatim and when cleanup falls back. An accepted answer may write hyphens at its own discretion
+    /// (only the conservative pass runs over it), and the model gets the spaced text.
+    func testSpaceCompoundsRunsBeforeCleanupInEveryStyle() async throws {
+        let raw = "Das Feedback-Menü hat Know-how für PR-Feedback, 5-10 testflight-e-mails und das Open-Source-Build"
+        let spaced = "Das Feedback Menü hat Know how für PR Feedback, 5-10 testflight e-mails und das Open Source Build"
+        let answer = "Das Feedback-Menü hat Know-how für PR-Feedback, 5-10 TestFlight E-Mails und den Open-Source-Build."
+        let cases: [(DictationStyle, Bool, Bool, String)] = [
+            (.polished, false, false, spaced + "."),
+            (.casual, false, false, spaced.lowercased()),
+            (.notes, false, false, spaced),
+            (.verbatim, false, false, spaced),
+            (.verbatim, true, false, spaced),
+            (.polished, true, true, spaced + "."),
+            (.polished, true, false,
+             "Das Feedback-Menü hat Know-how für PR-Feedback, 5-10 TestFlight E-Mails und den Open Source Build."),
+        ]
+        for (style, enabled, unavailable, expected) in cases {
+            let suite = "cleanup.hyphens.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let session = ContextSession(), bg = CleanupTestBackground(), clock = CleanupTestSleeper()
+            session.result = answer
+            let deps = TranscriptCleanupDependencies(
+                cleaner: ContextCleaner(unavailableReason: unavailable ? "unavailable" : nil, session: session),
+                language: CleanupTestLanguage(allowed: true), background: bg, isEnabled: { enabled }, sleep: clock.sleep)
+            let asr = ContextASR(output: raw)
+            let controller = DictationController(audio: ContextAudio(), keyboardBridge: KeyboardBridge(defaults: defaults),
+                transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false,
+                customVocabularySettings: CustomVocabularySettings(defaults: defaults), cleanup: deps,
+                languageSettings: TyprSettings(defaults: defaults))
+            controller.prepareModel(); try await settle()
+            controller.startRecording(styleOverride: style); try await settle()
+            controller.finishRecording(); try await settle()
+            let modelRan = enabled && !unavailable && style != .verbatim
+            XCTAssertEqual(session.inputs, modelRan ? [spaced] : [], "\(style)")
+            XCTAssertEqual(controller.transcript, expected, "\(style), enabled: \(enabled)")
+            controller.cancelCurrentJob(); clock.fire(); try await settle()
+        }
+    }
+
+    /// A user's Custom vocabulary term keeps its hyphen; everything else gets spaces.
+    func testCustomVocabularyTermKeepsItsHyphen() async throws {
+        let suite = "cleanup.hyphens.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let vocabulary = CustomVocabularySettings(defaults: defaults)
+        vocabulary.isEnabled = true
+        vocabulary.terms = ["Baden-Württemberg"]
+        let asr = ContextASR(output: "Das Know-how aus Baden-Württemberg")
+        let controller = DictationController(audio: ContextAudio(), keyboardBridge: KeyboardBridge(defaults: defaults),
+            transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false,
+            customVocabularySettings: vocabulary, languageSettings: TyprSettings(defaults: defaults))
+        controller.prepareModel(); try await settle()
+        controller.startRecording(styleOverride: .verbatim); try await settle()
+        controller.finishRecording(); try await settle()
+        XCTAssertEqual(controller.transcript, "Das Know how aus Baden-Württemberg")
+    }
+
     // MARK: - Language
 
     func testLanguagePickerValuesAndSpeechLocales() {
