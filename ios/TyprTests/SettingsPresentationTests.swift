@@ -13,7 +13,7 @@ final class SettingsPresentationTests: XCTestCase {
             )
         }
         XCTAssertEqual(Set(SettingsDestination.allCases.map(\.title)),
-                       ["Keyboard", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language"])
+                       ["Keyboard", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
     }
 
     func testTypingAssistanceSnapshotOpensKeyboardSettings() {

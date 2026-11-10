@@ -169,8 +169,11 @@ Purpose-based detail pages replace the old Typr/Experiments split:
 
 - **Keyboard:** full keyboard, suggestion bar, conditional autocorrect/languages,
   and the link to iOS keyboard settings.
-- **AI & vocabulary:** on-device AI cleanup with availability/last outcome, and editable
-  vocabulary/sounds-like forms. Technical explanations expand on demand.
+- **AI & vocabulary:** on-device AI cleanup with availability, an editable cleanup
+  prompt (Default/Custom, explicit Save and conditional Reset to default), and editable
+  vocabulary/sounds-like forms. No last-result summary or What changes disclosure.
+  Prompt overrides stay in app-local preferences; language/style/vocabulary/context,
+  safety checks and formatting still apply. See [AI_CLEANUP.md](AI_CLEANUP.md).
 - **Speech engine:** explicit selection, status, downloads, retry/cancel, language
   warnings and expandable engine details. No automatic engine switching changes.
 - **Style:** Polished, Casual, Very casual, Notes and Verbatim, each with a short explanation

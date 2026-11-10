@@ -6,6 +6,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
     // Keep the existing simulator scene name; this is not a persisted user setting.
     case textProcessing = "writing"
     case history
+    case cleanupPrompt = "cleanup-prompt"
     case speechEngine = "speech-engine"
     case style
     case language
@@ -15,6 +16,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         case .keyboard: "Keyboard"
         case .textProcessing: "AI & vocabulary"
         case .history: "History & feedback"
+        case .cleanupPrompt: "Cleanup prompt"
         case .speechEngine: "Speech engine"
         case .style: "Style"
         case .language: "Language"
@@ -23,7 +25,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
 
     var subtitle: String {
         switch self {
-        case .keyboard, .textProcessing, .history: ""
+        case .keyboard, .textProcessing, .history, .cleanupPrompt: ""
         case .speechEngine: "Automatic chooses an engine until you select one. Audio stays on this iPhone."
         case .style: "Choose how Typr formats your dictations. You can also change style from the keyboard."
         case .language: "Choose the language you dictate in, not a translation language. Your speech engine stays selected."
