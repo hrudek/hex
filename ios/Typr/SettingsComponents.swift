@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Routes are also used by explicit simulator screenshot scenes; no settings are mutated.
+/// Parsing snapshot routes is read-only. Dedicated simulator fixtures seed their own preferences.
 enum SettingsDestination: String, CaseIterable, Hashable {
     case keyboard
     // Keep the existing simulator scene name; this is not a persisted user setting.
@@ -27,6 +27,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
     static func snapshotDestination(arguments: [String]) -> Self? {
         guard let index = arguments.firstIndex(of: "--snap-state"), index + 1 < arguments.count else { return nil }
         let scene = arguments[index + 1]
+        if scene == "settings-keyboard-typing" { return .keyboard }
         guard scene.hasPrefix("settings-") else { return nil }
         return Self(rawValue: String(scene.dropFirst("settings-".count)))
     }
@@ -171,9 +172,16 @@ struct SettingsWarmDurationControl: View {
             }
         }
         .padding(2)
-        .background(TyprTheme.layer01, in: RoundedRectangle(cornerRadius: 10))
+        .background {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(TyprTheme.layer01)
+                .padding(.vertical, visualInset)
+        }
         .accessibilityHint("Dictate without switching apps")
     }
+
+    // Inset only the paint, not the 44pt hit targets or the compact row's layout.
+    private var visualInset: CGFloat { dynamicTypeSize.isAccessibilitySize ? 0 : 7 }
 
     private func durationButton(_ duration: WarmSessionDuration) -> some View {
         Button { onSelect(duration) } label: {
@@ -181,8 +189,11 @@ struct SettingsWarmDurationControl: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(duration == selected ? TyprTheme.textBase : TyprTheme.textMuted)
                 .frame(minWidth: 44, minHeight: 44)
-                .background(duration == selected ? TyprTheme.layer02 : .clear,
-                            in: RoundedRectangle(cornerRadius: 8))
+                .background {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(duration == selected ? TyprTheme.layer02 : .clear)
+                        .padding(.vertical, visualInset)
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

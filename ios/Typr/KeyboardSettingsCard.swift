@@ -13,16 +13,23 @@ struct KeyboardSettingsCard: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            SettingsSection(title: "Keyboard layout") {
-                SettingsToggle(title: "Full keyboard", detail: "Type with Typr. Hold the Typr key to dictate.", isOn: $fullKeyboard)
-                    .onChange(of: fullKeyboard) { _, enabled in
-                        FullKeyboardSettings().isEnabled = enabled
-                    }
-                SettingsDivider()
-                SettingsToggle(title: "Hide suggestion bar", detail: "More room for your text. Autocorrect still works on space.", isOn: $hideSuggestionBar)
-                    .onChange(of: hideSuggestionBar) { _, enabled in
-                        TyprSettings().hideSuggestionBar = enabled
-                    }
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSection(title: "Keyboard layout") {
+                    SettingsToggle(title: "Full keyboard", detail: "Type with Typr. Hold the Typr key to dictate.", isOn: $fullKeyboard)
+                        .onChange(of: fullKeyboard) { _, enabled in
+                            FullKeyboardSettings().isEnabled = enabled
+                        }
+                    SettingsDivider()
+                    SettingsToggle(title: "Hide suggestion bar", detail: "More room for your text. Autocorrect still works on space.", isOn: $hideSuggestionBar)
+                        .onChange(of: hideSuggestionBar) { _, enabled in
+                            TyprSettings().hideSuggestionBar = enabled
+                        }
+                }
+                if !fullKeyboard {
+                    Text("Turn on Full keyboard to configure autocorrect and its languages.")
+                        .font(.footnote).foregroundStyle(TyprTheme.textMuted)
+                        .padding(.horizontal, 16)
+                }
             }
             if fullKeyboard {
                 SettingsSection(title: "Typing assistance") {

@@ -27,6 +27,12 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
     let warning: String?
     let note: String?
 
+    static func languageWarning(engine: SpeechEngineChoice?, language: DictationLanguage) -> String? {
+        engine == .parakeetV2 && language != .english
+            ? "Not suitable for German dictation. Typr keeps your chosen engine."
+            : nil
+    }
+
     static func make(
         engine: SpeechEngineChoice,
         preferred: SpeechEngineChoice?,
@@ -43,9 +49,7 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
         let badge: String? = current == engine
             ? (preferred == nil ? "In use · automatic" : "In use")
             : (isChosen ? "Chosen" : nil)
-        let warning: String? = engine == .parakeetV2 && language != .english
-            ? "Not suitable for German dictation. Typr keeps your chosen engine."
-            : nil
+        let warning = languageWarning(engine: engine, language: language)
         let note: String? = isWhisper
             ? "First use optimizes the model for several minutes. Vocabulary and the tech glossary apply after recognition, not as Whisper hints."
             : nil
@@ -249,12 +253,15 @@ struct SpeechEngineCard: View {
                     .foregroundStyle(TyprTheme.textMuted)
             }
             if let title = state.actionTitle {
-                Button(title) { perform(state) }
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(TyprTheme.textBase)
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(TyprTheme.layer02, in: RoundedRectangle(cornerRadius: 12))
+                Button { perform(state) } label: {
+                    Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(TyprTheme.textBase)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(TyprTheme.layer02, in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
+                }
                     .buttonStyle(.plain)
                     .disabled(!state.actionEnabled)
                     .opacity(state.actionEnabled ? 1 : 0.4)

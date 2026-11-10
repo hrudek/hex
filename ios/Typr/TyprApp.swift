@@ -6,6 +6,7 @@ struct TyprApp: App {
     @State private var dictation = DictationController.shared
     @State private var openedFromKeyboard = Self.initialOpenedFromKeyboard
     @State private var showSetup = false
+    @State private var setupRequestID: UUID?
 
     init() {
         FullKeyboardSettings().applyLaunchArguments()
@@ -33,7 +34,8 @@ struct TyprApp: App {
                 ContentView(
                     dictation: dictation,
                     openedFromKeyboard: $openedFromKeyboard,
-                    showSetup: $showSetup
+                    showSetup: $showSetup,
+                    setupRequestID: setupRequestID
                 )
                 .onOpenURL { url in
                     // Typr: "Fix in Typr" from the keyboard opens the dictation log, not a session.
@@ -45,6 +47,7 @@ struct TyprApp: App {
                     if case .setup = request {
                         openedFromKeyboard = false
                         showSetup = true
+                        setupRequestID = UUID()
                     } else {
                         openedFromKeyboard = true
                     }

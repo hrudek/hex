@@ -38,6 +38,7 @@ struct ContentView: View {
     @Bindable var dictation: DictationController
     @Binding var openedFromKeyboard: Bool
     @Binding var showSetup: Bool
+    var setupRequestID: UUID? = nil
     @State private var setupMonitor = KeyboardSetupMonitor()
     @State private var showingLog = false
     @State private var feedbackRouter = TyprFeedbackRouter.shared
@@ -162,7 +163,13 @@ struct ContentView: View {
         .onChange(of: feedbackRouter.requestedEntry) { _, id in
             if id != nil { showingLog = true }
         }
+        .onChange(of: setupRequestID) { _, _ in
+            // Each explicit setup URL is a new request, even when showSetup was already true.
+            settingsPath = []
+            showingLog = false
+        }
         .onAppear {
+            if showSetup { settingsPath = [] }
             if feedbackRouter.requestedEntry != nil { showingLog = true }
             DictationLogStore.shared.drainKeyboardFeedback(force: true)
         }
@@ -198,8 +205,19 @@ struct ContentView: View {
                     $0 == .whisperLargeV3Turbo ? "Whisper" : $0.displayName
                 } ?? "Automatic")
 
-                SettingsSection(title: "Dictation") {
-                    settingsCard
+                VStack(alignment: .leading, spacing: 8) {
+                    SettingsSection(title: "Dictation") {
+                        settingsCard
+                    }
+                    if let warning = SpeechEngineRowState.languageWarning(
+                        engine: dictation.preferredEngine ?? dictation.currentEngine,
+                        language: dictation.dictationLanguage
+                    ) {
+                        Label("Parakeet V2 is English only. \(warning)", systemImage: "exclamationmark.circle")
+                            .font(.footnote)
+                            .foregroundStyle(TyprTheme.warmMic)
+                            .padding(.horizontal, 16)
+                    }
                 }
                 SettingsSection(title: "Try your keyboard", subtitle: "Tap below to test typing and dictation.") {
                     practiceField

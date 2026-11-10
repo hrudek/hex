@@ -16,6 +16,21 @@ final class SettingsPresentationTests: XCTestCase {
                        ["Keyboard", "AI & vocabulary", "History & feedback", "Speech engine"])
     }
 
+    func testTypingAssistanceSnapshotOpensKeyboardSettings() {
+        XCTAssertEqual(SettingsDestination.snapshotDestination(arguments: ["Typr", "--snap-state", "settings-keyboard-typing"]), .keyboard)
+    }
+
+    func testOverviewLanguageWarningCoversExplicitAndAutomaticParakeet() {
+        for language in DictationLanguage.allCases {
+            XCTAssertEqual(SpeechEngineRowState.languageWarning(engine: .parakeetV2, language: language) != nil,
+                           language != .english)
+            let otherEngines: [SpeechEngineChoice?] = [nil, .appleSpeech, .whisperLargeV3Turbo]
+            for engine in otherEngines {
+                XCTAssertNil(SpeechEngineRowState.languageWarning(engine: engine, language: language))
+            }
+        }
+    }
+
     func testOrdinaryLaunchesAndUnrelatedScenesDoNotNavigate() {
         for arguments in [[], ["Typr"], ["--snap-state"], ["--snap-state", "ready"],
                           ["--snap-state", "keyboard-warm"], ["--snap-state", "settings-unknown"],
