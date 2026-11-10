@@ -69,7 +69,7 @@ it never accesses the microphone, speech model, or network.
     background, and restarting it there ended the session after each one.
   - **Styles:** `Polished` (sentence case + punctuation + filler trim),
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
-    `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
+    `"bullet"` / `"new line"` / `"new paragraph"` markers), and `Verbatim`, with cursor-aware
     insertion spacing and repeating backspace. Filler trim removes äh/ähm/öhm/hm
     always, but English um/uh/er/ah only from text that reads as English ("um 13 Uhr",
     "was er sagt" stay); a period after bzw., z. B., d. h., ca., usw. and similar
@@ -142,7 +142,10 @@ it never accesses the microphone, speech model, or network.
 ## Settings interface
 
 The app is primarily the keyboard's settings companion. A dark, compact overview
-keeps dictation language, style and microphone controls immediately accessible.
+puts **Dictation** before **Preferences**. Dictation contains microphone controls
+and compact links for **Speech engine**, **Language** and **Style**, each showing
+the current selection. Language sits beside its engine because compatibility depends
+on that choice. Preferences contains Keyboard, AI & vocabulary and History & feedback.
 The overview has no redundant navigation title. Detail pages use compact inline
 titles, consistent disclosure chevrons and semantic, aligned status/retention footers.
 Purpose-based detail pages replace the old Typr/Experiments split:
@@ -153,6 +156,14 @@ Purpose-based detail pages replace the old Typr/Experiments split:
   vocabulary/sounds-like forms. Technical explanations expand on demand.
 - **Speech engine:** explicit selection, status, downloads, retry/cancel, language
   warnings and expandable engine details. No automatic engine switching changes.
+- **Style:** Polished, Casual, Notes and Verbatim, each with a short explanation
+  and a checkmark for the current choice. The page explains that AI cleanup skips
+  Verbatim but vocabulary corrections still apply.
+- **Language:** Automatic, Deutsch and English with recognition/cleanup explanations,
+  the current selection and the same Parakeet compatibility warning as the overview.
+  Automatic explains the different Apple Speech, Whisper and Parakeet behaviors.
+  Both choice pages apply selections through the existing controller setters and
+  stay open so users can compare options; returning shows the updated overview value.
 - **History & feedback:** collection, archive/export/delete and keyboard ratings.
   Feedback URLs still open the requested archive entry from any settings page.
 
@@ -173,7 +184,8 @@ shrinking the 44 pt button hit targets; accessibility sizes retain full-height p
 names are primary card headings; important status and language warnings remain visible.
 `SettingsPresentationTests` checks route parsing and compact/large-text layout.
 Manual simulator screenshots can request `settings-keyboard`, `settings-writing`,
-`settings-history` and `settings-speech-engine`, plus `settings-overview`.
+`settings-history`, `settings-speech-engine`, `settings-style` and `settings-language`,
+plus `settings-overview`.
 The existing `settings-writing` scene name now opens **AI & vocabulary**.
 `settings-keyboard-typing` explicitly enables Full keyboard and Autocorrect in the
 snapshot fixture, with Deutsch and English enabled, to capture both correction-language

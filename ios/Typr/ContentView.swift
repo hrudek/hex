@@ -153,6 +153,8 @@ struct ContentView: View {
                         case .textProcessing: TextProcessingSettingsCard()
                         case .history: HistorySettingsCard { showingLog = true }
                         case .speechEngine: SpeechEngineCard(dictation: dictation)
+                        case .style: DictationStyleSettingsCard(dictation: dictation)
+                        case .language: DictationLanguageSettingsCard(dictation: dictation)
                         }
                     }
                 }
@@ -201,10 +203,6 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
-                SettingsPreferences(engineName: dictation.preferredEngine.map {
-                    $0 == .whisperLargeV3Turbo ? "Whisper" : $0.displayName
-                } ?? "Automatic")
-
                 VStack(alignment: .leading, spacing: 8) {
                     SettingsSection(title: "Dictation") {
                         settingsCard
@@ -219,6 +217,8 @@ struct ContentView: View {
                             .padding(.horizontal, 16)
                     }
                 }
+                SettingsPreferences()
+
                 SettingsSection(title: "Try your keyboard", subtitle: "Tap below to test typing and dictation.") {
                     practiceField
                 }
@@ -498,53 +498,29 @@ struct ContentView: View {
 
             rowDivider
 
-            HStack(spacing: 12) {
-                rowTitle("Style")
-                Spacer(minLength: 8)
-                Menu {
-                    ForEach(DictationStyle.allCases, id: \.self) { candidate in
-                        Button {
-                            dictation.setStyle(candidate)
-                        } label: {
-                            if dictation.style == candidate {
-                                Label(candidate.label, systemImage: "checkmark")
-                            } else {
-                                Text(candidate.label)
-                            }
-                        }
-                    }
-                } label: {
-                    menuValueLabel(dictation.style.label)
-                }
+            NavigationLink(value: SettingsDestination.speechEngine) {
+                SettingsLink(title: "Speech engine", detail: "On-device recognition and downloads",
+                             value: dictation.preferredEngine.map {
+                                 $0 == .whisperLargeV3Turbo ? "Whisper" : $0.displayName
+                             } ?? "Automatic")
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 50)
+            .buttonStyle(.plain)
 
             rowDivider
 
-            // Speech recognition locale and the AI cleanup's writing language.
-            HStack(spacing: 12) {
-                rowTitle("Language")
-                Spacer(minLength: 8)
-                Menu {
-                    ForEach(DictationLanguage.allCases, id: \.self) { candidate in
-                        Button {
-                            dictation.setDictationLanguage(candidate)
-                        } label: {
-                            if dictation.dictationLanguage == candidate {
-                                Label(candidate.label, systemImage: "checkmark")
-                            } else {
-                                Text(candidate.label)
-                            }
-                        }
-                    }
-                } label: {
-                    menuValueLabel(dictation.dictationLanguage.label)
-                }
-                .accessibilityLabel("Dictation language: \(dictation.dictationLanguage.label)")
+            NavigationLink(value: SettingsDestination.language) {
+                SettingsLink(title: "Language", detail: "Recognition language and engine compatibility",
+                             value: dictation.dictationLanguage.label)
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 50)
+            .buttonStyle(.plain)
+
+            rowDivider
+
+            NavigationLink(value: SettingsDestination.style) {
+                SettingsLink(title: "Style", detail: "How your dictation is formatted",
+                             value: dictation.style.label)
+            }
+            .buttonStyle(.plain)
 
             rowDivider
 
@@ -813,19 +789,6 @@ struct ContentView: View {
             .fill(TyprTheme.borderWeak)
             .frame(height: 0.5)
             .padding(.leading, 16)
-    }
-
-    private func menuValueLabel(_ value: String) -> some View {
-        HStack(spacing: 5) {
-            Text(value)
-                .font(.body)
-                .foregroundStyle(TyprTheme.textMuted)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(TyprTheme.textMuted)
-        }
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
     }
 
     private func errorBanner(_ message: String) -> some View {
