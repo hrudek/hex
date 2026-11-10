@@ -39,6 +39,8 @@ struct ContentView: View {
     @Binding var openedFromKeyboard: Bool
     @Binding var showSetup: Bool
     @State private var setupMonitor = KeyboardSetupMonitor()
+    @State private var showingLog = false
+    @State private var feedbackRouter = TyprFeedbackRouter.shared
     @State private var practiceText = ""
     @State private var settingsPath: [SettingsDestination] = {
         #if targetEnvironment(simulator)
@@ -145,6 +147,29 @@ struct ContentView: View {
                 .navigationTitle("Settings")
                 .navigationBarTitleDisplayMode(.large)
                 .toolbarBackground(TyprTheme.bgDeep, for: .navigationBar)
+                .navigationDestination(for: SettingsDestination.self) { destination in
+                    SettingsPage(title: destination.title, subtitle: destination.subtitle) {
+                        switch destination {
+                        case .keyboard: KeyboardSettingsCard()
+                        case .writing: WritingSettingsCard()
+                        case .history: HistorySettingsCard { showingLog = true }
+                        case .speechEngine: SpeechEngineCard(dictation: dictation)
+                        }
+                    }
+                }
+        }
+        .sheet(isPresented: $showingLog) {
+            DictationLogView(store: DictationLogStore.shared, router: feedbackRouter)
+        }
+        .onChange(of: feedbackRouter.requestedEntry) { _, id in
+            if id != nil { showingLog = true }
+        }
+        .onAppear {
+            if feedbackRouter.requestedEntry != nil { showingLog = true }
+            DictationLogStore.shared.drainKeyboardFeedback(force: true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { DictationLogStore.shared.drainKeyboardFeedback(force: true) }
         }
         .tint(TyprTheme.agentBlue)
     }
@@ -160,7 +185,6 @@ struct ContentView: View {
                 }
 
                 stageBar
-                    .accessibilityLabel("Try a dictation")
 
                 if hasTranscript {
                     transcriptCard
@@ -181,7 +205,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                SettingsPreferences(dictation: dictation)
+                SettingsPreferences()
                 SettingsSection(title: "Try your keyboard", subtitle: "Tap below to test typing and dictation.") {
                     practiceField
                 }
@@ -413,7 +437,7 @@ struct ContentView: View {
                     }
                 }.buttonStyle(.bordered).frame(minHeight: 44)
                 if entry.rating == "bad" {
-                    Text("More feedback: Settings → History & feedback")
+                    Text("Add categories and a reference: History & feedback → Open dictation log")
                         .font(.footnote).foregroundStyle(TyprTheme.textMuted)
                 }
             }
@@ -465,20 +489,11 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundStyle(TyprTheme.textMuted)
                 }
-                Picker("Keep mic warm", selection: Binding(
-                    get: { dictation.warmDuration },
-                    set: { duration in
-                        withAnimation(TyprMotion.settleAnimation(reduceMotion: reduceMotion)) {
-                            dictation.selectWarmDuration(duration)
-                        }
-                    }
-                )) {
-                    ForEach(WarmSessionDuration.allCases, id: \.self) { duration in
-                        Text(duration.shortLabel).tag(duration)
+                SettingsWarmDurationControl(selected: dictation.warmDuration) { duration in
+                    withAnimation(TyprMotion.settleAnimation(reduceMotion: reduceMotion)) {
+                        dictation.selectWarmDuration(duration)
                     }
                 }
-                .pickerStyle(.segmented)
-                .frame(minHeight: 44)
             }
             .padding(18)
 
@@ -556,7 +571,7 @@ struct ContentView: View {
 
     private var practiceField: some View {
         TextField("Write something…", text: $practiceText, axis: .vertical)
-            .font(.system(size: 15))
+            .font(.body)
             .foregroundStyle(TyprTheme.textBase)
             .focused($practiceFocused)
             .lineLimit(1...4)

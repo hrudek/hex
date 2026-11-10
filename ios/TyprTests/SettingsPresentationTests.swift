@@ -46,6 +46,22 @@ final class SettingsPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testWarmDurationButtonsUseTwoRowsAtAccessibilitySizes() {
+        func size(_ type: DynamicTypeSize) -> CGSize {
+            let host = UIHostingController(rootView:
+                SettingsWarmDurationControl(selected: .fifteenMinutes, onSelect: { _ in })
+                    .dynamicTypeSize(type)
+            )
+            return host.sizeThatFits(in: CGSize(width: 280, height: 10_000))
+        }
+        let regular = size(.large)
+        let accessible = size(.accessibility3)
+        XCTAssertGreaterThanOrEqual(regular.height, 44)
+        XCTAssertGreaterThan(accessible.height, regular.height)
+        XCTAssertLessThanOrEqual(accessible.width, 280.5)
+    }
+
+    @MainActor
     func testNavigationRowsWrapRatherThanFixingTheirHeight() {
         let row = SettingsLink(title: "History & feedback", detail: "Dictation log, exports and keyboard ratings",
                                icon: "clock.arrow.circlepath", value: "100 entries")

@@ -24,14 +24,6 @@ struct KeyboardSettingsCard: View {
                         TyprSettings().hideSuggestionBar = enabled
                     }
             }
-            SettingsSection(title: "iPhone setup") {
-                Button {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                } label: {
-                    SettingsLink(title: "iOS keyboard settings", detail: "Enable Typr and Full Access", icon: "arrow.up.right.square")
-                }
-                .buttonStyle(.plain)
-            }
             if fullKeyboard {
                 SettingsSection(title: "Typing assistance") {
                     SettingsToggle(title: "Autocorrect", detail: "Correct contractions, shortcuts and small typos on space.", isOn: $autocorrect)
@@ -45,7 +37,7 @@ struct KeyboardSettingsCard: View {
                                 .font(.subheadline).foregroundStyle(TyprTheme.textMuted)
                             Toggle("Deutsch", isOn: $autocorrectGerman)
                                 .onChange(of: autocorrectGerman) { _, enabled in TyprSettings().autocorrectGerman = enabled }
-                            SettingsDivider()
+                            Divider().overlay(TyprTheme.borderWeak)
                             Toggle("English", isOn: $autocorrectEnglish)
                                 .onChange(of: autocorrectEnglish) { _, enabled in TyprSettings().autocorrectEnglish = enabled }
                         }
@@ -55,6 +47,14 @@ struct KeyboardSettingsCard: View {
                         .padding(18)
                     }
                 }
+            }
+            SettingsSection(title: "iPhone setup") {
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                } label: {
+                    SettingsLink(title: "iOS keyboard settings", detail: "Enable Typr and Full Access", icon: "arrow.up.right.square")
+                }
+                .buttonStyle(.plain)
             }
         }
         .onAppear(perform: refresh)

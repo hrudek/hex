@@ -121,6 +121,36 @@ struct SettingsLink: View {
     }
 }
 
+/// Buttons intentionally allow tapping the selected duration again: this restarts an
+/// ended warm session or refreshes its timer, unlike a selection-change-only Picker.
+struct SettingsWarmDurationControl: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let selected: WarmSessionDuration
+    let onSelect: (WarmSessionDuration) -> Void
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4),
+                                 count: dynamicTypeSize.isAccessibilitySize ? 2 : 4), spacing: 4) {
+            ForEach(WarmSessionDuration.allCases, id: \.self) { duration in
+                Button { onSelect(duration) } label: {
+                    Text(duration.shortLabel)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(duration == selected ? TyprTheme.textBase : TyprTheme.textMuted)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(duration == selected ? TyprTheme.layer02 : .clear,
+                                    in: RoundedRectangle(cornerRadius: 10))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(duration == .off ? "Microphone off" : "Keep microphone warm for \(duration.shortLabel)")
+                .accessibilityAddTraits(duration == selected ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(TyprTheme.layer01, in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
 struct SettingsPage<Content: View>: View {
     let title: String
     let subtitle: String

@@ -2,7 +2,7 @@ import Observation
 import SwiftUI
 
 /// Typr: carries a "Feedback in Typr" request from the keyboard (`TyprFeedbackLink`) to the
-/// dictation log. The Typr card presents the log; the log consumes the request and opens
+/// dictation log. The settings navigation root presents it; the log consumes the request and opens
 /// that entry with its expectations note focused.
 @MainActor
 @Observable

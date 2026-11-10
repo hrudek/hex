@@ -214,28 +214,16 @@ struct SpeechEngineCard: View {
 
     private func engineRow(_ state: SpeechEngineRowState) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 8) {
-                Text(state.engine.languageSummary)
-                    .font(.subheadline)
-                    .foregroundStyle(TyprTheme.textMuted)
-                if let badge = state.badge {
-                    Text(badge)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(badge.hasPrefix("In use") ? TyprTheme.success : TyprTheme.textMuted)
-                }
-                Spacer(minLength: 8)
-                if let title = state.actionTitle {
-                    Button(title) { perform(state) }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(TyprTheme.textBase)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
-                        .background(Color.white.opacity(0.09), in: Capsule())
-                        .buttonStyle(.plain)
-                        .disabled(!state.actionEnabled)
-                        .opacity(state.actionEnabled ? 1 : 0.4)
-                }
+            if let badge = state.badge {
+                Text(badge)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(badge.hasPrefix("In use") ? TyprTheme.success : TyprTheme.textMuted)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(TyprTheme.layer01, in: Capsule())
             }
+            Text("Languages: \(state.engine.languageSummary)")
+                .font(.subheadline)
+                .foregroundStyle(TyprTheme.textMuted)
             Text(state.status)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(TyprTheme.textBase)
@@ -246,6 +234,22 @@ struct SpeechEngineCard: View {
                 Text(warning)
                     .font(.subheadline)
                     .foregroundStyle(TyprTheme.warmMic)
+            }
+            if state.engine == .whisperLargeV3Turbo {
+                Text("First preparation can take several minutes.")
+                    .font(.subheadline)
+                    .foregroundStyle(TyprTheme.textMuted)
+            }
+            if let title = state.actionTitle {
+                Button(title) { perform(state) }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(TyprTheme.textBase)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(TyprTheme.layer02, in: RoundedRectangle(cornerRadius: 12))
+                    .buttonStyle(.plain)
+                    .disabled(!state.actionEnabled)
+                    .opacity(state.actionEnabled ? 1 : 0.4)
             }
             DisclosureGroup("Engine details") {
                 VStack(alignment: .leading, spacing: 10) {

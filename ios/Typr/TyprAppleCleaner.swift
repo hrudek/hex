@@ -20,7 +20,7 @@ enum TranscriptCleanupProduction {
 
     static let diagnostics = CleanupDiagnostics()
 
-    /// The last dictation's cleanup outcome for the Typr card (no dictated text).
+    /// The last dictation's cleanup outcome for Writing settings (no dictated text).
     static var lastSummary: String? { diagnostics.lastSummary() }
 
     private static let availabilityCache = CleanupAvailabilityCache { TranscriptCleanupProduction.freshUnavailableReason }
