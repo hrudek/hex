@@ -224,8 +224,9 @@ final class DictationControllerTests: XCTestCase {
         try await settle()
 
         controller.setWarmDuration(.off)
+        // Very casual preserves this regression's lowercase output after the Casual style split.
         controller.handleKeyboardLaunch(
-            .startRecording(jobID: "one-shot-job", requestedAt: now, style: .casual, host: nil)
+            .startRecording(jobID: "one-shot-job", requestedAt: now, style: .veryCasual, host: nil)
         )
         try await settle()
         XCTAssertEqual(controller.phase, .recording)
