@@ -101,6 +101,15 @@ private final class LogControllerFixture {
             env.store.entries.first?.status == .finished
         }
     }
+    func waitUntilASRIsSuspended(file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var waiting = await asr.isWaiting()
+        while !waiting, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+            waiting = await asr.isWaiting()
+        }
+        _ = try XCTUnwrap(waiting ? true : nil, "Expected suspended ASR", file: file, line: line)
+    }
     func start() async throws {
         controller.prepareModel(); try await settle()
         controller.startRecording(keyboardJobID: "a"); try await settle()
@@ -362,14 +371,20 @@ final class DictationLogControllerTests: XCTestCase {
                 let f = LogControllerFixture()
                 if duringASR { await f.asr.arm() }
                 try await f.start()
-                if duringASR { f.controller.finishRecording(); try await f.settle() }
+                if duringASR {
+                    f.controller.finishRecording()
+                    try await f.waitUntilASRIsSuspended()
+                }
                 if mode == 0 { f.env.store.clear() }
                 else {
                     f.env.store.setEnabled(false)
                     if mode == 2 { f.env.store.setEnabled(true) }
                 }
                 if duringASR { await f.asr.resume() } else { f.controller.finishRecording() }
-                try await f.settle()
+                // Clearing/disabling the log removes the entry, not the asynchronous delivery.
+                try await f.waitUntil("Expected transcript delivery despite revoked log permission") {
+                    !f.controller.transcript.isEmpty
+                }
                 XCTAssertFalse(f.controller.transcript.isEmpty)
                 await f.env.storage.flush()
                 try await f.settle()
