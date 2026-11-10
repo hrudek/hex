@@ -48,11 +48,57 @@ nonisolated struct WhisperDecodingPlan: Equatable, Sendable {
     }
 }
 
+/// The pinned model's real sequential specialization steps, not equally weighted percentages.
+nonisolated enum WhisperPreparationComponent: String, CaseIterable, Sendable {
+    case melSpectrogram = "MelSpectrogram"
+    case textDecoder = "TextDecoder"
+    case audioEncoder = "AudioEncoder"
+
+    var computeUnits: MLComputeUnits {
+        switch self {
+        case .melSpectrogram: WhisperModelSpec.melComputeUnits
+        case .textDecoder: WhisperModelSpec.textDecoderComputeUnits
+        case .audioEncoder: WhisperModelSpec.audioEncoderComputeUnits
+        }
+    }
+
+    /// Keep each prewarm awaited before announcing or allocating the next component.
+    /// Preserve the caller's isolation; the closure lets tests verify ordering/failure without
+    /// allocating real model weights.
+    static func prepare(
+        optimizing: Bool,
+        progressHandler: @Sendable (ModelPreparationProgress) -> Void,
+        isolation: isolated (any Actor)? = #isolation,
+        load: (WhisperPreparationComponent) async throws -> Void
+    ) async throws {
+        for component in allCases {
+            try Task.checkCancellation()
+            progressHandler(component.progress(optimizing: optimizing))
+            try await load(component)
+        }
+        try Task.checkCancellation()
+    }
+
+    func progress(optimizing: Bool) -> ModelPreparationProgress {
+        let step: Int
+        let name: String
+        switch self {
+        case .melSpectrogram: (step, name) = (1, "audio features")
+        case .textDecoder: (step, name) = (2, "text decoder")
+        case .audioEncoder: (step, name) = (3, "audio encoder")
+        }
+        let verb = optimizing ? "Optimizing" : "Loading"
+        return ModelPreparationProgress(fractionCompleted: nil,
+            detail: "\(verb) Whisper \(name) · Step \(step) of 3")
+    }
+}
+
 /// Whisper Large V3 Turbo on this iPhone through WhisperKit. Preparation is local only: it never
 /// downloads (no `WhisperKit.download`, `download: false`, a Typr tokenizer set before loading so
 /// WhisperKit's Hub tokenizer fallback is unreachable). Only `WhisperModelInstaller` downloads.
-/// The non-Sendable `WhisperKit` instance never leaves this actor; it is released by ARC (never
-/// `unloadModels()` while a transcription may hold it), and Typr never holds two instances.
+/// The loader exclusively owns the non-Sendable `WhisperKit` until it transfers the completed
+/// instance into this actor. It is released by ARC (never `unloadModels()` while a transcription
+/// may hold it), and Typr never holds two instances.
 actor WhisperTranscriber: LocalTranscribing {
     enum TranscriberError: LocalizedError, Equatable {
         case notInstalled
@@ -169,7 +215,7 @@ actor WhisperTranscriber: LocalTranscribing {
             throw TranscriberError.insufficientStorage(available)
         }
 
-        progressHandler(ModelPreparationProgress(fractionCompleted: 0.05, detail: "Reading the Whisper tokenizer"))
+        progressHandler(ModelPreparationProgress(fractionCompleted: nil, detail: "Reading the Whisper tokenizer"))
         let tokenizer: TyprWhisperTokenizer
         do {
             tokenizer = try await TyprWhisperTokenizer.load(from: store.tokenizerFolder)
@@ -180,7 +226,7 @@ actor WhisperTranscriber: LocalTranscribing {
         try Task.checkCancellation()
 
         progressHandler(ModelPreparationProgress(
-            fractionCompleted: 0.15,
+            fractionCompleted: nil,
             detail: plan == .optimize ? Self.optimizingDetail : Self.loadingDetail
         ))
         // Marked before Core ML starts: if iOS terminates Typr while specializing, the next
@@ -189,7 +235,8 @@ actor WhisperTranscriber: LocalTranscribing {
                                                               inProgress: true))
         let kit: WhisperKit
         do {
-            kit = try await loadKit(tokenizer: tokenizer)
+            kit = try await loadKit(tokenizer: tokenizer, optimizing: plan == .optimize,
+                                    progressHandler: progressHandler)
         } catch {
             store.writePreparationRecord(WhisperPreparationRecord(loadedEnvironment: record.loadedEnvironment,
                                                                   inProgress: false))
@@ -206,7 +253,13 @@ actor WhisperTranscriber: LocalTranscribing {
     /// Local only. Prewarming specializes the three models one at a time and releases each
     /// before the real load, so specialization never holds all model weights at once (WhisperKit's
     /// documented peak-memory trade-off; a cached load costs about twice as long, under a second).
-    private func loadKit(tokenizer: TyprWhisperTokenizer) async throws -> WhisperKit {
+    // Task-local construction keeps the non-Sendable kit disconnected from actor state while
+    // the sequential loader closure uses it. Only the fully loaded instance is transferred in.
+    private nonisolated func loadKit(
+        tokenizer: TyprWhisperTokenizer,
+        optimizing: Bool,
+        progressHandler: @escaping @Sendable (ModelPreparationProgress) -> Void
+    ) async throws -> sending WhisperKit {
         let config = WhisperKitConfig(
             modelFolder: store.modelFolder.path,
             tokenizerFolder: store.tokenizerFolder,
@@ -221,9 +274,32 @@ actor WhisperTranscriber: LocalTranscribing {
         // Set before loading: loadModels() then skips its tokenizer loader (and its Hub fallback).
         kit.tokenizer = tokenizer
         do {
-            try await kit.prewarmModels()
+            // WhisperKit's whole-model prewarm has no per-component callback. Use its public
+            // model-loading API with the same compute units and prewarm semantics: each load
+            // releases its weights before the next, preserving the storage/memory guard.
+            try await WhisperPreparationComponent.prepare(
+                optimizing: optimizing, progressHandler: progressHandler
+            ) { component in
+                let model: (any WhisperMLModel)?
+                switch component {
+                case .melSpectrogram: model = kit.featureExtractor as? any WhisperMLModel
+                case .textDecoder: model = kit.textDecoder as? any WhisperMLModel
+                case .audioEncoder: model = kit.audioEncoder as? any WhisperMLModel
+                }
+                guard let model else {
+                    throw TranscriberError.corruptModel("Missing \(component.rawValue) loader.")
+                }
+                try await model.loadModel(
+                    at: store.modelFolder.appendingPathComponent("\(component.rawValue).mlmodelc"),
+                    computeUnits: component.computeUnits,
+                    prewarmMode: true
+                )
+            }
             try Task.checkCancellation()
+            progressHandler(ModelPreparationProgress(fractionCompleted: nil, detail: "Loading the prepared Whisper models"))
             try await kit.loadModels()
+            try Task.checkCancellation()
+            progressHandler(ModelPreparationProgress(fractionCompleted: nil, detail: "Checking the Whisper model"))
             try Self.validateLogitsSize(kit.textDecoder.logitsSize)
         } catch is CancellationError {
             throw CancellationError()

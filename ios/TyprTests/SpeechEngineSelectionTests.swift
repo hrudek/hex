@@ -453,6 +453,7 @@ final class SpeechEngineSelectionTests: XCTestCase {
     func testWhisperRowSeparatesDownloadVerificationAndDevicePreparation() {
         let downloading = row(install: .downloading(WhisperDownloadProgress(completedBytes: 50, totalBytes: 100)))
         XCTAssertEqual(downloading.progress, 0.5)
+        XCTAssertFalse(downloading.isIndeterminate)
         XCTAssertTrue(downloading.status.hasPrefix("Downloading "))
         XCTAssertTrue(downloading.status.contains("50%"))
         XCTAssertEqual(downloading.action, .cancelDownload)
@@ -461,13 +462,15 @@ final class SpeechEngineSelectionTests: XCTestCase {
         let checking = row(install: .verifying)
         XCTAssertEqual(checking.status, "Checking the downloaded files")
         XCTAssertNil(checking.progress)
+        XCTAssertFalse(checking.isIndeterminate)
         XCTAssertEqual(checking.action, .none)
 
         let preparing = row(preferred: .whisperLargeV3Turbo,
-                            preparation: ModelPreparationProgress(fractionCompleted: 0.15,
-                                detail: "Optimizing Whisper for this iPhone"))
-        XCTAssertEqual(preparing.status, "Optimizing Whisper for this iPhone")
-        XCTAssertEqual(preparing.progress, 0.15)
+                            preparation: ModelPreparationProgress(fractionCompleted: nil,
+                                detail: "Optimizing Whisper text decoder · Step 2 of 3"))
+        XCTAssertEqual(preparing.status, "Optimizing Whisper text decoder · Step 2 of 3")
+        XCTAssertNil(preparing.progress)
+        XCTAssertTrue(preparing.isIndeterminate)
         XCTAssertEqual(preparing.action, .none)
         XCTAssertEqual(preparing.badge, "Chosen")
     }
@@ -485,6 +488,7 @@ final class SpeechEngineSelectionTests: XCTestCase {
         XCTAssertEqual(prepareFailed.action, .prepare)
         XCTAssertEqual(prepareFailed.actionTitle, "Try again")
         XCTAssertEqual(prepareFailed.status, "Local model failed")
+        XCTAssertFalse(prepareFailed.isIndeterminate)
 
         let missing = row(preferred: .whisperLargeV3Turbo, install: .notInstalled, failure: "Not downloaded")
         XCTAssertEqual(missing.action, .retryDownload, "a failed local preparation requires an explicit repair download")

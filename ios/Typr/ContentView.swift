@@ -383,10 +383,10 @@ struct ContentView: View {
             .padding(.horizontal, Self.stageInset)
 
             HStack(spacing: 12) {
-                Text("Preparing model…")
+                Text(dictation.modelPreparation.detail)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(TyprTheme.textMuted)
-                ProgressView(value: dictation.modelPreparation.fractionCompleted)
+                ModelPreparationIndicator(progress: dictation.modelPreparation)
                     .tint(TyprTheme.textBase)
             }
             .padding(.horizontal, 18)
@@ -717,7 +717,7 @@ struct ContentView: View {
                             .typrControlReveal(showScope, reduceMotion: reduceMotion, scale: 0.96, blur: 0.0)
 
                             VStack(spacing: 12) {
-                                ProgressView(value: dictation.modelPreparation.fractionCompleted)
+                                ModelPreparationIndicator(progress: dictation.modelPreparation)
                                     .tint(TyprTheme.textBase)
                                     .frame(maxWidth: 200)
                                     .typrControlReveal(showPreparing, reduceMotion: reduceMotion, scale: 0.96, blur: 2.0)
@@ -839,7 +839,7 @@ struct ContentView: View {
         case .requestingPermission:
             return "Allow microphone access"
         case .preparingModel:
-            return "Preparing model…"
+            return dictation.modelPreparation.detail
         case .transcribing:
             return "Transcribing…"
         case .ready where dictation.keyboardSessionEnabled:
