@@ -19,13 +19,13 @@ struct SettingsPreferences: View {
     }
 }
 
-/// Owns its availability and last-result observation while this page is visible.
+/// Refreshes cleanup availability while this page is visible.
 @MainActor
 struct TextProcessingSettingsCard: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var aiCleanup = TyprSettings().aiCleanup
     @State private var cleanupReason = TranscriptCleanupProduction.unavailableReason
-    @State private var cleanupLast = TranscriptCleanupProduction.lastSummary
+    @State private var customPrompt = CleanupPromptPreferences().isCustom
 
     var body: some View {
         VStack(spacing: 24) {
@@ -37,39 +37,24 @@ struct TextProcessingSettingsCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16).padding(.bottom, 14)
                 }
-                if let last = cleanupLast {
-                    SettingsDivider()
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Last result").font(.caption.weight(.medium)).foregroundStyle(TyprTheme.textMuted)
-                        Text(last).font(.subheadline).foregroundStyle(TyprTheme.textBase)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-                }
                 SettingsDivider()
-                DisclosureGroup("What changes?") {
-                    Text("Keeps your final version after self-corrections, removes fillers and stutters, and fixes misheard words and technical terms. Your vocabulary supplies preferred spellings. Processing stays on this iPhone.")
-                        .font(.subheadline).foregroundStyle(TyprTheme.textMuted)
-                        .padding(.top, 8)
+                NavigationLink(value: SettingsDestination.cleanupPrompt) {
+                    SettingsLink(title: "Cleanup prompt", detail: "Edit the instructions used for AI cleanup",
+                                 icon: "text.quote", value: customPrompt ? "Custom" : "Default")
                 }
-                .disclosureGroupStyle(SettingsDisclosureStyle())
-                .padding(.horizontal, 16)
+                .buttonStyle(.plain)
             }
             VocabularySettingsCard()
         }
         .onAppear(perform: refresh)
         .onChange(of: scenePhase) { _, phase in if phase == .active { refresh() } }
-        .task {
-            while !Task.isCancelled {
-                cleanupLast = TranscriptCleanupProduction.lastSummary
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
     }
 
     private func refresh() {
         TranscriptCleanupProduction.invalidateAvailability()
         aiCleanup = TyprSettings().aiCleanup
         cleanupReason = TranscriptCleanupProduction.unavailableReason
-        cleanupLast = TranscriptCleanupProduction.lastSummary
+        customPrompt = CleanupPromptPreferences().isCustom
     }
 }
 

@@ -151,6 +151,7 @@ struct ContentView: View {
                         switch destination {
                         case .keyboard: KeyboardSettingsCard()
                         case .textProcessing: TextProcessingSettingsCard()
+                        case .cleanupPrompt: CleanupPromptEditor()
                         case .history: HistorySettingsCard { showingLog = true }
                         case .speechEngine: SpeechEngineCard(dictation: dictation)
                         case .style: DictationStyleSettingsCard(dictation: dictation)

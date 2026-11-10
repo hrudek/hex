@@ -123,14 +123,25 @@ all fall back to plain ASR text, formatted as before. Cleanup failures do not
 set `.failed`; ASR failures retain their existing error behavior. Logs use
 `ai-cleanup` and fixed reason strings, never transcript text or model error text.
 
-The AI & vocabulary page shows the **last dictation's outcome** under the switch, e.g.
-“cleaned up by Apple Intelligence (1.8 s)”, “Apple Intelligence changed nothing”,
-“skipped: fewer than 3 words”, “skipped: a language … doesn't support”, “took longer than 6.3 s … (it finished
-after 8.2 s)” or “change was not used: it contained a number or link you didn't say”. It is stored in the App Group as
-`typr.aiCleanup.last` (`CleanupDiagnostics`): a fixed English summary, a time
-and a deadline flag only, never dictated or model text. A model call that returns
-after its deadline reports only its real duration, to tune the deadline.
-Turning the switch off keeps the previous outcome visible.
+The **AI & vocabulary → Cleanup prompt** row shows **Default** or **Custom** and opens
+an editor prefilled with the exact current built-in instructions in `CleanupPrompt.instructions`.
+**Save prompt** persists a nonblank override in the app's local preferences
+(`typr.cleanupPrompt`); leaving without saving discards the draft. A **Reset to default**
+button appears below Save whenever the draft differs from the default or a custom
+prompt is saved. Reset immediately removes the override and restores the editor.
+No override means future app updates can supply an updated default.
+
+Each new model session reads the saved instructions (including sessions for keyboard
+dictations); an already-created session keeps its instructions. Language, style,
+vocabulary, context and the final output reminder are still added per request.
+The structural guard, guided output field, deadline, plain-transcript fallback and
+deterministic formatting remain unchanged, so custom prompts cannot disable them.
+Very long prompts may exceed the on-device context window and fall back.
+
+**Last result** and the **What changes?** disclosure have been removed from this page,
+including the periodic last-result refresh. The text-free diagnostics in
+`typr.aiCleanup.last` and the dictation log remain available internally; this change
+does not delete history or alter logging.
 
 The former **Show AI cleanup model** setting and model-information row have been
 removed. Typr AI cleanup and its availability checks remain unchanged.

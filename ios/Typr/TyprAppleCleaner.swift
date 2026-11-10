@@ -20,9 +20,6 @@ enum TranscriptCleanupProduction {
 
     static let diagnostics = CleanupDiagnostics()
 
-    /// The last dictation's cleanup outcome for AI & vocabulary settings (no dictated text).
-    static var lastSummary: String? { diagnostics.lastSummary() }
-
     private static let availabilityCache = CleanupAvailabilityCache { TranscriptCleanupProduction.freshUnavailableReason }
 
     static func invalidateAvailability() { availabilityCache.invalidate() }
@@ -104,7 +101,7 @@ private final class AppleCleanupSession: CleanupSession {
     init() {
         let model = SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations)
         self.model = model
-        session = LanguageModelSession(model: model, instructions: CleanupPrompt.instructions)
+        session = LanguageModelSession(model: model, instructions: CleanupPromptPreferences().instructions)
     }
 
     func prewarm() async { session.prewarm() }
