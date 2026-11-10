@@ -60,13 +60,6 @@ private struct LogSecretFailure: Error, LocalizedError {
 }
 
 @MainActor
-private final class LogUpstreamCleaner: TranscriptCleaning {
-    var isAvailable = true
-    var result: String?
-    func clean(_ text: String) async -> String? { result }
-}
-
-@MainActor
 private final class LogControllerFixture {
     let env = LogTestEnvironment()
     let audio = LogAudio()
@@ -84,7 +77,6 @@ private final class LogControllerFixture {
         let activeASR = asr
         controller = DictationController(audio: audio, keyboardBridge: bridge, transcriber: activeASR,
             transcriberFactory: { activeASR }, autoPrepareOnInit: false,
-            cleanupSettings: AppleIntelligenceCleanupSettings(defaults: env.defaults),
             customVocabularySettings: CustomVocabularySettings(defaults: env.defaults),
             cleanup: deps, dictationLog: injectLog ? env.store : nil)
     }
@@ -144,20 +136,19 @@ final class DictationLogControllerTests: XCTestCase {
     func testSettingsAreFrozenAtStartEvenWhenToggledDuringRecording() async throws {
         let f = LogControllerFixture()
         let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
-        let upstream = AppleIntelligenceCleanupSettings(defaults: f.env.defaults)
         vocabulary.isEnabled = true
         vocabulary.terms = ["iPhone"]
-        upstream.isEnabled = true
+        f.env.defaults.set(true, forKey: "experiments.appleIntelligenceCleanup")
         await f.asr.setOutput("iphone works")
         f.model.result = "iPhone works"
         try await f.start()
         vocabulary.isEnabled = false
         vocabulary.terms = []
-        upstream.isEnabled = false
+        f.env.defaults.set(false, forKey: "experiments.appleIntelligenceCleanup")
         f.controller.finishRecording(); try await f.settle()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.vocabularyEnabled, true)
-        XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
+        XCTAssertEqual(entry.context.upstreamCleanupEnabled, false)
         XCTAssertEqual(entry.context.typrCleanupEnabled, true)
         XCTAssertEqual(entry.context.cleanupPath, .typr)
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
@@ -233,7 +224,7 @@ final class DictationLogControllerTests: XCTestCase {
 
     func testVerbatimShowsNoAIWhileRetainingEnabledSwitchState() async throws {
         let f = LogControllerFixture()
-        AppleIntelligenceCleanupSettings(defaults: f.env.defaults).isEnabled = true
+        f.env.defaults.set(true, forKey: "experiments.appleIntelligenceCleanup")
         let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
         vocabulary.isEnabled = true // On but empty is not Off.
         f.controller.setStyle(.verbatim)
@@ -242,7 +233,7 @@ final class DictationLogControllerTests: XCTestCase {
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.cleanupPath, .none)
         XCTAssertEqual(entry.context.typrCleanupEnabled, true)
-        XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
+        XCTAssertEqual(entry.context.upstreamCleanupEnabled, false)
         XCTAssertEqual(entry.vocabularyLabel, "Vocabulary: On (0 terms)")
         XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 0)
         XCTAssertEqual(entry.secondSpellingPass?.totalChanges, 0)
@@ -430,49 +421,5 @@ final class DictationLogControllerTests: XCTestCase {
         await env.dispose()
     }
 
-    func testVocabularyEvidenceAndUpstreamPathOnlyClaimKnownOutcomes() async throws {
-        let env = LogTestEnvironment(), asr = LogControlledTranscriber(), audio = LogAudio()
-        let vocabulary = CustomVocabularySettings(defaults: env.defaults)
-        vocabulary.isEnabled = true
-        vocabulary.terms = ["iPhone"]
-        await asr.setOutput("my iphone works")
-        let upstream = LogUpstreamCleaner()
-        let cleanupSettings = AppleIntelligenceCleanupSettings(defaults: env.defaults)
-        cleanupSettings.isEnabled = true
-        let controller = DictationController(audio: audio, keyboardBridge: KeyboardBridge(defaults: env.defaults),
-            transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false, cleaner: upstream,
-            cleanupSettings: cleanupSettings, customVocabularySettings: vocabulary, dictationLog: env.store)
-        func settle() async throws { for _ in 0..<8 { try await Task.sleep(for: .milliseconds(25)) } }
-        controller.prepareModel(); try await settle()
-        for result in [String?.none, "my iPhone works", "my iPhone works well"] {
-            upstream.result = result
-            controller.startRecording(); try await settle()
-            controller.finishRecording(); try await settle()
-            let entry = try XCTUnwrap(env.store.entries.first)
-            XCTAssertEqual(entry.context.cleanupPath, .upstream)
-            XCTAssertEqual(entry.recognized?.text, "my iphone works")
-            XCTAssertEqual(entry.aiInput?.text, "my iPhone works")
-            XCTAssertEqual(entry.context.vocabularyCount, 1)
-            XCTAssertEqual(entry.context.vocabularyEnabled, true)
-            XCTAssertEqual(entry.context.upstreamCleanupEnabled, true)
-            XCTAssertEqual(entry.context.typrCleanupEnabled, false)
-            XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 1)
-            XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
-            XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")
-            XCTAssertNotNil(entry.secondSpellingPass)
-            XCTAssertTrue(entry.firstSpellingChanged)
-            XCTAssertEqual(entry.upstreamOutcome, result.map { $0 == "my iPhone works" ? "unchanged" : "changed" } ?? "no result")
-            XCTAssertNil(entry.aiAnswer) // Upstream API does not expose raw model answers.
-            XCTAssertEqual(entry.cleanupOutput?.text, result ?? "my iPhone works")
-            XCTAssertEqual(entry.formattedText?.text,
-                TranscriptFormatter.format(result ?? "my iPhone works", style: .polished))
-            XCTAssertEqual(entry.context.vocabularyTerms, ["iPhone"])
-            XCTAssertNil(entry.context.vocabularySnapshot)
-            XCTAssertEqual(entry.upstreamReason,
-                result == nil ? "cleaner returned nil; API exposes no failure reason" : nil)
-            XCTAssertNil(entry.cleanupOutcome)
-        }
-        controller.cancelCurrentJob()
-        await env.dispose()
-    }
+
 }

@@ -400,7 +400,6 @@ final class CleanupRewriteTests: XCTestCase {
             let asr = ContextASR(output: raw), bridge = KeyboardBridge(defaults: env.defaults)
             let controller = DictationController(audio: ContextAudio(), keyboardBridge: bridge,
                 transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false,
-                cleanupSettings: AppleIntelligenceCleanupSettings(defaults: env.defaults),
                 customVocabularySettings: vocabulary, cleanup: deps, dictationLog: env.store,
                 languageSettings: env.settings)
             controller.prepareModel(); try await settle()

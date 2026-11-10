@@ -3,14 +3,12 @@ import Foundation
 /// Configured precedence for new recordings, not per-recording cleanup admission.
 nonisolated enum TyprCleanupPath: Equatable, Sendable {
     case typr
-    case upstreamExperiment
     case none
     case unsupportedOS
 
-    static func resolve(frameworkAvailable: Bool, typrOn: Bool, upstreamOn: Bool) -> Self {
+    static func resolve(frameworkAvailable: Bool, typrOn: Bool) -> Self {
         guard frameworkAvailable else { return .unsupportedOS }
         if typrOn { return .typr }
-        if upstreamOn { return .upstreamExperiment }
         return .none
     }
 }
@@ -25,10 +23,8 @@ nonisolated struct TyprModelInfo: Equatable, Sendable {
         switch path {
         case .typr:
             configuration = "Typr AI cleanup (general use, permissive content transformations)"
-        case .upstreamExperiment:
-            configuration = "Clean up with Apple Intelligence (Experiments) (general use, default guardrails)"
         case .none:
-            return ["No model: AI cleanup and Clean up with Apple Intelligence are off"]
+            return ["No model: AI cleanup is off"]
         case .unsupportedOS:
             return ["No model: requires iOS 26 or later"]
         }
@@ -48,21 +44,17 @@ nonisolated struct TyprModelInfo: Equatable, Sendable {
 struct TyprModelInfoReader {
     let frameworkAvailable: () -> Bool
     let typrOn: () -> Bool
-    let upstreamOn: () -> Bool
     let typrReason: () -> String?
-    let upstreamReason: () -> String?
     let osVersion: () -> String
 
     func read() -> TyprModelInfo {
         let path = TyprCleanupPath.resolve(
             frameworkAvailable: frameworkAvailable(),
-            typrOn: typrOn(),
-            upstreamOn: upstreamOn()
+            typrOn: typrOn()
         )
         let reason: String?
         switch path {
         case .typr: reason = typrReason()
-        case .upstreamExperiment: reason = upstreamReason()
         case .none, .unsupportedOS: reason = nil
         }
         return TyprModelInfo(path: path, osVersion: osVersion(), availabilityReason: reason)
@@ -76,9 +68,7 @@ struct TyprModelInfoReader {
             return false
         },
         typrOn: { TyprSettings().aiCleanup },
-        upstreamOn: { AppleIntelligenceCleanupSettings().isEnabled },
         typrReason: { TranscriptCleanupProduction.unavailableReason },
-        upstreamReason: { AppleIntelligenceCleanupAvailability.current.reason },
         osVersion: {
             let version = ProcessInfo.processInfo.operatingSystemVersion
             return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"

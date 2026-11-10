@@ -59,6 +59,8 @@ enum DictationLogStatus: String, Codable, Sendable {
     }
 }
 
+// `upstream` remains decodeable for durable logs from before the experiment was removed.
+// New dictations use only `typr` or `none`.
 enum DictationLogCleanupPath: String, Codable, Sendable { case typr, upstream, none }
 
 enum DictationLogASRFailure: String, Codable, Sendable {
@@ -659,14 +661,6 @@ final class DictationLogRecording: CleanupTextDiagnostics {
             $0.firstSpellingChanged = text != spelled
             $0.firstSpellingPass = spellingPass
             $0.asrMilliseconds = asrMilliseconds
-        }
-    }
-
-    func upstreamResult(_ result: String?, input: String, reason: String? = nil) {
-        guard terminal == nil else { return }
-        update {
-            $0.upstreamOutcome = result.map { $0 == input ? "unchanged" : "changed" } ?? "no result"
-            $0.upstreamReason = reason
         }
     }
 

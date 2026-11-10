@@ -297,7 +297,6 @@ private final class EngineFixture {
             transcriberFactory: transcriberFactory,
             now: { clock.now },
             autoPrepareOnInit: autoPrepare,
-            cleanupSettings: AppleIntelligenceCleanupSettings(defaults: defaults),
             customVocabularySettings: vocabulary,
             cleanup: cleanup?(defaults),
             dictationLog: dictationLog,

@@ -2,22 +2,23 @@
 
 For per-dictation recognized/input/model/final text, diffs and timing diagnostics,
 see [Dictation log](DICTATION_LOG.md). Its separate Typr switch is on by default;
-Off/Clear deletes that persistent app-container history. Its opt-in per-operation
+Off stops collection and keeps saved history; only explicit Delete/Clear removes it. Its opt-in per-operation
 text sink is separate from the text-free logger and App Group outcome below,
 and never changes cleanup delivery or accepts a late answer as a new result.
 
-## Relation to upstream's cleanup and Custom vocabulary
+## Cleanup and Custom vocabulary
 
-Upstream added its own *Clean up with Apple Intelligence* experiment (anomalyco/hex#1538,
-off by default) and *Custom vocabulary* (#1547). Typr keeps its own cleanup because it
-corrected more on the owner's iPhone: prewarmed session, 4 s deadline instead of 2 s,
-German examples and self-correction cues, and a visible last outcome. To avoid name clashes
-with upstream's `TranscriptCleanup.swift`, Typr's files and types carry a `Typr` prefix
-(`TyprCleanup.swift`, `TyprAppleCleaner`, `TyprTranscriptCleaning`).
+The inherited *Clean up with Apple Intelligence* experiment (anomalyco/hex#1538)
+has been removed, including its switch, settings reader, cleaner, prompt, guard and
+timeout implementation. Typr's **AI cleanup** is the only model-based cleanup path
+(`TyprCleanup.swift`, `TyprAppleCleaner`, `TyprTranscriptCleaning`). Its switch,
+prompt, context, language, guard, deadline and optimizations remain unchanged.
 
-- **Precedence:** while the Typr switch is on, Typr cleanup runs and upstream's
-  experiment is skipped, whatever its switch says. With the Typr switch off, upstream's
-  experiment runs exactly as upstream wired it.
+- **Off:** no AI cleanup runs, even if an older install still has
+  `experiments.appleIntelligenceCleanup` saved as true. That unused key needs no migration.
+- **Historical logs:** the legacy `upstream` path and optional outcome/settings fields
+  remain readable and exportable for durable dictation history and offline reports.
+  New recordings never select that path and record `upstreamCleanupEnabled: false`.
 - **Custom vocabulary:** with upstream's *Custom vocabulary* on, its terms (read-only
   through `CustomVocabularySettings.activeTerms`, no second list) are
   1. applied by upstream's exact-spelling pass before cleanup and after formatting, as upstream does;
@@ -139,18 +140,16 @@ a particular dictation will be cleaned:
 
 - With Typr AI cleanup on, it shows Apple's on-device foundation model with
   general use and permissive content transformations. Unavailable Typr cleanup
-  does **not** fall through to the upstream experiment.
-- With Typr off and Experiments › Clean up with Apple Intelligence on, it shows
-  the upstream configuration: general use, default guardrails.
-- With both switches off, it says no model is configured. Below iOS 26 or without
+  falls back to plain text if unavailable.
+- With AI cleanup off, it says no model is configured. Below iOS 26 or without
   FoundationModels, it says the model requires iOS 26 or later, regardless of the
-  switches. Neither case looks up model availability.
-- For either active path, it shows that configuration's own availability reason,
+  switch. Neither case looks up model availability.
+- With AI cleanup on, it shows its availability reason,
   or “Model availability: available. Model version managed by Apple. Never used
   in Verbatim.” The “running on iOS x.y.z” label is the OS version, **not** a
   model checkpoint/version identifier. Apple manages the model version.
 
-Both cleanup paths skip Verbatim. Style, transcript length, detected language,
+AI cleanup skips Verbatim. Style, transcript length, detected language,
 busy work and background execution are per-recording decisions; this display
 cannot predict them. Context size and device-locale support are deliberately
 omitted: they are not needed to identify the configuration, and locale support
@@ -158,17 +157,16 @@ would not establish support for a future transcript's detected language.
 
 Turning the display switch off hides the details but keeps its control visible,
 with “Shows which Apple Intelligence model cleans up your dictations”. It changes
-neither cleanup switch nor recording behavior. The other card rows stay unchanged.
+neither the cleanup switch nor recording behavior. The other card rows stay unchanged.
 Information refreshes on appearance, foregrounding (after invalidating Typr's
 availability cache), after persisting the Typr cleanup switch, when enabling the
-display, and on defaults-change notifications, including the sibling experiment's
-switch. Notification handling runs on the main actor and only reads; it does not
+display, and on defaults-change notifications. Notification handling runs on the main actor and only reads; it does not
 write settings or invalidate the cache. Reading information never creates a
 session, prewarms, generates, or logs model work.
 
-`TyprModelInfoTests` adds deterministic coverage of all precedence combinations,
-exact available/unavailable/no-model strings, selected-path-only availability reads,
-isolated-defaults sibling-switch changes in both directions, and the independent
+`TyprModelInfoTests` covers supported/unsupported OS and cleanup on/off,
+exact available/unavailable/no-model strings, enabled-only availability reads,
+isolated-defaults switch changes and ignored legacy settings, and the independent
 default-on display switch. These new tests have **not run locally**: no Swift or
 Xcode toolchain is installed on the implementation host. The SwiftUI notification
 subscription, foreground refresh and mounted-card updates have no automated UI
@@ -176,7 +174,7 @@ wiring test. Production needs archive compilation; the test target needs a manua
 Typr CI run with distribution `simulator` (optionally
 `only_testing=TyprTests/TyprModelInfoTests`). Neither is claimed here.
 Suggested screenshot: the settings screen, checking multiline wrapping and
-VoiceOver readability with the display on/off and Typr/upstream/both-off paths.
+VoiceOver readability with the display on/off and AI cleanup on/off.
 A real eligible iPhone is still needed to verify actual model availability and
 foreground transitions as Apple Intelligence is enabled or becomes ready.
 

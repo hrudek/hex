@@ -26,17 +26,6 @@ private struct VocabularyCleaner: TyprTranscriptCleaning {
     func makeSession() -> any CleanupSession { session }
 }
 
-/// Upstream's cleanup experiment, to prove Typr cleanup replaces it while on.
-@MainActor
-private final class UpstreamCleanerSpy: TranscriptCleaning {
-    var isAvailable = true
-    private(set) var inputs: [String] = []
-    func clean(_ text: String) async -> String? {
-        inputs.append(text)
-        return "Upstream cleaned."
-    }
-}
-
 @MainActor
 private final class VocabularyAudio: AudioManaging {
     var isKeepaliveRunning = false
@@ -142,27 +131,24 @@ final class TyprCleanupVocabularyTests: XCTestCase {
         clock.fire()
     }
 
-    /// Typr on: its cleanup runs with the Custom vocabulary and upstream's experiment does not.
-    /// Typr off: upstream's experiment runs exactly as upstream wired it.
-    func testTyprCleanupReplacesUpstreamExperimentWhileOn() async throws {
+    /// Only Typr cleanup may run, even when an old install still has the removed setting on.
+    func testTyprCleanupOrPlainTranscriptIgnoresRemovedExperiment() async throws {
         for typrOn in [true, false] {
             let suite = "cleanup.vocabulary.\(UUID().uuidString)"
             let defaults = UserDefaults(suiteName: suite)!
             defer { defaults.removePersistentDomain(forName: suite) }
-            let upstreamSettings = AppleIntelligenceCleanupSettings(defaults: defaults)
-            upstreamSettings.isEnabled = true
+            defaults.set(true, forKey: "experiments.appleIntelligenceCleanup")
             let vocabulary = CustomVocabularySettings(defaults: defaults)
             vocabulary.isEnabled = true
             vocabulary.terms = ["Rudek", "Mayer"]
 
-            let session = VocabularySession(), upstream = UpstreamCleanerSpy()
+            let session = VocabularySession()
             let bg = CleanupTestBackground(), clock = CleanupTestSleeper()
             let deps = TranscriptCleanupDependencies(cleaner: VocabularyCleaner(session: session), language: CleanupTestLanguage(),
                 background: bg, isEnabled: { typrOn }, sleep: clock.sleep)
             let asr = VocabularyASR()
             let controller = DictationController(audio: VocabularyAudio(), keyboardBridge: KeyboardBridge(defaults: defaults),
-                transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false, cleaner: upstream,
-                cleanupSettings: upstreamSettings, customVocabularySettings: vocabulary, cleanup: deps)
+                transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false, customVocabularySettings: vocabulary, cleanup: deps)
             controller.prepareModel(); try await settle()
             controller.startRecording(keyboardJobID: "job", styleOverride: .polished, copyToPasteboard: false)
             try await settle()
@@ -170,12 +156,10 @@ final class TyprCleanupVocabularyTests: XCTestCase {
 
             if typrOn {
                 XCTAssertEqual(session.vocabularies, [["Rudek", "Mayer"]])
-                XCTAssertEqual(upstream.inputs, [])
                 XCTAssertEqual(controller.transcript, "Grüße an Rudek und Mayer.")
             } else {
                 XCTAssertEqual(session.vocabularies, [])
-                XCTAssertEqual(upstream.inputs, ["Grüße an Rudeck und Meier"])
-                XCTAssertEqual(controller.transcript, "Upstream cleaned.")
+                XCTAssertEqual(controller.transcript, "Grüße an Rudeck und Meier.")
             }
             controller.cancelCurrentJob(); clock.fire(); try await settle()
         }
@@ -199,7 +183,7 @@ final class TyprCleanupVocabularyTests: XCTestCase {
         let asr = VocabularyASR(output: "Erstelle einen Pulrigquest für Rudek")
         let controller = DictationController(audio: VocabularyAudio(), keyboardBridge: KeyboardBridge(defaults: defaults),
             transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false,
-            cleanupSettings: AppleIntelligenceCleanupSettings(defaults: defaults), customVocabularySettings: vocabulary,
+            customVocabularySettings: vocabulary,
             cleanup: deps)
         controller.prepareModel(); try await settle()
         controller.startRecording(keyboardJobID: "job", styleOverride: .polished, copyToPasteboard: false)

@@ -159,7 +159,7 @@ struct TyprCard: View {
             NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
                 .receive(on: RunLoop.main)
         ) { _ in
-            // Separate defaults instances back the sibling card; do not filter by object.
+            // Settings may use separate defaults instances; do not filter by object.
             // Hop delivery to the main run loop without carrying Notification into a Task.
             MainActor.assumeIsolated {
                 modelInfo = TyprModelInfoReader.production.read()
