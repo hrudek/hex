@@ -13,13 +13,11 @@ this file is the entry point for agents and the owner.
 - Work anywhere in the repository. Changes under `.github/` need the `infra`
   label (CI's scope check fails otherwise), so automation permissions cannot
   be widened unnoticed. Follow [AGENTS.md](AGENTS.md) for worktrees.
-- Local development with Pi is **PR-first**: discuss the request in Pi → branch
+- Local development with Pi is **PR-first**: discuss the request in Pi →
   successful `git fetch --prune origin` → branch `feature/<name>` (or
-  `fix/<name>` for bug fixes) from the freshly fetched `origin/main` → PR to
-  `main` with label `feature` → squash merge. Never start from a stale local
-  `main` or cached checkout. The mandatory fresh-base gate in
-  [AGENTS.md](AGENTS.md#mandatory-fresh-base-gate) also applies when resuming
-  work and before PR handover/updates; fetch/check failures block development.
+  `fix/<name>`) from the freshly fetched `origin/main` → PR to `main` with
+  label `feature` → squash merge. See [AGENTS.md](AGENTS.md) for worktrees
+  and resuming existing tasks.
   No issue or issue number in the branch name is required. Do not create
   an issue retroactively just to document an already implemented change.
 - Use an existing relevant issue when there is one. Create an issue only for
