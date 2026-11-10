@@ -73,7 +73,7 @@ extension CleanupObserving {
     func recordLate(latencyMilliseconds: Int64) {}
 }
 
-/// The last dictation's outcome for the Typr card: a fixed English summary, latency and time, never text.
+/// The last dictation's outcome for AI & vocabulary settings: a fixed English summary, latency and time, never text.
 @MainActor
 final class CleanupDiagnostics: CleanupObserving {
     static let key = "typr.aiCleanup.last"
@@ -154,7 +154,7 @@ final class CleanupDiagnostics: CleanupObserving {
     }
 }
 
-/// Logs and keeps the last outcome for the Typr card.
+/// Logs and keeps the last outcome for AI & vocabulary settings.
 @MainActor
 struct CleanupObservers: CleanupObserving {
     let observers: [any CleanupObserving]

@@ -27,6 +27,12 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
     let warning: String?
     let note: String?
 
+    static func languageWarning(engine: SpeechEngineChoice?, language: DictationLanguage) -> String? {
+        engine == .parakeetV2 && language != .english
+            ? "Not suitable for German dictation. Typr keeps your chosen engine."
+            : nil
+    }
+
     static func make(
         engine: SpeechEngineChoice,
         preferred: SpeechEngineChoice?,
@@ -43,11 +49,9 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
         let badge: String? = current == engine
             ? (preferred == nil ? "In use · automatic" : "In use")
             : (isChosen ? "Chosen" : nil)
-        let warning: String? = engine == .parakeetV2 && language != .english
-            ? "English only. With Language set to \(language.label), German speech is not recognized correctly; Typr keeps your chosen engine."
-            : nil
+        let warning = languageWarning(engine: engine, language: language)
         let note: String? = isWhisper
-            ? "First use optimizes the model for this iPhone and can take several minutes. Your vocabulary and the tech glossary are applied after recognition (spelling and AI cleanup), not as Whisper hints."
+            ? "First use optimizes the model for several minutes. Vocabulary and the tech glossary apply after recognition, not as Whisper hints."
             : nil
 
         func row(_ status: String, progress: Double? = nil, action: Action = .none, title: String? = nil) -> SpeechEngineRowState {
@@ -123,28 +127,17 @@ struct SpeechEngineCard: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Speech engine")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(TyprTheme.textMuted)
-                .padding(.leading, 16)
-
-            VStack(spacing: 0) {
-                ForEach(Array(SpeechEngineChoice.allCases.enumerated()), id: \.element) { index, engine in
-                    if index > 0 {
-                        Divider().overlay(TyprTheme.borderWeak).padding(.leading, 16)
-                    }
+        VStack(alignment: .leading, spacing: 24) {
+            ForEach(SpeechEngineChoice.allCases, id: \.self) { engine in
+                SettingsSection {
                     engineRow(state(for: engine))
                 }
-                Divider().overlay(TyprTheme.borderWeak).padding(.leading, 16)
-                Text(footer)
-                    .font(.system(size: 12))
-                    .foregroundStyle(TyprTheme.textMuted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
             }
-            .background(TyprTheme.bgBase, in: RoundedRectangle(cornerRadius: TyprTheme.cardRadius, style: .continuous))
+            Label(footer, systemImage: "lock.shield")
+                .font(.subheadline)
+                .foregroundStyle(TyprTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
         }
         .task(id: refreshKey) {
             installer.refresh()
@@ -179,9 +172,9 @@ struct SpeechEngineCard: View {
     private var footer: String {
         var lines: [String] = []
         if let preferred = dictation.preferredEngine {
-            lines.append("Chosen: \(preferred.displayName). Typr never switches to another engine by itself.")
+            lines.append("Chosen: \(preferred.displayName). No automatic switching.")
         } else {
-            lines.append("No engine chosen: Typr uses Apple Speech when available, else Parakeet V2.")
+            lines.append("Automatic: Apple Speech when available, otherwise Parakeet V2.")
         }
         if !dictation.canChangeEngine {
             lines.append("Finish the current dictation to change the engine.")
@@ -224,53 +217,67 @@ struct SpeechEngineCard: View {
     }
 
     private func engineRow(_ state: SpeechEngineRowState) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(state.engine.displayName)
-                    .font(.system(size: 15))
-                    .foregroundStyle(TyprTheme.textBase)
+                    .font(.headline).foregroundStyle(TyprTheme.textBase)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
                 if let badge = state.badge {
                     Text(badge)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(badge.hasPrefix("In use") ? TyprTheme.success : TyprTheme.textMuted)
-                }
-                Spacer(minLength: 8)
-                if let title = state.actionTitle {
-                    Button(title) { perform(state) }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(TyprTheme.textBase)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 30)
-                        .background(Color.white.opacity(0.09), in: Capsule())
-                        .buttonStyle(.plain)
-                        .disabled(!state.actionEnabled)
-                        .opacity(state.actionEnabled ? 1 : 0.4)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(TyprTheme.layer01, in: Capsule())
                 }
             }
-            Text(state.engine.summary)
-                .font(.system(size: 12))
-                .foregroundStyle(TyprTheme.textMuted)
             Text("Languages: \(state.engine.languageSummary)")
-                .font(.system(size: 12))
+                .font(.subheadline)
                 .foregroundStyle(TyprTheme.textMuted)
             Text(state.status)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(TyprTheme.textBase)
+                .font(.subheadline)
+                .foregroundStyle(TyprTheme.textMuted)
             if let progress = state.progress {
                 ProgressView(value: progress).tint(TyprTheme.textBase)
             }
             if let warning = state.warning {
                 Text(warning)
-                    .font(.system(size: 12))
+                    .font(.subheadline)
                     .foregroundStyle(TyprTheme.warmMic)
             }
-            if let note = state.note {
-                Text(note)
-                    .font(.system(size: 12))
-                    .foregroundStyle(TyprTheme.textFaint)
+            if state.engine == .whisperLargeV3Turbo {
+                Text("First preparation can take several minutes.")
+                    .font(.subheadline)
+                    .foregroundStyle(TyprTheme.textMuted)
             }
+            if let title = state.actionTitle {
+                Button { perform(state) } label: {
+                    Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(TyprTheme.textBase)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(TyprTheme.layer02, in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
+                }
+                    .buttonStyle(.plain)
+                    .disabled(!state.actionEnabled)
+                    .opacity(state.actionEnabled ? 1 : 0.4)
+            }
+            Divider().overlay(TyprTheme.borderWeak)
+            DisclosureGroup("Engine details") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(state.engine.summary)
+                    if let note = state.note { Text(note) }
+                }
+                .font(.subheadline)
+                .foregroundStyle(TyprTheme.textMuted)
+                .padding(.top, 8)
+            }
+            .disclosureGroupStyle(SettingsDisclosureStyle())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(16)
     }
 }

@@ -1550,6 +1550,22 @@ final class DictationController {
             controller.warmDuration = .fifteenMinutes
             controller.keyboardSessionEnabled = false
 
+        case "settings-overview", "settings-keyboard", "settings-writing", "settings-history", "settings-speech-engine":
+            controller.phase = .ready
+            controller.warmDuration = .off
+            controller.keyboardSessionEnabled = false
+
+        case "settings-keyboard-typing":
+            #if targetEnvironment(simulator)
+            FullKeyboardSettings().isEnabled = true
+            FullKeyboardSettings().autocorrect = true
+            TyprSettings().autocorrectGerman = true
+            TyprSettings().autocorrectEnglish = true
+            #endif
+            controller.phase = .ready
+            controller.warmDuration = .off
+            controller.keyboardSessionEnabled = false
+
         case "ready":
             controller.phase = .ready
             controller.warmDuration = .off

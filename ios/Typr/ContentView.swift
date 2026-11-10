@@ -33,14 +33,23 @@ struct ContentView: View {
         case failed
     }
 
-    @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var dictation: DictationController
     @Binding var openedFromKeyboard: Bool
     @Binding var showSetup: Bool
+    var setupRequestID: UUID? = nil
     @State private var setupMonitor = KeyboardSetupMonitor()
+    @State private var showingLog = false
+    @State private var feedbackRouter = TyprFeedbackRouter.shared
     @State private var practiceText = ""
+    @State private var settingsPath: [SettingsDestination] = {
+        #if targetEnvironment(simulator)
+        SettingsDestination.snapshotDestination(arguments: ProcessInfo.processInfo.arguments).map { [$0] } ?? []
+        #else
+        []
+        #endif
+    }()
     @FocusState private var practiceFocused: Bool
 
     private static let stageWellHeight: CGFloat = 48
@@ -134,8 +143,45 @@ struct ContentView: View {
     // MARK: - Standalone App
 
     private var standaloneView: some View {
+        NavigationStack(path: $settingsPath) {
+            settingsOverview
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: SettingsDestination.self) { destination in
+                    SettingsPage(title: destination.title, subtitle: destination.subtitle) {
+                        switch destination {
+                        case .keyboard: KeyboardSettingsCard()
+                        case .textProcessing: TextProcessingSettingsCard()
+                        case .history: HistorySettingsCard { showingLog = true }
+                        case .speechEngine: SpeechEngineCard(dictation: dictation)
+                        }
+                    }
+                }
+        }
+        .sheet(isPresented: $showingLog) {
+            DictationLogView(store: DictationLogStore.shared, router: feedbackRouter)
+        }
+        .onChange(of: feedbackRouter.requestedEntry) { _, id in
+            if id != nil { showingLog = true }
+        }
+        .onChange(of: setupRequestID) { _, _ in
+            // Each explicit setup URL is a new request, even when showSetup was already true.
+            settingsPath = []
+            showingLog = false
+        }
+        .onAppear {
+            if showSetup { settingsPath = [] }
+            if feedbackRouter.requestedEntry != nil { showingLog = true }
+            DictationLogStore.shared.drainKeyboardFeedback(force: true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { DictationLogStore.shared.drainKeyboardFeedback(force: true) }
+        }
+        .tint(TyprTheme.agentBlue)
+    }
+
+    private var settingsOverview: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 24) {
                 headerRow
 
                 if showSetup || !setupComplete {
@@ -155,11 +201,32 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
-                settingsCard
-                SpeechEngineCard(dictation: dictation)
-                ExperimentsCard()
-                TyprCard()
-                practiceField
+                SettingsPreferences(engineName: dictation.preferredEngine.map {
+                    $0 == .whisperLargeV3Turbo ? "Whisper" : $0.displayName
+                } ?? "Automatic")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    SettingsSection(title: "Dictation") {
+                        settingsCard
+                    }
+                    if let warning = SpeechEngineRowState.languageWarning(
+                        engine: dictation.preferredEngine ?? dictation.currentEngine,
+                        language: dictation.dictationLanguage
+                    ) {
+                        Label("Parakeet V2 is English only. \(warning)", systemImage: "exclamationmark.circle")
+                            .font(.footnote)
+                            .foregroundStyle(TyprTheme.warmMic)
+                            .padding(.horizontal, 16)
+                    }
+                }
+                SettingsSection(title: "Try your keyboard", subtitle: "Tap below to test typing and dictation.") {
+                    practiceField
+                }
+                Label("Your voice stays on your iPhone", systemImage: "lock.shield")
+                    .font(.footnote)
+                    .foregroundStyle(TyprTheme.textMuted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
             }
             .frame(maxWidth: 500)
             .padding(.horizontal, 20)
@@ -171,6 +238,7 @@ struct ContentView: View {
             .animation(TyprMotion.settleAnimation(reduceMotion: reduceMotion), value: hasTranscript)
             .animation(TyprMotion.settleAnimation(reduceMotion: reduceMotion), value: setupComplete)
         }
+        .background(TyprTheme.bgDeep.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
         .task {
             while !Task.isCancelled {
@@ -196,11 +264,6 @@ struct ContentView: View {
                 size: 20,
                 color: showRecordingPill ? TyprTheme.warmPearl : TyprTheme.textBase
             )
-
-            Text("Typr")
-                .font(.system(size: 17, weight: .semibold))
-                .tracking(-0.2)
-                .foregroundStyle(TyprTheme.textBase)
 
             Spacer()
 
@@ -382,7 +445,7 @@ struct ContentView: View {
                     }
                 }.buttonStyle(.bordered).frame(minHeight: 44)
                 if entry.rating == "bad" {
-                    Text("Optional categories and reference: Typr → Dictation log")
+                    Text("Add categories and a reference: History & feedback → Open dictation log")
                         .font(.footnote).foregroundStyle(TyprTheme.textMuted)
                 }
             }
@@ -427,22 +490,11 @@ struct ContentView: View {
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                rowTitle("Keep mic warm")
-                Spacer(minLength: 8)
-                compactSegments(
-                    items: WarmSessionDuration.allCases,
-                    selected: dictation.warmDuration,
-                    label: \.shortLabel,
-                    onSelect: { duration in
-                        withAnimation(TyprMotion.settleAnimation(reduceMotion: reduceMotion)) {
-                            dictation.selectWarmDuration(duration)
-                        }
-                    }
-                )
+            SettingsWarmDurationRow(selected: dictation.warmDuration) { duration in
+                withAnimation(TyprMotion.settleAnimation(reduceMotion: reduceMotion)) {
+                    dictation.selectWarmDuration(duration)
+                }
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 50)
 
             rowDivider
 
@@ -466,7 +518,7 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .frame(minHeight: 48)
+            .frame(minHeight: 50)
 
             rowDivider
 
@@ -492,7 +544,7 @@ struct ContentView: View {
                 .accessibilityLabel("Dictation language: \(dictation.dictationLanguage.label)")
             }
             .padding(.horizontal, 16)
-            .frame(minHeight: 48)
+            .frame(minHeight: 50)
 
             rowDivider
 
@@ -506,27 +558,7 @@ struct ContentView: View {
             }
             .tint(TyprTheme.success)
             .padding(.horizontal, 16)
-            .frame(minHeight: 48)
-
-            rowDivider
-
-            Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    openURL(url)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    rowTitle("Keyboard settings")
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(TyprTheme.textMuted)
-                }
-                .padding(.horizontal, 16)
-                .frame(minHeight: 48)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            .frame(minHeight: 50)
         }
         .background(
             TyprTheme.bgBase,
@@ -535,8 +567,8 @@ struct ContentView: View {
     }
 
     private var practiceField: some View {
-        TextField("Test keyboard…", text: $practiceText, axis: .vertical)
-            .font(.system(size: 15))
+        TextField("Write something…", text: $practiceText, axis: .vertical)
+            .font(.body)
             .foregroundStyle(TyprTheme.textBase)
             .focused($practiceFocused)
             .lineLimit(1...4)
@@ -771,8 +803,9 @@ struct ContentView: View {
 
     private func rowTitle(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 15, weight: .regular))
+            .font(.body)
             .foregroundStyle(TyprTheme.textBase)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var rowDivider: some View {
@@ -785,50 +818,14 @@ struct ContentView: View {
     private func menuValueLabel(_ value: String) -> some View {
         HStack(spacing: 5) {
             Text(value)
-                .font(.system(size: 15, weight: .regular))
+                .font(.body)
                 .foregroundStyle(TyprTheme.textMuted)
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(TyprTheme.textMuted)
         }
-        .padding(.vertical, 6)
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
-    }
-
-    private func compactSegments<Item: Hashable>(
-        items: [Item],
-        selected: Item,
-        label: KeyPath<Item, String>,
-        onSelect: @escaping (Item) -> Void
-    ) -> some View {
-        HStack(spacing: 2) {
-            ForEach(items, id: \.self) { item in
-                let isSelected = item == selected
-                Button {
-                    onSelect(item)
-                } label: {
-                    Text(item[keyPath: label])
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .foregroundStyle(isSelected ? TyprTheme.textBase : TyprTheme.textMuted)
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(
-                            isSelected ? Color.white.opacity(0.14) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .padding(2)
-        .background(
-            Color.white.opacity(0.055),
-            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-        )
     }
 
     private func errorBanner(_ message: String) -> some View {
