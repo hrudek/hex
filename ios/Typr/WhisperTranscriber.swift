@@ -57,6 +57,7 @@ actor WhisperTranscriber: LocalTranscribing {
     enum TranscriberError: LocalizedError, Equatable {
         case notInstalled
         case notPrepared
+        case silentAudio
         case emptyTranscript
         case corruptModel(String)
 
@@ -66,8 +67,10 @@ actor WhisperTranscriber: LocalTranscribing {
                 "Whisper Large V3 Turbo is not downloaded. Download it under Speech engine."
             case .notPrepared:
                 "Whisper Large V3 Turbo is not ready."
+            case .silentAudio:
+                "The recording is too quiet for Whisper. Try speaking closer to the microphone."
             case .emptyTranscript:
-                "Whisper did not detect any speech."
+                "Whisper returned no text. Please try dictating again."
             case .corruptModel(let detail):
                 "The Whisper model on this iPhone could not be loaded: \(detail) Download Whisper again."
             }
@@ -113,11 +116,15 @@ actor WhisperTranscriber: LocalTranscribing {
         }
     }
 
-    /// Energy gate before decoding: WhisperKit 1.1.1's no-speech threshold is not implemented
-    /// (`noSpeechProb = 0 // TODO`), and Whisper invents text for silence.
+    /// An amplitude gate, not a speech detector: it must not discard ordinary quiet speech.
+    /// WhisperKit's default EnergyVAD threshold (0.02 RMS, about -34 dBFS) is intended for
+    /// chunk boundaries and rejected valid low-level microphone recordings before inference.
+    /// Use 0.005 RMS (about -46 dBFS) here, keeping a floor against silence/faint room hum.
+    /// WhisperKit 1.1.1's decoder no-speech probability is not implemented, so removing the
+    /// gate altogether would allow Whisper to hallucinate text for silence.
     nonisolated static func containsSpeech(_ samples: [Float]) -> Bool {
         guard !samples.isEmpty else { return false }
-        return EnergyVAD().voiceActivity(in: samples).contains(true)
+        return EnergyVAD(energyThreshold: 0.005).voiceActivity(in: samples).contains(true)
     }
 
     /// Chunk texts joined with single spaces, trimmed.
@@ -190,7 +197,7 @@ actor WhisperTranscriber: LocalTranscribing {
         // A local strong reference keeps this capture's model alive even if the actor's is dropped.
         guard let kit else { throw TranscriberError.notPrepared }
         let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioURL.path)
-        guard Self.containsSpeech(samples) else { throw TranscriberError.emptyTranscript }
+        guard Self.containsSpeech(samples) else { throw TranscriberError.silentAudio }
         let results = try await kit.transcribe(
             audioArray: samples,
             decodeOptions: WhisperDecodingPlan(language: language).decodingOptions
