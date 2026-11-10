@@ -9,7 +9,6 @@ import UIKit
 final class DictationController {
     static let shared = DictationController(
         autoPrepareOnInit: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
-        cleaner: AppleIntelligenceCleaner(),
         cleanup: TranscriptCleanupProduction.dependencies(),
         dictationLog: .shared
     )
@@ -50,7 +49,6 @@ final class DictationController {
         let startedAt: TimeInterval
         let keyboardJobID: String?
         let style: DictationStyle
-        let usesCleanup: Bool
         let vocabularyTerms: [String]
         /// Speech hints, spelling passes and cleanup terms (Custom vocabulary + built-in glossary).
         let vocabulary: DictationVocabulary
@@ -81,8 +79,6 @@ final class DictationController {
     /// Test seam for the automatic (no engine chosen) path; nil uses the provider's automatic choice.
     private let transcriberFactory: (() async -> any LocalTranscribing)?
     private let engineProvider: any SpeechEngineProviding
-    private let cleaner: (any TranscriptCleaning)?
-    private let cleanupSettings: AppleIntelligenceCleanupSettings
     private let customVocabularySettings: CustomVocabularySettings
     private let audio: any AudioManaging
     private let keyboardBridge: KeyboardBridge
@@ -202,8 +198,6 @@ final class DictationController {
         now: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 },
         autoPrepareOnInit: Bool = true,
         hostReturner: HostReturner? = nil,
-        cleaner: (any TranscriptCleaning)? = nil,
-        cleanupSettings: AppleIntelligenceCleanupSettings = AppleIntelligenceCleanupSettings(),
         customVocabularySettings: CustomVocabularySettings = CustomVocabularySettings(),
         cleanup: TranscriptCleanupDependencies? = nil,
         dictationLog: DictationLogStore? = nil,
@@ -226,8 +220,6 @@ final class DictationController {
         self.transcriberFactory = transcriberFactory
         self.engineProvider = resolvedProvider
         self.preferredEngine = preferred
-        self.cleaner = cleaner
-        self.cleanupSettings = cleanupSettings
         self.customVocabularySettings = customVocabularySettings
         self.fileManager = fileManager
         self.now = now
@@ -869,7 +861,6 @@ final class DictationController {
         let captureLanguageName = SpeechEngineChoice(displayName: captureTranscriber.displayName) == .whisperLargeV3Turbo
             ? WhisperTranscriber.languageName(for: captureLanguage) : transcriptionLanguage
         let effectiveStyle = styleOverride ?? style
-        let usesCleanup = cleanupSettings.isEnabled
         let vocabularyEnabled = customVocabularySettings.isEnabled
         let savedVocabularyTerms = customVocabularySettings.terms
         let vocabularyTerms = vocabularyEnabled ? savedVocabularyTerms : []
@@ -877,7 +868,7 @@ final class DictationController {
         let enabled = cleanup?.isEnabled() == true
         let logToken = dictationLog?.token()
         let logCleanupPath: DictationLogCleanupPath = effectiveStyle == .verbatim ? .none
-            : (enabled ? .typr : (usesCleanup && cleaner != nil ? .upstream : .none))
+            : (enabled ? .typr : .none)
         let cleanupEnabled = enabled && effectiveStyle != .verbatim
         let disabledCleanupReason: CleanupSkipReason? = !enabled ? .off : (effectiveStyle == .verbatim ? .verbatim : nil)
         let cleanupContext = CleanupContext.make(language: captureLanguage, keyboard: keyboardContext,
@@ -940,7 +931,6 @@ final class DictationController {
                     startedAt: startedAt,
                     keyboardJobID: keyboardJobID,
                     style: effectiveStyle,
-                    usesCleanup: usesCleanup,
                     vocabularyTerms: vocabularyTerms,
                     vocabulary: vocabulary,
                     vocabularyEnabled: vocabularyEnabled,
@@ -1014,7 +1004,7 @@ final class DictationController {
                 duration: finalDuration, loudestAverage: loudestAverageDBFS,
                 cleanupPath: session.logCleanupPath, vocabularyCount: session.vocabularyTerms.count,
                 vocabularyEnabled: session.vocabularyEnabled,
-                upstreamCleanupEnabled: session.usesCleanup,
+                upstreamCleanupEnabled: false,
                 typrCleanupEnabled: session.typrCleanupEnabled,
                 cleanupContext: session.cleanupContext),
                 stoppedAt: stoppedAt)
@@ -1077,7 +1067,7 @@ final class DictationController {
                 recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds, spellingPass: firstPass)
                 var text = spelled
                 if let cleanup = self.cleanup, session.cleanupSkipReason != .off {
-                    // Typr AI cleanup is on: it replaces upstream's cleanup experiment.
+                    // Typr AI cleanup is on.
                     if session.cleanupSkipReason == .verbatim {
                         // Verbatim remains synchronous: no prepare, model call, lease or await.
                         self.cleanupCoordinator.recordSkip(.verbatim, dependencies: cleanup, diagnostics: recording)
@@ -1092,10 +1082,7 @@ final class DictationController {
                         // Off remains synchronous: no prepare, model call, lease or await.
                         self.cleanupCoordinator.recordSkip(.off, dependencies: cleanup, diagnostics: recording)
                     }
-                    text = await self.cleanedTranscriptIfEnabled(spelled, session: session, recording: recording)
-                    guard self.jobGeneration == captureGeneration, !Task.isCancelled else {
-                        return
-                    }
+                    text = spelled
                 }
                 let beforeSpelling = TranscriptFormatter.format(text, style: session.style)
                 recording?.processingStages(cleanupOutput: text, formattedText: beforeSpelling)
@@ -1165,36 +1152,6 @@ final class DictationController {
             self.inFlightTranscriptions.remove(inferenceID)
             self.preparePendingAppleLanguageIfIdle()
         }
-    }
-
-    /// The cleanup experiment's one pass, before formatting. Any failure keeps the raw text.
-    private func cleanedTranscriptIfEnabled(
-        _ rawText: String,
-        session: ActiveCaptureSession,
-        recording: DictationLogRecording?
-    ) async -> String {
-        guard session.usesCleanup,
-              session.style != .verbatim,
-              !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let cleaner,
-              cleaner.isAvailable else {
-            if session.logCleanupPath == .upstream {
-                let reason: String
-                if !session.usesCleanup { reason = "disabled" }
-                else if session.style == .verbatim { reason = "verbatim" }
-                else if rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { reason = "empty input" }
-                else if cleaner == nil { reason = "cleaner not configured" }
-                else { reason = "cleaner unavailable" }
-                recording?.upstreamResult(nil, input: rawText, reason: reason)
-            }
-            return rawText
-        }
-        let result = await cleaner.clean(rawText)
-        if !Task.isCancelled {
-            recording?.upstreamResult(result, input: rawText,
-                reason: result == nil ? "cleaner returned nil; API exposes no failure reason" : nil)
-        }
-        return result ?? rawText
     }
 
     private func restoreAudioAfterCapture() {

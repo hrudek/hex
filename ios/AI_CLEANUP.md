@@ -2,22 +2,23 @@
 
 For per-dictation recognized/input/model/final text, diffs and timing diagnostics,
 see [Dictation log](DICTATION_LOG.md). Its separate Typr switch is on by default;
-Off/Clear deletes that persistent app-container history. Its opt-in per-operation
+Off stops collection and keeps saved history; only explicit Delete/Clear removes it. Its opt-in per-operation
 text sink is separate from the text-free logger and App Group outcome below,
 and never changes cleanup delivery or accepts a late answer as a new result.
 
-## Relation to upstream's cleanup and Custom vocabulary
+## Cleanup and Custom vocabulary
 
-Upstream added its own *Clean up with Apple Intelligence* experiment (anomalyco/hex#1538,
-off by default) and *Custom vocabulary* (#1547). Typr keeps its own cleanup because it
-corrected more on the owner's iPhone: prewarmed session, 4 s deadline instead of 2 s,
-German examples and self-correction cues, and a visible last outcome. To avoid name clashes
-with upstream's `TranscriptCleanup.swift`, Typr's files and types carry a `Typr` prefix
-(`TyprCleanup.swift`, `TyprAppleCleaner`, `TyprTranscriptCleaning`).
+The inherited *Clean up with Apple Intelligence* experiment (anomalyco/hex#1538)
+has been removed, including its switch, settings reader, cleaner, prompt, guard and
+timeout implementation. Typr's **AI cleanup** is the only model-based cleanup path
+(`TyprCleanup.swift`, `TyprAppleCleaner`, `TyprTranscriptCleaning`). Its switch,
+prompt, context, language, guard, deadline and optimizations remain unchanged.
 
-- **Precedence:** while the Typr switch is on, Typr cleanup runs and upstream's
-  experiment is skipped, whatever its switch says. With the Typr switch off, upstream's
-  experiment runs exactly as upstream wired it.
+- **Off:** no AI cleanup runs, even if an older install still has
+  `experiments.appleIntelligenceCleanup` saved as true. That unused key needs no migration.
+- **Historical logs:** the legacy `upstream` path and optional outcome/settings fields
+  remain readable and exportable for durable dictation history and offline reports.
+  New recordings never select that path and record `upstreamCleanupEnabled: false`.
 - **Custom vocabulary:** with upstream's *Custom vocabulary* on, its terms (read-only
   through `CustomVocabularySettings.activeTerms`, no second list) are
   1. applied by upstream's exact-spelling pass before cleanup and after formatting, as upstream does;
@@ -131,7 +132,7 @@ after its deadline reports only its real duration, to tune the deadline.
 Turning the switch off keeps the previous outcome visible.
 
 The former **Show AI cleanup model** setting and model-information row have been
-removed. This does not change either cleanup path or its availability checks.
+removed. Typr AI cleanup and its availability checks remain unchanged.
 
 ## Explicit desktop alignment (D1–D9 and reviewed amendments)
 

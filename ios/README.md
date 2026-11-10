@@ -99,12 +99,10 @@ it never accesses the microphone, speech model, or network.
     and typo fixes. Turning autocorrect off keeps the language choices for later.
     iOS Text Replacement and contact suggestions remain language-independent.
     Retired German-autocorrect and keyboard-switch experiment values are ignored.
-  - **Apple Intelligence cleanup (Experiments › Clean up with Apple
-    Intelligence, iOS 26+):** Off by default. For every style but `Verbatim`,
-    one on-device FoundationModels pass before formatting fixes clearly
-    misheard words and spoken self-corrections, within a 2 s budget. A
-    timeout, error, empty or implausible output keeps the raw transcript, and
-    the toggle is disabled with a reason when Apple Intelligence is unusable.
+  - **AI cleanup (Typr settings, iOS 26+):** On by default. Typr's on-device
+    Apple Intelligence rewrite runs before formatting in every style but `Verbatim`,
+    with plain-transcript fallback. The inherited cleanup experiment has been removed;
+    turning **AI cleanup** off runs no model-based cleanup. See [AI_CLEANUP.md](AI_CLEANUP.md).
   - **Custom vocabulary (Experiments › Custom vocabulary):** Off by default.
     A local list of up to 100 names and phrases, applied to every engine. After
     transcription, matching words are rewritten to the listed spelling across

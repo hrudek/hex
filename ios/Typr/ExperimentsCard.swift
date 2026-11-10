@@ -7,9 +7,7 @@ struct ExperimentsCard: View {
     @State private var autocorrect = FullKeyboardSettings().autocorrect
     @State private var autocorrectGerman = TyprSettings().autocorrectGerman
     @State private var autocorrectEnglish = TyprSettings().autocorrectEnglish
-    @State private var appleIntelligenceCleanup = AppleIntelligenceCleanupSettings().isEnabled
     @State private var customVocabulary = CustomVocabularySettings().isEnabled
-    @State private var cleanupAvailability = AppleIntelligenceCleanupAvailability.current
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -85,33 +83,6 @@ struct ExperimentsCard: View {
                 in: RoundedRectangle(cornerRadius: TyprTheme.cardRadius, style: .continuous)
             )
 
-            Toggle(isOn: $appleIntelligenceCleanup) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Clean up with Apple Intelligence")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(TyprTheme.textBase)
-                    Text("Fix misheard words and spoken corrections on device")
-                        .font(.system(size: 12))
-                        .foregroundStyle(TyprTheme.textMuted)
-                    if let reason = cleanupAvailability.reason {
-                        Text(reason)
-                            .font(.system(size: 12))
-                            .foregroundStyle(TyprTheme.textMuted)
-                    }
-                }
-            }
-            .tint(TyprTheme.success)
-            .disabled(!cleanupAvailability.isAvailable)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(
-                TyprTheme.bgBase,
-                in: RoundedRectangle(cornerRadius: TyprTheme.cardRadius, style: .continuous)
-            )
-            .onChange(of: appleIntelligenceCleanup) { _, enabled in
-                AppleIntelligenceCleanupSettings().isEnabled = enabled
-            }
-
             Toggle(isOn: $customVocabulary) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Custom vocabulary")
@@ -151,9 +122,7 @@ struct ExperimentsCard: View {
             autocorrect = settings.autocorrect
             autocorrectGerman = TyprSettings().autocorrectGerman
             autocorrectEnglish = TyprSettings().autocorrectEnglish
-            appleIntelligenceCleanup = AppleIntelligenceCleanupSettings().isEnabled
             customVocabulary = CustomVocabularySettings().isEnabled
-            cleanupAvailability = AppleIntelligenceCleanupAvailability.current
         }
     }
 }
