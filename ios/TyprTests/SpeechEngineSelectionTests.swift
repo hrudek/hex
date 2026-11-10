@@ -530,7 +530,8 @@ final class SpeechEngineSelectionTests: XCTestCase {
             let shown = row(.parakeetV2, language: language)
             XCTAssertEqual(shown.action, .use)
             XCTAssertTrue(shown.actionEnabled)
-            XCTAssertTrue(shown.warning?.contains("English only") == true)
+            XCTAssertTrue(shown.engine.languageSummary.contains("English only"))
+            XCTAssertTrue(shown.warning?.contains("Not suitable for German dictation") == true)
             XCTAssertTrue(shown.warning?.contains("Typr keeps your chosen engine") == true)
         }
         XCTAssertNil(row(.parakeetV2, language: .english).warning)

@@ -149,7 +149,7 @@ struct ContentView: View {
                     SettingsPage(title: destination.title, subtitle: destination.subtitle) {
                         switch destination {
                         case .keyboard: KeyboardSettingsCard()
-                        case .writing: WritingSettingsCard()
+                        case .textProcessing: TextProcessingSettingsCard()
                         case .history: HistorySettingsCard { showingLog = true }
                         case .speechEngine: SpeechEngineCard(dictation: dictation)
                         }
@@ -194,16 +194,12 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
-                SettingsPreferences()
+                SettingsPreferences(engineName: dictation.preferredEngine.map {
+                    $0 == .whisperLargeV3Turbo ? "Whisper" : $0.displayName
+                } ?? "Automatic")
 
                 SettingsSection(title: "Dictation") {
                     settingsCard
-                    rowDivider
-                    NavigationLink(value: SettingsDestination.speechEngine) {
-                        SettingsLink(title: "Speech engine", detail: "On-device recognition and downloads", icon: "waveform",
-                                     value: dictation.preferredEngine.map { $0 == .whisperLargeV3Turbo ? "Whisper" : $0.displayName } ?? "Automatic")
-                    }
-                    .buttonStyle(.plain)
                 }
                 SettingsSection(title: "Try your keyboard", subtitle: "Tap below to test typing and dictation.") {
                     practiceField
@@ -476,20 +472,11 @@ struct ContentView: View {
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    rowTitle("Keep mic warm")
-                    Text("Dictate without switching apps")
-                        .font(.subheadline)
-                        .foregroundStyle(TyprTheme.textMuted)
-                }
-                SettingsWarmDurationControl(selected: dictation.warmDuration) { duration in
-                    withAnimation(TyprMotion.settleAnimation(reduceMotion: reduceMotion)) {
-                        dictation.selectWarmDuration(duration)
-                    }
+            SettingsWarmDurationRow(selected: dictation.warmDuration) { duration in
+                withAnimation(TyprMotion.settleAnimation(reduceMotion: reduceMotion)) {
+                    dictation.selectWarmDuration(duration)
                 }
             }
-            .padding(18)
 
             rowDivider
 
@@ -513,7 +500,7 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .frame(minHeight: 48)
+            .frame(minHeight: 50)
 
             rowDivider
 
@@ -539,7 +526,7 @@ struct ContentView: View {
                 .accessibilityLabel("Dictation language: \(dictation.dictationLanguage.label)")
             }
             .padding(.horizontal, 16)
-            .frame(minHeight: 48)
+            .frame(minHeight: 50)
 
             rowDivider
 
@@ -553,9 +540,7 @@ struct ContentView: View {
             }
             .tint(TyprTheme.success)
             .padding(.horizontal, 16)
-            .frame(minHeight: 48)
-
-
+            .frame(minHeight: 50)
         }
         .background(
             TyprTheme.bgBase,
@@ -816,7 +801,7 @@ struct ContentView: View {
         HStack(spacing: 5) {
             Text(value)
                 .font(.body)
-                .foregroundStyle(TyprTheme.agentBlue)
+                .foregroundStyle(TyprTheme.textMuted)
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(TyprTheme.textMuted)

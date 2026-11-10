@@ -44,17 +44,22 @@ struct KeyboardSettingsCard: View {
                         .font(.body)
                         .foregroundStyle(TyprTheme.textBase)
                         .tint(TyprTheme.success)
-                        .padding(18)
+                        .padding(16)
                     }
                 }
             }
-            SettingsSection(title: "iPhone setup") {
-                Button {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                } label: {
-                    SettingsLink(title: "iOS keyboard settings", detail: "Enable Typr and Full Access", icon: "arrow.up.right.square")
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSection(title: "iPhone setup") {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    } label: {
+                        SettingsLink(title: "iOS keyboard settings", detail: "Enable Typr and Full Access", external: true)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                Text("Add Typr and allow Full Access in iOS Settings.")
+                    .font(.footnote).foregroundStyle(TyprTheme.textMuted)
+                    .padding(.horizontal, 16)
             }
         }
         .onAppear(perform: refresh)
@@ -75,12 +80,12 @@ struct VocabularySettingsCard: View {
     @State private var enabled = CustomVocabularySettings().isEnabled
 
     var body: some View {
-        SettingsSection(title: "Your vocabulary") {
+        SettingsSection(title: "Vocabulary") {
             SettingsToggle(title: "Custom vocabulary", detail: "Preferred spellings for names and terms, with optional sounds-like forms.", isOn: $enabled)
                 .onChange(of: enabled) { _, value in CustomVocabularySettings().isEnabled = value }
             if enabled {
                 SettingsDivider()
-                CustomVocabularyEditor().padding(18)
+                CustomVocabularyEditor().padding(16)
             }
         }
         .onAppear { enabled = CustomVocabularySettings().isEnabled }

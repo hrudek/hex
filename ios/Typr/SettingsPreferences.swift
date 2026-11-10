@@ -1,14 +1,20 @@
 import SwiftUI
 
 struct SettingsPreferences: View {
+    let engineName: String
+
     var body: some View {
-        SettingsSection(title: "Keyboard & writing") {
+        SettingsSection(title: "Preferences") {
             NavigationLink(value: SettingsDestination.keyboard) {
                 SettingsLink(title: "Keyboard", detail: "Layout, suggestions and autocorrect", icon: "keyboard")
             }
             SettingsDivider(leading: 52)
-            NavigationLink(value: SettingsDestination.writing) {
-                SettingsLink(title: "Writing", detail: "AI cleanup and custom vocabulary", icon: "textformat")
+            NavigationLink(value: SettingsDestination.textProcessing) {
+                SettingsLink(title: "AI & vocabulary", detail: "AI cleanup and preferred spellings", icon: "wand.and.stars")
+            }
+            SettingsDivider(leading: 52)
+            NavigationLink(value: SettingsDestination.speechEngine) {
+                SettingsLink(title: "Speech engine", detail: "On-device recognition and downloads", icon: "waveform", value: engineName)
             }
             SettingsDivider(leading: 52)
             NavigationLink(value: SettingsDestination.history) {
@@ -21,7 +27,7 @@ struct SettingsPreferences: View {
 
 /// Owns its availability and last-result observation while this page is visible.
 @MainActor
-struct WritingSettingsCard: View {
+struct TextProcessingSettingsCard: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var aiCleanup = TyprSettings().aiCleanup
     @State private var cleanupReason = TranscriptCleanupProduction.unavailableReason
@@ -35,14 +41,14 @@ struct WritingSettingsCard: View {
                 if let reason = cleanupReason {
                     Text(reason).font(.subheadline).foregroundStyle(TyprTheme.textMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 18).padding(.bottom, 14)
+                        .padding(.horizontal, 16).padding(.bottom, 14)
                 }
                 if let last = cleanupLast {
                     SettingsDivider()
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Last result").font(.caption.weight(.medium)).foregroundStyle(TyprTheme.textMuted)
                         Text(last).font(.subheadline).foregroundStyle(TyprTheme.textBase)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
                 }
                 SettingsDivider()
                 DisclosureGroup("What changes?") {
@@ -50,7 +56,8 @@ struct WritingSettingsCard: View {
                         .font(.subheadline).foregroundStyle(TyprTheme.textMuted)
                         .padding(.top, 8)
                 }
-                .font(.subheadline).foregroundStyle(TyprTheme.textBase).padding(18)
+                .disclosureGroupStyle(SettingsDisclosureStyle())
+                .padding(.horizontal, 16)
             }
             VocabularySettingsCard()
         }
@@ -82,18 +89,21 @@ struct HistorySettingsCard: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            SettingsSection(title: "Dictation log") {
-                SettingsToggle(title: "Keep dictation history", detail: "Saves text stages, used vocabulary and feedback. No audio. Kept until you delete it; switching off keeps existing entries.",
-                               isOn: Binding(get: { log.isEnabled }, set: { log.setEnabled($0) }))
-                if let problem = log.storageProblem { statusNote(problem) }
-                SettingsDivider()
-                Button(action: openLog) {
-                    SettingsLink(title: "Open dictation log", detail: "Review, rate, export or delete entries", icon: "text.book.closed", value: "\(log.metadata.count) entries")
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSection(title: "Dictation log") {
+                    SettingsToggle(title: "Keep dictation history", detail: "Saves text stages, used vocabulary and feedback. No audio.",
+                                   isOn: Binding(get: { log.isEnabled }, set: { log.setEnabled($0) }))
+                    if let problem = log.storageProblem { statusNote(problem) }
+                    SettingsDivider()
+                    Button(action: openLog) {
+                        SettingsLink(title: "Open dictation log", detail: "Review, rate, export or delete entries", value: "\(log.metadata.count) entries")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                SettingsDivider()
-                Text("Export JSON to keep a copy. History is not protected against app removal or device loss.")
-                    .font(.subheadline).foregroundStyle(TyprTheme.textMuted).padding(18)
+                Text("Kept until you delete it; switching off keeps saved entries. Export JSON to keep a copy. App removal or device loss is not covered.")
+                    .font(.footnote).foregroundStyle(TyprTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
             }
             SettingsSection(title: "Keyboard feedback") {
                 SettingsToggle(title: "Rate after dictating", detail: "Show Good / Problem after the keyboard inserts a dictation. No document text is read for feedback.", isOn: $feedbackStrip)
@@ -102,16 +112,29 @@ struct HistorySettingsCard: View {
                         log.feedbackSettingsChanged()
                     }
                 if let notice = log.keyboardFeedbackNotice {
+                    SettingsDivider()
                     statusNote(notice)
-                    Button("Retry keyboard feedback") { log.retryKeyboardFeedback() }
-                        .frame(minHeight: 44).padding(.horizontal, 18)
+                    SettingsDivider()
+                    Button { log.retryKeyboardFeedback() } label: {
+                        HStack {
+                            Text("Retry keyboard feedback")
+                            Spacer(minLength: 12)
+                            Image(systemName: "arrow.clockwise").accessibilityHidden(true)
+                        }
+                        .font(.body).foregroundStyle(TyprTheme.textBase)
+                        .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
                 }
                 SettingsDivider()
                 DisclosureGroup("How feedback is saved") {
                     Text("Noted means queued on this iPhone, not yet saved in the archive. Up to 100 pending ratings are kept for 30 days.")
                         .font(.subheadline).foregroundStyle(TyprTheme.textMuted).padding(.top, 8)
                 }
-                .font(.subheadline).foregroundStyle(TyprTheme.textBase).padding(18)
+                .disclosureGroupStyle(SettingsDisclosureStyle())
+                .padding(.horizontal, 16)
             }
         }
         .onAppear(perform: refresh)
@@ -119,9 +142,11 @@ struct HistorySettingsCard: View {
     }
 
     private func statusNote(_ text: String) -> some View {
-        Text(text).font(.subheadline).foregroundStyle(TyprTheme.textMuted)
+        Label(text, systemImage: "exclamationmark.circle")
+            .font(.subheadline).foregroundStyle(TyprTheme.warmMic)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18).padding(.bottom, 14)
+            .padding(16)
     }
 
     private func refresh() {

@@ -99,11 +99,11 @@ it never accesses the microphone, speech model, or network.
     and typo fixes. Turning autocorrect off keeps the language choices for later.
     iOS Text Replacement and contact suggestions remain language-independent.
     Retired German-autocorrect and keyboard-switch experiment values are ignored.
-  - **AI cleanup (Settings › Writing, iOS 26+):** On by default. Typr's on-device
+  - **AI cleanup (Settings › AI & vocabulary, iOS 26+):** On by default. Typr's on-device
     Apple Intelligence rewrite runs before formatting in every style but `Verbatim`,
     with plain-transcript fallback. The inherited cleanup experiment has been removed;
     turning **AI cleanup** off runs no model-based cleanup. See [AI_CLEANUP.md](AI_CLEANUP.md).
-  - **Custom vocabulary (Settings › Writing › Custom vocabulary):** Off by default.
+  - **Custom vocabulary (Settings › AI & vocabulary › Custom vocabulary):** Off by default.
     A local list of up to 100 names and phrases, applied to every engine. After
     transcription, matching words are rewritten to the listed spelling across
     case, spaces, tabs, a single hyphen, and possessive apostrophes, before
@@ -143,11 +143,13 @@ it never accesses the microphone, speech model, or network.
 
 The app is primarily the keyboard's settings companion. A dark, compact overview
 keeps dictation language, style and microphone controls immediately accessible.
+The overview has no redundant navigation title. Detail pages use compact inline
+titles, consistent disclosure chevrons and semantic, aligned status/retention footers.
 Purpose-based detail pages replace the old Typr/Experiments split:
 
 - **Keyboard:** full keyboard, suggestion bar, conditional autocorrect/languages,
   and the link to iOS keyboard settings.
-- **Writing:** on-device AI cleanup with availability/last outcome, and editable
+- **AI & vocabulary:** on-device AI cleanup with availability/last outcome, and editable
   vocabulary/sounds-like forms. Technical explanations expand on demand.
 - **Speech engine:** explicit selection, status, downloads, retry/cancel, language
   warnings and expandable engine details. No automatic engine switching changes.
@@ -157,13 +159,17 @@ Purpose-based detail pages replace the old Typr/Experiments split:
 Settings keys, defaults, full-keyboard/autocorrect dependencies, archive retention
 and privacy behavior are unchanged. `SettingsComponents.swift` provides shared
 surfaces, scalable text and navigation routes; keyboard colors remain untouched.
-Menu entry points use compact single-line rows with standalone symbols, trailing
+Menu entry points use 50 pt single-line rows with standalone symbols, trailing
 values where useful, and aligned separators. Descriptions live on the detail
 pages (and remain available as accessibility hints), not under every menu title.
-At accessibility text sizes, rows may grow and wrap instead of clipping.
+At accessibility text sizes, rows may grow and wrap instead of clipping. Warm
+microphone durations stay inline when space allows, with a stacked fallback for
+narrow widths/large text and repeat-tappable controls in every layout. Engine
+names are primary card headings; important status and language warnings remain visible.
 `SettingsPresentationTests` checks route parsing and compact/large-text layout.
 Manual simulator screenshots can request `settings-keyboard`, `settings-writing`,
 `settings-history` and `settings-speech-engine`, plus `settings-overview`.
+The existing `settings-writing` scene name now opens **AI & vocabulary**.
 These are opt-in launch fixtures, not app/runtime data collection. A simulator
 render does not prove interaction or layout on a physical iPhone.
 

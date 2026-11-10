@@ -44,7 +44,7 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
             ? (preferred == nil ? "In use · automatic" : "In use")
             : (isChosen ? "Chosen" : nil)
         let warning: String? = engine == .parakeetV2 && language != .english
-            ? "English only — not suitable for German dictation. Typr keeps your chosen engine."
+            ? "Not suitable for German dictation. Typr keeps your chosen engine."
             : nil
         let note: String? = isWhisper
             ? "First use optimizes the model for several minutes. Vocabulary and the tech glossary apply after recognition, not as Whisper hints."
@@ -125,7 +125,7 @@ struct SpeechEngineCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             ForEach(SpeechEngineChoice.allCases, id: \.self) { engine in
-                SettingsSection(title: engine.displayName) {
+                SettingsSection {
                     engineRow(state(for: engine))
                 }
             }
@@ -214,19 +214,27 @@ struct SpeechEngineCard: View {
 
     private func engineRow(_ state: SpeechEngineRowState) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let badge = state.badge {
-                Text(badge)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(badge.hasPrefix("In use") ? TyprTheme.success : TyprTheme.textMuted)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(TyprTheme.layer01, in: Capsule())
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(state.engine.displayName)
+                    .font(.headline).foregroundStyle(TyprTheme.textBase)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                if let badge = state.badge {
+                    Text(badge)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(badge.hasPrefix("In use") ? TyprTheme.success : TyprTheme.textMuted)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(TyprTheme.layer01, in: Capsule())
+                }
             }
             Text("Languages: \(state.engine.languageSummary)")
                 .font(.subheadline)
                 .foregroundStyle(TyprTheme.textMuted)
             Text(state.status)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(TyprTheme.textBase)
+                .font(.subheadline)
+                .foregroundStyle(TyprTheme.textMuted)
             if let progress = state.progress {
                 ProgressView(value: progress).tint(TyprTheme.textBase)
             }
@@ -251,6 +259,7 @@ struct SpeechEngineCard: View {
                     .disabled(!state.actionEnabled)
                     .opacity(state.actionEnabled ? 1 : 0.4)
             }
+            Divider().overlay(TyprTheme.borderWeak)
             DisclosureGroup("Engine details") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.engine.summary)
@@ -260,9 +269,8 @@ struct SpeechEngineCard: View {
                 .foregroundStyle(TyprTheme.textMuted)
                 .padding(.top, 8)
             }
-            .font(.subheadline)
-            .foregroundStyle(TyprTheme.textMuted)
+            .disclosureGroupStyle(SettingsDisclosureStyle())
         }
-        .padding(18)
+        .padding(16)
     }
 }

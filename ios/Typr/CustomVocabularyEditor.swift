@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Preferred spellings and sounds-like forms, under Writing settings.
+/// Preferred spellings and sounds-like forms, under AI & vocabulary settings.
 struct CustomVocabularyEditor: View {
     private let settings = CustomVocabularySettings()
 
