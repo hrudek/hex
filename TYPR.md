@@ -14,8 +14,13 @@ this file is the entry point for agents and the owner.
   label (CI's scope check fails otherwise), so automation permissions cannot
   be widened unnoticed. Follow [AGENTS.md](AGENTS.md) for worktrees.
 - Local development with Pi is **PR-first**: discuss the request in Pi → branch
-  `feature/<name>` from `main` → PR to `main` with label `feature` → squash
-  merge. No issue or issue number in the branch name is required. Do not create
+  successful `git fetch --prune origin` → branch `feature/<name>` (or
+  `fix/<name>` for bug fixes) from the freshly fetched `origin/main` → PR to
+  `main` with label `feature` → squash merge. Never start from a stale local
+  `main` or cached checkout. The mandatory fresh-base gate in
+  [AGENTS.md](AGENTS.md#mandatory-fresh-base-gate) also applies when resuming
+  work and before PR handover/updates; fetch/check failures block development.
+  No issue or issue number in the branch name is required. Do not create
   an issue retroactively just to document an already implemented change.
 - Use an existing relevant issue when there is one. Create an issue only for
   deferred or unresolved work, coordination across multiple PRs, or at the
@@ -161,8 +166,10 @@ may be listed for a feature. Documentation-only process changes need no feature 
   Typr CI jobs by itself (`typr-recheck.yml`; the scope check reads labels live).
   Other label events start no CI run (as in OpenCode).
   Draft PRs get only the Linux checks until marked ready.
-- **A merge conflict:** resolve a feature or fix PR locally with Pi. Merge
-  `main` into its branch, resolve, then push (the review runs again).
+- **A merge conflict:** resolve a feature or fix PR locally with Pi. Fetch
+  `origin` successfully, merge the freshly fetched `origin/main` into its
+  branch, resolve, then push (the review runs again). Do not use a stale local
+  `main` as the integration source.
 
 The review agent is the only agent in CI. It uses the owner's Claude
 subscription (`CLAUDE_CODE_OAUTH_TOKEN`, environment `typr-agent`) and has

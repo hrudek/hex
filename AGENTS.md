@@ -7,14 +7,58 @@ Typr is a standalone iPhone dictation keyboard. Read [TYPR.md](TYPR.md) first
 
 ## One worktree per development task
 
-- Before a new feature, bug fix or refactor, create a task-specific branch and
-  Git worktree. Start from `main` unless the owner requests another base.
+- Before a new feature, bug fix or refactor, fetch `origin` successfully and
+  create a task-specific branch and Git worktree from the freshly fetched
+  `origin/main`, never from a possibly stale local `main`, checkout, tag or
+  cached remote-tracking ref. Only an explicit owner request permits another
+  base; fetch and verify that base too.
 - Keep worktrees as sibling directories under the canonical repository root
   containing `.bare/`. Do not develop directly on `main`.
 - Run `git worktree list` and check the relevant worktree's status before
   making changes. Never overwrite or move another task's uncommitted work.
 - Resume an existing task in its own worktree; a new session does not require
   another worktree. Run edits, builds and tests there.
+
+### Mandatory fresh-base gate
+
+Before the first edit of a new task, and before resuming development in an
+existing task worktree (including a new session):
+
+1. Inspect `git worktree list` and `git status --short --branch` in the relevant
+   worktree. Preserve all existing work; never reset or discard it to update.
+2. Run `git fetch --prune origin`. If the fetch fails or `origin/main` cannot
+   be resolved, **stop**: do not develop from the last cached state. Resolve
+   access/connectivity first or ask the owner how to proceed.
+3. For a new task, create the branch/worktree explicitly from `origin/main`:
+
+   ```sh
+   # Run from the canonical repository root containing .bare/.
+   # Replace <task> and <branch> with new, task-specific names.
+   git worktree add --no-track -b <branch> <task> origin/main
+   ```
+
+   An existing branch is not a fresh base just because a worktree helper
+   reused it. For a resumed task whose branch lacks the fetched `origin/main`,
+   safely preserve any uncommitted work, merge `origin/main` into the task
+   branch and resolve conflicts before continuing. Do not rewrite shared
+   history or overwrite another task's work. If safe integration is blocked,
+   stop and ask the owner.
+4. In the task worktree, require this command to succeed before editing:
+
+   ```sh
+   git merge-base --is-ancestor origin/main HEAD
+   ```
+
+   For a newly created task branch, also verify that `git rev-parse HEAD` and
+   `git rev-parse origin/main` match exactly before the first task commit.
+   Record the fetched base SHA in the handover/PR. For an explicitly approved
+   alternate base, use its freshly fetched ref in these checks instead.
+
+Repeat the fetch and ancestry check before handing over or updating a PR;
+merge newer `origin/main` commits if necessary and rerun affected checks.
+A local branch name or a successful fetch alone is not proof that the task
+contains the current remote base. These are mandatory agent process gates,
+not a claim of server-side branch protection.
 
 ## Layout and checks
 
