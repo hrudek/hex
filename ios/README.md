@@ -69,7 +69,7 @@ it never accesses the microphone, speech model, or network.
     background, and restarting it there ended the session after each one.
   - **Styles:** `Polished` (sentence case + punctuation + filler trim),
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
-    `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
+    `"bullet"` / `"new line"` / `"new paragraph"` markers), and `Verbatim`, with cursor-aware
     insertion spacing and repeating backspace. Filler trim removes äh/ähm/öhm/hm
     always, but English um/uh/er/ah only from text that reads as English ("um 13 Uhr",
     "was er sagt" stay); a period after bzw., z. B., d. h., ca., usw. and similar
