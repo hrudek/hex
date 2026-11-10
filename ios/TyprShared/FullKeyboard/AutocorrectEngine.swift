@@ -14,6 +14,7 @@ nonisolated struct KeyboardSuggestion: Equatable, Sendable {
     let displayText: String
     let replacement: String
     let kind: Kind
+    var isCompletion = false
 
     var willAutoReplace: Bool {
         if case .primary(let auto) = kind { return auto }
@@ -88,102 +89,87 @@ final class SystemTextChecker: TextChecking {
     }
 }
 
-/// Persists words the user explicitly kept twice, bounded to 2,000 words / 64 KB in the App Group.
-@MainActor
-final class LearnedWordsStore {
-    static let defaultsKey = "keyboard.learnedWords"
-    static let maxWords = 2_000
-    static let maxBytes = 64 * 1024
-
-    private let defaults: UserDefaults?
-    private(set) var words: [String] = []
-    private var wordSet: Set<String> = []
-    private var sessionKeepCounts: [String: Int] = [:]
-
-    init(defaults: UserDefaults? = UserDefaults(suiteName: KeyboardBridge.appGroup)) {
-        self.defaults = defaults
-        load()
-    }
-
-    func contains(_ word: String) -> Bool {
-        wordSet.contains(word.lowercased())
-    }
-
-    /// Records an explicit keep (via `"quoted"` chip or Backspace-revert). Two keeps persist the word.
-    func recordExplicitKeep(_ raw: String) {
-        let key = raw.lowercased()
-        guard key.count >= 2, key.count <= 40 else { return }
-        let count = (sessionKeepCounts[key] ?? 0) + 1
-        sessionKeepCounts[key] = count
-        if count >= 2 {
-            learn(key)
-        }
-    }
-
-    func learn(_ raw: String) {
-        let key = raw.lowercased()
-        guard !key.isEmpty, !wordSet.contains(key) else { return }
-        words.append(key)
-        wordSet.insert(key)
-        while words.count > Self.maxWords {
-            let evicted = words.removeFirst()
-            wordSet.remove(evicted)
-        }
-        save()
-    }
-
-    private func load() {
-        guard let data = defaults?.data(forKey: Self.defaultsKey),
-              data.count <= Self.maxBytes,
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        words = Array(decoded.suffix(Self.maxWords))
-        wordSet = Set(words)
-    }
-
-    private func save() {
-        guard let defaults else { return }
-        while !words.isEmpty {
-            if let data = try? JSONEncoder().encode(words), data.count <= Self.maxBytes {
-                defaults.set(data, forKey: Self.defaultsKey)
-                return
-            }
-            let evicted = words.removeFirst()
-            wordSet.remove(evicted)
-        }
-    }
-}
-
-/// Cautious on-device suggestions and replace-on-space engine combining `UILexicon`,
-/// deterministic contractions/transpositions, QWERTY-ranked `UITextChecker`, and `LearnedWordsStore`.
+/// Cautious on-device suggestions and replace-on-space engine combining `UILexicon`, deterministic
+/// rules, bounded spatial decoding, system spelling and the session's personal protections.
 @MainActor
 final class AutocorrectEngine {
+    /// The path that produced a word boundary's final text.
+    enum CorrectionKind: Equatable { case unchanged, autoSpatial, autoSpelling, autoRule }
+
     struct AppliedCorrection: Equatable {
         let original: String
         let insertedText: String
+        var kind: CorrectionKind = .autoRule
     }
 
-    /// Fully aligned, RAM-only evidence for the static spatial decoder.
+    /// One completed word awaiting trust: RAM only, never persisted, logged or exported.
+    // Delayed word feedback adapted from AVGVSTVS96/iikb
+    // Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift (MIT).
+    struct PendingFeedback: Equatable {
+        let evidence: KeyboardTouchWord?
+        let literal: String
+        let finalText: String
+        let kind: CorrectionKind
+        /// Decoder alignment of an automatic spatial replacement (diagnostic context only).
+        let alignment: [Int?]?
+        /// Unchanged, valid or kept literal with complete evidence while learning was on.
+        let learnable: Bool
+        let epoch: Int
+        var suffix: String { finalText + " " }
+    }
+
+    /// One automatic-correction decision; a boundary records it exactly once.
+    private struct Decision {
+        var text: String?
+        var kind = CorrectionKind.unchanged
+        var counter = KeyboardDiagnostics.Counter.unchanged
+        var refusal: KeyboardDiagnostics.Counter?
+        var alignment: [Int?]?
+    }
+
+    private struct DecodeCache {
+        let evidence: KeyboardTouchWord
+        let languages: Set<SpatialWordDecoder.Language>
+        let generation: Int
+        let outcome: SpatialWordDecoder.Outcome
+    }
+
+    /// Per-token system lookups, computed only for candidates actually used (#96 review note 3).
+    private struct SpellingCache {
+        let token: String
+        var germanGuesses: [String]?
+        var spatial: [String: (text: String, validated: Bool)] = [:]
+    }
+
+    /// Fully aligned, RAM-only evidence for the spatial decoder.
     let touchInput = KeyboardTouchInput()
     let spatialDecoder: SpatialWordDecoder?
     let checker: TextChecking
-    let learnedWords: LearnedWordsStore
-    var isEnabled = true
-    var englishEnabled = true
+    let learning: KeyboardLearningSession
+    var isEnabled = true { didSet { invalidateDecode() } }
+    var englishEnabled = true { didSet { invalidateDecode() } }
     /// Typr: German layer; `nil` keeps today's behaviour exactly.
-    var german: GermanAutocorrect?
+    var german: GermanAutocorrect? { didSet { invalidateDecode() } }
     private(set) var lexiconShortcuts: [String: String] = [:]
     private var lexiconTerms: [String] = []
+    private var lexiconTermKeys: Set<String> = []
     private var suppressedInSession: Set<String> = []
     private(set) var lastCorrection: AppliedCorrection?
+    private(set) var pendingFeedback: PendingFeedback?
+    private var observedResets: Int
+    private var decodeCache: DecodeCache?
+    private var spellingCache: SpellingCache?
 
     init(
         checker: TextChecking? = nil,
-        learnedWords: LearnedWordsStore? = nil,
+        learning: KeyboardLearningSession? = nil,
         spatialDecoder: SpatialWordDecoder? = .bundled
     ) {
         self.spatialDecoder = spatialDecoder
         self.checker = checker ?? SystemTextChecker()
-        self.learnedWords = learnedWords ?? LearnedWordsStore()
+        let learning = learning ?? KeyboardLearningSession()
+        self.learning = learning
+        observedResets = learning.resets
     }
 
     func loadLexicon(_ lexicon: UILexicon) {
@@ -209,6 +195,7 @@ final class AutocorrectEngine {
         }
         lexiconShortcuts = shortcuts
         lexiconTerms = terms
+        lexiconTermKeys = Set(terms.map { $0.lowercased() })
     }
 
     func clearPendingUndo() {
@@ -216,7 +203,8 @@ final class AutocorrectEngine {
     }
 
     func recordAppliedCorrection(original: String, insertedText: String) {
-        lastCorrection = AppliedCorrection(original: original, insertedText: insertedText)
+        lastCorrection = AppliedCorrection(original: original, insertedText: insertedText,
+                                           kind: pendingFeedback?.kind ?? .autoRule)
     }
 
     func consumePendingUndo() -> AppliedCorrection? {
@@ -224,9 +212,114 @@ final class AutocorrectEngine {
         return lastCorrection
     }
 
+    /// Explicit keep: protects the spelling for this engine and in the personal lexicon.
     func suppressAndKeep(_ word: String) {
         suppressedInSession.insert(word.lowercased())
-        learnedWords.recordExplicitKeep(word)
+        learning.keep(word)
+    }
+
+    /// Settings poll and keyboard appearance: switch value, app resets and storage access.
+    func syncLearning() {
+        learning.refresh()
+        guard observedResets != learning.resets else { return }
+        observedResets = learning.resets
+        suppressedInSession = []
+        lastCorrection = nil
+        pendingFeedback = nil
+    }
+
+    /// Cursor, field, layout or host text changed: no tap, decode or pending word survives.
+    func discardEvidence() {
+        touchInput.clear()
+        decodeCache = nil
+        pendingFeedback = nil
+    }
+
+    func discardFeedback() {
+        pendingFeedback = nil
+    }
+
+    private func invalidateDecode() {
+        decodeCache = nil
+        spellingCache = nil
+    }
+
+    // MARK: - Feedback transaction
+
+    /// The next word's first letter (or another boundary) arrives: trust the previous word only
+    /// if it is still intact right before the cursor.
+    func settleFeedback(beforeInput: String?) {
+        guard let pending = pendingFeedback else { return }
+        pendingFeedback = nil
+        guard pending.learnable, pending.epoch == learning.feedbackEpoch,
+              let evidence = pending.evidence, let beforeInput, beforeInput.hasSuffix(pending.suffix),
+              beforeInput.dropLast(pending.suffix.count).last?.isLetter != true else { return }
+        learnIdentity(evidence, literal: pending.literal, source: .literalValid)
+        learning.recordWord(pending.literal)
+    }
+
+    /// Backspace restored the typed word right after an automatic replacement.
+    func recordUndo(_ undo: AppliedCorrection) {
+        let pending = pendingFeedback
+        pendingFeedback = nil
+        switch undo.kind {
+        case .autoSpatial: learning.increment(.undoSpatial)
+        case .autoSpelling: learning.increment(.undoSpelling)
+        case .autoRule, .unchanged: learning.increment(.undoRule)
+        }
+        if let pending, pending.literal == undo.original, pending.suffix == undo.insertedText,
+           pending.epoch == learning.feedbackEpoch, let evidence = pending.evidence {
+            learnIdentity(evidence, literal: undo.original, source: .undo)
+        }
+        suppressAndKeep(undo.original)
+        let replacement = undo.insertedText.hasSuffix(" ") ? String(undo.insertedText.dropLast()) : undo.insertedText
+        learning.rejectCorrection(typed: undo.original, replacement: replacement)
+    }
+
+    /// An explicit strip choice. `evidence` must be captured before the word is invalidated.
+    func recordSuggestionFeedback(_ suggestion: KeyboardSuggestion, literal: String,
+                                  evidence: KeyboardTouchWord?) {
+        pendingFeedback = nil
+        let evidence = evidence?.text == literal ? evidence : nil
+        if suggestion.kind == .keepLiteral {
+            learning.increment(.keepChip)
+            if let evidence { learnIdentity(evidence, literal: literal, source: .keep) }
+            suppressAndKeep(literal)
+            learning.recordWord(literal)
+        } else if suggestion.isCompletion {
+            learning.increment(.manualCompletionPick)
+            learning.recordWord(suggestion.replacement)
+        } else {
+            learning.increment(.manualAlternativePick)
+            if let evidence { learnAligned(evidence, word: suggestion.replacement) }
+            learning.recordWord(suggestion.replacement)
+        }
+    }
+
+    private func learnIdentity(_ evidence: KeyboardTouchWord, literal: String, source: TouchLabelSource) {
+        guard evidence.text == literal, evidence.samples.count == literal.count else { return }
+        let labels = evidence.samples.compactMap { sample in
+            sample.text.lowercased().first.map { TouchLabel(point: sample.point, letter: $0) }
+        }
+        learning.learn(labels, layout: evidence.layout, source: source)
+    }
+
+    /// Only uniquely aligned tap/letter pairs; the model also rejects taps > 1 pitch from the key.
+    private func learnAligned(_ evidence: KeyboardTouchWord, word: String) {
+        let taps = evidence.samples.compactMap { $0.text.lowercased().first }
+        guard taps.count == evidence.samples.count,
+              let alignment = SpatialWordDecoder.align(word: word, taps: taps) else {
+            learning.recordRejection(.ambiguousAlignment, count: evidence.samples.count)
+            return
+        }
+        let letters = Array(word.lowercased())
+        var labels: [TouchLabel] = []
+        for (index, tap) in alignment.enumerated() {
+            guard let tap, letters.indices.contains(index), evidence.samples.indices.contains(tap) else { continue }
+            labels.append(TouchLabel(point: evidence.samples[tap].point, letter: letters[index]))
+        }
+        learning.recordRejection(.ambiguousAlignment, count: evidence.samples.count - labels.count)
+        learning.learn(labels, layout: evidence.layout, source: .manualPick)
     }
 
     // MARK: - Token inspection
@@ -234,7 +327,7 @@ final class AutocorrectEngine {
     /// Extracts the active word right before the caret, returning `nil` inside URLs, handles, paths, or numbers.
     static func currentToken(in beforeInput: String?) -> String? {
         guard let beforeInput, !beforeInput.isEmpty else { return nil }
-        var end = beforeInput.endIndex
+        let end = beforeInput.endIndex
         var start = end
         while start > beforeInput.startIndex {
             let prev = beforeInput.index(before: start)
@@ -271,14 +364,10 @@ final class AutocorrectEngine {
         guard let token = Self.currentToken(in: beforeInput) else { return [] }
 
         let lower = token.lowercased()
-        let allowAuto = isEnabled
-            && !suppressedInSession.contains(lower)
-            && !learnedWords.contains(lower)
-            && !Self.shorthandAllowlist.contains(lower)
-
-        let spatial = spatialResult(for: token, evidence: evidence)
-        let autoFix = allowAuto ? cautiousReplacement(for: token, spatial: spatial) : nil
+        let autoFix = isEnabled ? decide(token, evidence: evidence, forSuggestions: true).text : nil
+        let spatial = spatialResult(for: token, evidence: evidence, forSuggestions: true)
         var pool: [String] = []
+        var completions: Set<String> = []
 
         if let autoFix {
             pool.append(autoFix)
@@ -286,11 +375,11 @@ final class AutocorrectEngine {
             pool.append(Self.matchCase(of: token, onto: suggested))
         }
 
-        // Spatial words use the same slots, never changing the characters inserted by a tap.
+        // Spatial words (including one-edit candidates) use the same slots, never changing typed characters.
         for candidate in spatial?.candidates.prefix(4) ?? [] {
+            if pool.count >= 2 { break }
             let text = spatialSpelling(candidate, token: token).text
             if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { pool.append(text) }
-            if pool.count >= 2 { break }
         }
 
         // Prefix matches from Contacts / lexicon terms.
@@ -299,6 +388,7 @@ final class AutocorrectEngine {
                 let candidate = Self.matchCase(of: token, onto: term)
                 if !pool.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
                     pool.append(candidate)
+                    completions.insert(candidate)
                 }
                 if pool.count >= 3 { break }
             }
@@ -307,10 +397,10 @@ final class AutocorrectEngine {
         // Spelling guesses or prefix completions from `UITextChecker`.
         if pool.count < 2 && token.count >= 2 {
             // Typr: German-valid words count as valid; German guesses come first.
-            let valid = Self.shorthandAllowlist.contains(lower) || learnedWords.contains(lower) || (englishEnabled && checker.isWordValid(token))
-                || (german?.isValid(token) ?? false)
+            let valid = Self.shorthandAllowlist.contains(lower) || learning.protections.isKept(lower)
+                || (englishEnabled && checker.isWordValid(token)) || (german?.isValid(token) ?? false)
             if !valid {
-                for guess in (german?.guesses(for: token) ?? []) + (englishEnabled ? rankedGuesses(for: token) : []) {
+                for guess in germanGuesses(for: token) + (englishEnabled ? rankedGuesses(for: token) : []) {
                     let cased = Self.matchCase(of: token, onto: guess)
                     if cased.caseInsensitiveCompare(token) != .orderedSame,
                        !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
@@ -320,16 +410,17 @@ final class AutocorrectEngine {
                 }
             }
             if englishEnabled && pool.count < 2 {
-                let completions = checker.completions(for: token)
+                let checked = checker.completions(for: token)
                     .filter { $0.count > token.count && $0.count <= token.count + 8 }
                     .sorted { a, b in
                         if a.count != b.count { return a.count < b.count }
                         return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
                     }
-                for item in completions {
+                for item in checked {
                     let cased = Self.matchCase(of: token, onto: item)
                     if !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
                         pool.append(cased)
+                        completions.insert(cased)
                     }
                     if pool.count >= 2 { break }
                 }
@@ -341,112 +432,238 @@ final class AutocorrectEngine {
             KeyboardSuggestion(
                 displayText: first,
                 replacement: first,
-                kind: .primary(autoReplace: autoFix != nil)
+                kind: .primary(autoReplace: autoFix != nil),
+                isCompletion: completions.contains(first)
             )
         } else {
             KeyboardSuggestion(displayText: token, replacement: token, kind: .primary(autoReplace: false))
         }
         let secondary: KeyboardSuggestion? = if pool.count >= 2 {
-            KeyboardSuggestion(displayText: pool[1], replacement: pool[1], kind: .secondary)
+            KeyboardSuggestion(displayText: pool[1], replacement: pool[1], kind: .secondary,
+                               isCompletion: completions.contains(pool[1]))
         } else {
             nil
         }
         return [literal, primary] + (secondary.map { [$0] } ?? [])
     }
 
-    /// Returns `(tokenToDelete, replacement)` only when cautious autocorrect is confident.
+    /// One word-boundary transaction (Space or Typr key): decides once, records diagnostics once and
+    /// opens the pending feedback. Returns `(tokenToDelete, replacement)` only for a cautious fix.
     func replacementOnSpace(
         beforeInput: String?,
         field: KeyboardFieldKind,
         autocorrectionType: UITextAutocorrectionType?
     ) -> (original: String, replacement: String)? {
         let evidence = touchInput.evidence(beforeInput: beforeInput)
+        pendingFeedback = nil
         guard isEnabled, field == .text, autocorrectionType != .no else { return nil }
         guard let token = Self.currentToken(in: beforeInput) else { return nil }
-        let lower = token.lowercased()
-        guard !suppressedInSession.contains(lower),
-              !learnedWords.contains(lower),
-              !Self.shorthandAllowlist.contains(lower) else { return nil }
-        guard let fix = cautiousReplacement(for: token, spatial: spatialResult(for: token, evidence: evidence)) else { return nil }
-        return (token, fix)
+        let started = DispatchTime.now().uptimeNanoseconds
+        let decision = decide(token, evidence: evidence, forSuggestions: false)
+        let learnable = decision.text == nil && evidence != nil && learning.isLearningEnabled
+            && literalIsValid(token)
+        pendingFeedback = PendingFeedback(evidence: evidence, literal: token, finalText: decision.text ?? token,
+                                          kind: decision.kind, alignment: decision.alignment,
+                                          learnable: learnable, epoch: learning.feedbackEpoch)
+        learning.increment(.boundaries)
+        if evidence != nil {
+            learning.increment(.evidenceComplete)
+        } else {
+            learning.increment(.evidenceMissing)
+            if !(3...SpatialWordDecoder.maxLetters).contains(token.count) {
+                learning.increment(.evidenceLengthOutOfRange)
+            } else if !token.lowercased().allSatisfy({ ("a"..."z").contains($0) }) {
+                learning.increment(.evidenceUnsupported)
+            }
+        }
+        learning.increment(decision.counter)
+        if let refusal = decision.refusal { learning.increment(refusal) }
+        learning.recordLatency(Self.seconds(since: started), kind: .boundary)
+        return decision.text.map { (token, $0) }
     }
 
-    private func spatialResult(for token: String, evidence: KeyboardTouchWord?) -> SpatialWordDecoder.Result? {
+    /// Valid in an enabled dictionary or explicitly kept (the only literals trusted by learning).
+    func literalIsValid(_ token: String) -> Bool {
+        let lower = token.lowercased()
+        return learning.protections.isKept(token)
+            || (englishEnabled && (checker.isWordValid(token) || checker.isWordValid(lower)))
+            || (german.map { $0.isValid(token) || $0.isValid(lower) } ?? false)
+    }
+
+    private static func seconds(since start: UInt64) -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000_000
+    }
+
+    // MARK: - Spatial decoding
+
+    private func spatialResult(for token: String, evidence: KeyboardTouchWord?,
+                               forSuggestions: Bool) -> SpatialWordDecoder.Result? {
+        if case .result(let result)? = spatialOutcome(for: token, evidence: evidence, forSuggestions: forSuggestions) {
+            return result
+        }
+        return nil
+    }
+
+    /// One decode per (evidence, languages, learning generation), shared by the strip and the boundary.
+    private func spatialOutcome(for token: String, evidence: KeyboardTouchWord?,
+                                forSuggestions: Bool) -> SpatialWordDecoder.Outcome? {
         guard isEnabled, let evidence, evidence.text == token,
               token == token.lowercased() || (token.first?.isUppercase == true && String(token.dropFirst()) == token.dropFirst().lowercased()),
-              !Self.shorthandAllowlist.contains(token.lowercased()) else { return nil }
+              !Self.shorthandAllowlist.contains(token.lowercased()) else {
+            decodeCache = nil
+            return nil
+        }
         var languages: Set<SpatialWordDecoder.Language> = []
         if englishEnabled { languages.insert(.english) }
         if german != nil { languages.insert(.german) }
-        return spatialDecoder?.decode(evidence, languages: languages)
+        guard !languages.isEmpty else { return nil }
+        let generation = learning.generation
+        if let cache = decodeCache, cache.generation == generation, cache.languages == languages,
+           cache.evidence == evidence {
+            return cache.outcome
+        }
+        let outcome: SpatialWordDecoder.Outcome
+        if let spatialDecoder {
+            let started = DispatchTime.now().uptimeNanoseconds
+            // Calibration and personal words are supplied only while learning is on.
+            outcome = spatialDecoder.decodeDetailed(evidence, languages: languages,
+                                                    calibration: learning.calibration(for: evidence.layout),
+                                                    personal: learning.personalPriors)
+            if forSuggestions {
+                learning.increment(.suggestionDecodes)
+                learning.recordLatency(Self.seconds(since: started), kind: .suggestion)
+            }
+        } else {
+            outcome = .unavailable(.resource)
+        }
+        decodeCache = DecodeCache(evidence: evidence, languages: languages, generation: generation, outcome: outcome)
+        return outcome
     }
 
     private func spatialSpelling(_ candidate: SpatialWordDecoder.Candidate, token: String) -> (text: String, validated: Bool) {
-        switch candidate.language {
-        case .english:
-            let text = Self.matchCase(of: token, onto: candidate.word)
-            return (text, checker.isWordValid(text))
-        case .german:
-            // FrequencyWords is lowercase; never invent German noun capitalization for an auto-replacement.
-            if let spelling = german?.guesses(for: token).first(where: { $0.lowercased() == candidate.word }),
-               german?.isValid(spelling) == true {
-                return (Self.matchCase(of: token, onto: spelling), true)
-            }
-            return (Self.matchCase(of: token, onto: candidate.word), false)
+        let plain = Self.matchCase(of: token, onto: candidate.word)
+        if candidate.language == .english { return (plain, checker.isWordValid(plain)) }
+        let guesses = germanGuesses(for: token)
+        if let cached = spellingCache?.spatial[candidate.word] { return cached }
+        // FrequencyWords is lowercase: German casing comes only from an exact system guess.
+        let spelling: (text: String, validated: Bool)
+        if let guess = guesses.first(where: { $0.lowercased() == candidate.word }), german?.isValid(guess) == true {
+            spelling = (Self.matchCase(of: token, onto: guess), true)
+        } else if candidate.language == nil, englishEnabled, checker.isWordValid(plain) {
+            spelling = (plain, true)
+        } else {
+            spelling = (plain, false)
         }
+        spellingCache?.spatial[candidate.word] = spelling
+        return spelling
     }
 
-    private func cautiousReplacement(for token: String, spatial: SpatialWordDecoder.Result? = nil) -> String? {
+    private func germanGuesses(for token: String) -> [String] {
+        if spellingCache?.token != token { spellingCache = SpellingCache(token: token) }
+        if let guesses = spellingCache?.germanGuesses { return guesses }
+        let guesses = german?.guesses(for: token) ?? []
+        spellingCache?.germanGuesses = guesses
+        return guesses
+    }
+
+    // MARK: - Correction policy
+
+    private func automatic(_ text: String, token: String, kind: CorrectionKind,
+                           counter: KeyboardDiagnostics.Counter, alignment: [Int?]? = nil) -> Decision {
+        guard text != token else { return Decision() }
+        guard !learning.protections.isRejected(typed: token, replacement: text) else {
+            return Decision(refusal: .refusedProtected)
+        }
+        return Decision(text: text, kind: kind, counter: counter, alignment: alignment)
+    }
+
+    /// One correction path, in order: explicit text replacement, deterministic DE/EN rules,
+    /// context guards, protections, spatial decoder on complete evidence, spelling-only fallback.
+    /// Explicit keeps and shorthand veto everything, as the learned-word protection did.
+    private func decide(_ token: String, evidence: KeyboardTouchWord?, forSuggestions: Bool) -> Decision {
         let lower = token.lowercased()
+        guard !suppressedInSession.contains(lower), !learning.protections.isKept(token),
+              !Self.shorthandAllowlist.contains(lower) else { return Decision(refusal: .refusedProtected) }
         // 1. Explicit iOS Text Replacement (`omw` -> `On my way!`).
         if let shortcut = lexiconShortcuts[lower] {
-            return shortcut
+            return automatic(shortcut, token: token, kind: .autoRule, counter: .autoRule)
         }
         // Leave ALL-CAPS acronyms (`API`, `PR`, `NYC`) alone unless matched in `UILexicon` above,
         // except unambiguous all-caps contractions/typos of 3+ letters (`DONT` -> `DON'T`, `TEH` -> `THE`).
-        let isAllCaps = token.count >= 2 && token == token.uppercased() && token != token.lowercased()
+        let isAllCaps = token.count >= 2 && token == token.uppercased() && token != lower
         // Leave camelCase / PascalCase identifiers (`TyprKey`, `iOS`) alone.
         let hasInternalCaps = token.dropFirst().contains(where: \.isUppercase) && !isAllCaps
-        if hasInternalCaps { return nil }
+        guard !hasInternalCaps else { return Decision(refusal: .refusedProtected) }
 
-        // Typr: German umlaut digraphs (`fuer` -> `für`), before the all-caps bail-out so `FUER` -> `FÜR`.
+        // 2. Deterministic rules. Typr: German umlaut digraphs first, so `FUER` -> `FÜR`.
         if let german,
            let umlaut = german.umlautReplacement(
                for: token,
                englishValid: englishEnabled && (checker.isWordValid(token) || checker.isWordValid(lower))
            ) {
-            return umlaut
+            return automatic(umlaut, token: token, kind: .autoRule, counter: .autoRule)
         }
-
-        // 2. Deterministic contractions and common QWERTY transpositions.
         if englishEnabled, let fixed = Self.unambiguousFixes[lower], german?.blocksEnglishFix(lower) != true {
-            if isAllCaps && token.count < 3 { return nil }
-            return Self.matchCase(of: token, onto: fixed)
+            if isAllCaps && token.count < 3 { return Decision(refusal: .refusedProtected) }
+            return automatic(Self.matchCase(of: token, onto: fixed), token: token, kind: .autoRule, counter: .autoRule)
         }
 
-        if isAllCaps { return nil }
+        // 3. Context guards: inferred corrections only for plain words of 3+ letters.
+        guard !isAllCaps else { return Decision(refusal: .refusedProtected) }
+        guard token.count >= 3, !token.contains("'") else { return Decision() }
 
-        // 3. Single-edit `UITextChecker` typo on words of 3+ characters, never rewriting valid words.
-        guard token.count >= 3, !token.contains("'") else { return nil }
-        guard !englishEnabled || !checker.isWordValid(token) else { return nil }
-        // A complete but ambiguous spatial search must not silently become a spelling-only auto-fix.
-        // Explicit shortcuts, umlaut rules and deterministic fixes above retain their existing precedence.
-        if let spatial, !spatial.candidates.isEmpty {
+        // 4. Protections: Contacts/lexicon terms and words valid in an enabled dictionary.
+        guard !lexiconTermKeys.contains(lower) else { return Decision(refusal: .refusedProtected) }
+        let englishValid = englishEnabled && (checker.isWordValid(token) || checker.isWordValid(lower))
+        let germanValid = german.map { $0.isValid(token) || $0.isValid(lower) } ?? false
+        guard !englishValid, !germanValid else { return Decision(refusal: .refusedLiteralValid) }
+
+        // 5. Spatial decoder. Only a complete search may replace; a lowercase-typed German noun
+        //    (`haus`, valid as `Haus`) is protected from becoming a different word.
+        var refusal: KeyboardDiagnostics.Counter?
+        switch spatialOutcome(for: token, evidence: evidence, forSuggestions: forSuggestions) {
+        case nil, .unavailable(.evidence)?:
+            break
+        case .unavailable(.resource)?:
+            refusal = .refusedMissingResource
+        case .result(let result)?:
             let title = lower.prefix(1).uppercased() + lower.dropFirst()
-            guard !englishEnabled || !checker.isWordValid(lower),
-                  german?.isValid(token) != true, german?.isValid(lower) != true,
-                  german?.isValid(title) != true,
-                  !lexiconTerms.contains(where: { $0.lowercased() == lower }),
-                  let best = spatial.confident else { return nil }
-            let spelling = spatialSpelling(best, token: token)
-            return spelling.validated ? spelling.text : nil
+            if german?.isValid(title) == true {
+                refusal = .refusedLiteralValid
+            } else {
+                switch result.automaticDecision(literalIsValid: false) {
+                case .replace(let best):
+                    let spelling = spatialSpelling(best, token: token)
+                    if spelling.validated {
+                        let decision = automatic(spelling.text, token: token, kind: .autoSpatial,
+                                                 counter: best.edit == .none ? .autoSpatialSameLength : .autoSpatialEdit,
+                                                 alignment: best.alignment)
+                        if decision.text != nil { return decision }
+                        refusal = decision.refusal
+                    } else {
+                        refusal = .refusedValidation
+                    }
+                case .refuse(let reason):
+                    let mapped: KeyboardDiagnostics.Counter = switch reason {
+                    case .incompleteSearch: .refusedIncompleteSearch
+                    case .ambiguous: .refusedAmbiguous
+                    case .editNeedsInvalidLiteral: .refusedEditNeedsInvalidLiteral
+                    case .noCandidate, .belowMargin: .refusedBelowMargin
+                    }
+                    refusal = mapped
+                }
+            }
+            // #96: only geometry that genuinely points elsewhere vetoes the spelling fallback;
+            // prior-promoted, geometrically worse neighbours do not. An incomplete search never
+            // authorizes any inferred replacement.
+            if !result.complete || result.geometryPrefersAlternative { return Decision(refusal: refusal) }
         }
-        // Typr: a German word is valid too; German guesses win over English ones.
+
+        // 6. Spelling-only fallback. Typr: German guesses win over English ones.
         if let german {
-            guard !german.isValid(token) else { return nil }
             var germanBest: String?
             var germanScore = Double.greatestFiniteMagnitude
-            for (rank, rawGuess) in german.guesses(for: token).enumerated() {
+            for (rank, rawGuess) in germanGuesses(for: token).enumerated() {
                 guard !rawGuess.contains(" ") else { continue }
                 let normalized = rawGuess.replacingOccurrences(of: "'", with: "").lowercased()
                 guard let cost = german.costAdjustedForUmlauts(from: lower, to: normalized) else { continue }
@@ -457,11 +674,14 @@ final class AutocorrectEngine {
                 }
             }
             if let germanBest, germanScore <= 1.6 {
-                return Self.matchCase(of: token, onto: germanBest)
+                var decision = automatic(Self.matchCase(of: token, onto: germanBest), token: token,
+                                         kind: .autoSpelling, counter: .autoSpellingFallback)
+                decision.refusal = decision.refusal ?? refusal
+                return decision
             }
         }
 
-        guard englishEnabled else { return nil }
+        guard englishEnabled else { return Decision(refusal: refusal) }
         var bestGuess: String?
         var bestScore = Double.greatestFiniteMagnitude
         for (rank, rawGuess) in checker.guesses(for: token).prefix(8).enumerated() {
@@ -475,8 +695,11 @@ final class AutocorrectEngine {
                 bestGuess = rawGuess
             }
         }
-        guard let bestGuess, bestScore <= 1.35 else { return nil }
-        return Self.matchCase(of: token, onto: bestGuess)
+        guard let bestGuess, bestScore <= 1.35 else { return Decision(refusal: refusal) }
+        var decision = automatic(Self.matchCase(of: token, onto: bestGuess), token: token,
+                                 kind: .autoSpelling, counter: .autoSpellingFallback)
+        decision.refusal = decision.refusal ?? refusal
+        return decision
     }
 
     private func rankedGuesses(for token: String) -> [String] {

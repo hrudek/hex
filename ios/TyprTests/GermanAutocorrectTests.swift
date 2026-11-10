@@ -42,7 +42,7 @@ final class GermanAutocorrectTests: XCTestCase {
     ) -> AutocorrectEngine {
         let engine = AutocorrectEngine(
             checker: FakeTextChecker(valid: english),
-            learnedWords: LearnedWordsStore(defaults: defaults)
+            learning: KeyboardLearningSession(defaults: defaults)
         )
         if germanOn {
             engine.german = GermanAutocorrect(checker: FakeTextChecker(valid: german, guesses: germanGuesses))
@@ -86,7 +86,7 @@ final class GermanAutocorrectTests: XCTestCase {
 
     func testLearnedWordIsNotRewritten() {
         let engine = makeEngine()
-        engine.learnedWords.learn("fuer")
+        engine.learning.keep("fuer")
         XCTAssertNil(fix(engine, "fuer"))
     }
 
@@ -175,7 +175,7 @@ final class GermanAutocorrectTests: XCTestCase {
     func testEnglishDictionaryGuessesAndCompletionsRespectSelection() {
         let engine = AutocorrectEngine(
             checker: FakeTextChecker(guesses: ["helo": ["hello"]], completions: ["hel": ["hello"]]),
-            learnedWords: LearnedWordsStore(defaults: defaults)
+            learning: KeyboardLearningSession(defaults: defaults)
         )
         XCTAssertEqual(fix(engine, "helo"), "hello")
         XCTAssertTrue(engine.suggestions(beforeInput: "hel", field: .text, autocorrectionType: .default)
@@ -201,7 +201,7 @@ final class GermanAutocorrectTests: XCTestCase {
         guard UITextChecker.availableLanguages.contains(where: { $0.hasPrefix("de") }) else {
             throw XCTSkip("No German dictionary on this simulator")
         }
-        let engine = AutocorrectEngine(learnedWords: LearnedWordsStore(defaults: defaults))
+        let engine = AutocorrectEngine(learning: KeyboardLearningSession(defaults: defaults))
         engine.german = GermanAutocorrect.system()
         XCTAssertEqual(fix(engine, "fuer"), "für")
         XCTAssertNil(fix(engine, "neue"))

@@ -176,6 +176,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     }
 
     func syncSettings() {
+        // Learning switch and app reset epochs; never per keystroke.
+        engine.autocorrect.syncLearning()
         applySuggestionBarSetting()
         let wantsAutocorrect = FullKeyboardSettings().autocorrect
         if engine.autocorrect.isEnabled != wantsAutocorrect {
@@ -232,6 +234,11 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
+    /// Writes pending learning and diagnostics now (dismissal, memory warning, remount).
+    func flushLearning() {
+        engine.autocorrect.learning.flush()
+    }
+
     /// Selection changes and keyboard dismissal must not retain current-word taps.
     func discardTouchEvidence() {
         engine.discardTouchEvidence()
@@ -239,6 +246,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     /// Frees non-essential UI and Metal drawables when the extension approaches its memory ceiling.
     func handleMemoryWarning() {
+        flushLearning()
         discardTouchEvidence()
         dismissStyleMenu()
         if !showsRecording, let panel = recordingPanel {

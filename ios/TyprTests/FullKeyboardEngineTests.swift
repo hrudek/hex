@@ -15,7 +15,7 @@ final class FullKeyboardEngineTests: XCTestCase {
         defaults = UserDefaults(suiteName: suiteName)!
         target = FixtureTextTarget()
         target.autocapitalizationType = UITextAutocapitalizationType.none
-        let ac = AutocorrectEngine(learnedWords: LearnedWordsStore(defaults: defaults))
+        let ac = AutocorrectEngine(learning: KeyboardLearningSession(defaults: defaults))
         engine = FullKeyboardEngine(target: target, autocorrect: ac)
         engine.width = 393
         engine.clock = { [unowned self] in self.now }

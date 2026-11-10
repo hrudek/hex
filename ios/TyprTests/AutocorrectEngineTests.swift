@@ -15,8 +15,8 @@ final class AutocorrectEngineTests: XCTestCase {
         defaults = UserDefaults(suiteName: suiteName)!
         target = FixtureTextTarget()
         target.autocapitalizationType = UITextAutocapitalizationType.none
-        let store = LearnedWordsStore(defaults: defaults)
-        let autocorrect = AutocorrectEngine(checker: SystemTextChecker(), learnedWords: store)
+        let session = KeyboardLearningSession(defaults: defaults)
+        let autocorrect = AutocorrectEngine(checker: SystemTextChecker(), learning: session)
         engine = FullKeyboardEngine(target: target, autocorrect: autocorrect)
         engine.width = 393
         engine.clock = { [unowned self] in self.now }
@@ -163,7 +163,7 @@ final class AutocorrectEngineTests: XCTestCase {
         XCTAssertEqual(slots.dropFirst().first?.willAutoReplace, false)
     }
 
-    func testSpaceDeleteSpaceKeepLoopAndLearnedWordsPersistence() {
+    func testSpaceDeleteSpaceKeepLoopAndPersonalProtection() {
         typeWord("teh")
         XCTAssertEqual(engine.suggestions.count >= 2, true)
         XCTAssertEqual(engine.suggestions[0].kind, .keepLiteral)
@@ -182,11 +182,12 @@ final class AutocorrectEngineTests: XCTestCase {
         tap(.space)
         XCTAssertEqual(target.text, "teh ")
 
-        // 4. Keeping `"teh"` a second time via Slot 0 persists it in App Group `learnedWords`.
+        // 4. A literal chip keeps the protection and records an independent trusted choice.
         typeWord("teh")
         engine.acceptSuggestion(engine.suggestions[0])
         XCTAssertEqual(target.text, "teh teh ")
-        XCTAssertTrue(LearnedWordsStore(defaults: defaults).contains("teh"))
+        XCTAssertTrue(engine.autocorrect.learning.model.lexicon.isKept("teh"))
+        XCTAssertEqual(engine.autocorrect.learning.model.lexicon.counts["teh"], 1)
     }
 
     func testQwertyAdjacencyPrefersPhysicalNeighbor() {
