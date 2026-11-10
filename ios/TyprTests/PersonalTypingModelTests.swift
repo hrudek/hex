@@ -1,0 +1,252 @@
+import Foundation
+import XCTest
+@testable import Typr
+
+@MainActor
+final class PersonalTypingModelTests: XCTestCase {
+    private let layout = KeyboardLayout(width: 393)
+
+    private func label(_ x: Double = 0, _ y: Double = 0, letter: Character = "a",
+                       layout: KeyboardLayout? = nil) throws -> TouchLabel {
+        let layout = layout ?? self.layout
+        let key = try XCTUnwrap(layout.key(.character(String(letter))))
+        return TouchLabel(point: CGPoint(x: key.frame.midX + x * (key.frame.width + layout.metrics.gap),
+                                         y: key.frame.midY + y * (key.frame.height + layout.metrics.rowGap)), letter: letter)
+    }
+
+    private func stats(_ model: PersonalTypingModel, layout: KeyboardLayout? = nil) throws -> PersonalTypingModel.TouchStats {
+        try XCTUnwrap(model.state.layouts[KeyboardLayoutSignature(layout ?? self.layout).id]?.keys["a"])
+    }
+
+    private func word(_ index: Int) -> String {
+        let letters = Array("abcdefghijklmnopqrstuvwxyz")
+        return "word" + String(letters[(index / 676) % 26]) + String(letters[(index / 26) % 26]) + String(letters[index % 26])
+    }
+
+    func testWelfordPopulationVarianceAndExponentialWeight() throws {
+        let model = PersonalTypingModel()
+        model.learn([try label(0.2, 0.3), try label(-0.2, -0.1)], layout: layout, source: .literalValid)
+        var value = try stats(model)
+        XCTAssertEqual(value.n, 2)
+        XCTAssertEqual(value.meanX, 0, accuracy: 1e-12)
+        XCTAssertEqual(value.varianceX, 0.04, accuracy: 1e-12)
+        XCTAssertEqual(value.meanY, 0.1, accuracy: 1e-12)
+        XCTAssertEqual(value.varianceY, 0.04, accuracy: 1e-12)
+        model.reset()
+        model.learn(Array(repeating: try label(), count: 64), layout: layout, source: .keep)
+        model.learn([try label(0.64)], layout: layout, source: .manualPick)
+        value = try stats(model)
+        XCTAssertEqual(value.n, 65)
+        XCTAssertEqual(value.meanX, 0.01, accuracy: 1e-12)
+        XCTAssertEqual(value.varianceX, 0.0063, accuracy: 1e-12)
+        XCTAssertEqual(value.meanY, 0)
+        XCTAssertEqual(model.summary.acceptedBySource[TouchLabelSource.keep.rawValue], 64)
+        XCTAssertEqual(model.summary.acceptedBySource[TouchLabelSource.manualPick.rawValue], 1)
+    }
+
+    func testEffectiveCountCapDoesNotStopUpdatesOrSourceCounters() throws {
+        let model = PersonalTypingModel()
+        model.learn(Array(repeating: try label(), count: 300), layout: layout, source: .undo)
+        XCTAssertEqual(try stats(model).n, 256)
+        model.learn([try label(0.64)], layout: layout, source: .undo)
+        XCTAssertEqual(try stats(model).meanX, 0.01, accuracy: 1e-12)
+        XCTAssertEqual(model.summary.acceptedLabels, 301)
+        XCTAssertEqual(model.summary.effectiveTouchCount, 256)
+    }
+
+    func testThresholdShrinkageAndCalibrationClamps() throws {
+        let model = PersonalTypingModel()
+        model.learn(Array(repeating: try label(0.4), count: 19), layout: layout, source: .keep)
+        XCTAssertNil(model.calibration(for: layout))
+        model.learn([try label(0.4)], layout: layout, source: .keep)
+        var key = try XCTUnwrap(model.calibration(for: layout)?.keys["a"])
+        XCTAssertEqual(key.offsetX, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(key.sigmaX, sqrt(0.35 * 0.35 / 2), accuracy: 1e-12)
+        model.learn(Array(repeating: try label(0.9), count: 300), layout: layout, source: .keep)
+        key = try XCTUnwrap(model.calibration(for: layout)?.keys["a"])
+        XCTAssertEqual(key.offsetX, 0.25)
+        XCTAssertEqual(key.sigmaX, 0.22)
+        model.reset()
+        for _ in 0..<150 {
+            model.learn([try label(-0.9), try label(0.9)], layout: layout, source: .keep)
+        }
+        XCTAssertEqual(model.calibration(for: layout)?.keys["a"]?.sigmaX, 0.50)
+        XCTAssertTrue(try XCTUnwrap(model.summary.layouts.first?.keys.first).isCalibrated)
+    }
+
+    func testRejectsNonFiniteOutlierUnknownKeyAndUnsupportedLayout() throws {
+        let model = PersonalTypingModel()
+        let outcome = model.learn([
+            try label(), try label(1.01), try label(0.8, 0.8),
+            .init(point: CGPoint(x: Double.nan, y: 0), letter: "a"),
+            .init(point: CGPoint(x: 0, y: Double.infinity), letter: "a"),
+            .init(point: .zero, letter: "ä"), .init(point: .zero, letter: "A"),
+        ], layout: layout, source: .literalValid)
+        XCTAssertEqual(outcome.accepted, 1)
+        XCTAssertEqual(outcome.rejected, [.outlier: 2, .nonFinite: 2, .unknownKey: 2])
+        XCTAssertEqual(model.summary.rejectedLabels, 6)
+        for invalid in [KeyboardLayout(width: 393, layer: .numbers), KeyboardLayout(width: 393, field: .email)] {
+            XCTAssertEqual(model.learn([try label()], layout: invalid, source: .keep).rejected, [.layoutMismatch: 1])
+            XCTAssertNil(model.calibration(for: invalid))
+        }
+        XCTAssertEqual(model.summary.rejectedByReason[TouchLabelRejection.layoutMismatch.rawValue], 2)
+    }
+
+    func testLayoutsAreSeparatedAndEvictedByLastUpdate() throws {
+        var tick = 0.0
+        let model = PersonalTypingModel(now: { tick += 1; return Date(timeIntervalSince1970: tick) })
+        let layouts = [393, 410, 430, 450, 470].map { KeyboardLayout(width: CGFloat($0)) }
+        for layout in layouts.prefix(4) { model.learn([try label(layout: layout)], layout: layout, source: .keep) }
+        model.learn([try label(0.3, layout: layouts[0])], layout: layouts[0], source: .keep)
+        model.learn([try label(layout: layouts[4])], layout: layouts[4], source: .keep)
+        XCTAssertEqual(model.state.layouts.count, 4)
+        XCTAssertNotNil(model.state.layouts[KeyboardLayoutSignature(layouts[0]).id])
+        XCTAssertNil(model.state.layouts[KeyboardLayoutSignature(layouts[1]).id])
+        XCTAssertEqual(try stats(model, layout: layouts[0]).n, 2)
+        XCTAssertEqual(try stats(model, layout: layouts[4]).meanX, 0, accuracy: 1e-12)
+        XCTAssertNil(model.calibration(for: KeyboardLayout(width: 393, showsStrip: false)))
+        XCTAssertNil(model.calibration(for: KeyboardLayout(width: 393, orientation: .landscape)))
+    }
+
+    func testLearningOffPreservesStateAndProtectionsButHidesPriors() throws {
+        let model = PersonalTypingModel()
+        model.recordWord("hello")
+        model.keep("hello")
+        model.rejectCorrection(typed: "hello", replacement: "help")
+        model.learn(Array(repeating: try label(), count: 20), layout: layout, source: .keep)
+        XCTAssertEqual(model.lexicon.counts["hello"], 1)
+        model.isLearningEnabled = false
+        let before = model.state
+        XCTAssertEqual(model.learn([try label()], layout: layout, source: .keep).rejected, [.learningOff: 1])
+        XCTAssertFalse(model.recordWord("other"))
+        model.recordRejection(.ambiguousAlignment)
+        XCTAssertEqual(model.state, before)
+        XCTAssertNil(model.calibration(for: layout))
+        XCTAssertTrue(model.lexicon.counts.isEmpty)
+        XCTAssertTrue(model.lexicon.isKept("HELLO"))
+        XCTAssertTrue(model.lexicon.isRejected(typed: "HELLO", replacement: "HELP"))
+        XCTAssertTrue(model.keep("other"))
+        XCTAssertTrue(model.lexicon.isKept("other"))
+        model.isLearningEnabled = true
+        XCTAssertEqual(model.lexicon.counts["hello"], 1)
+        XCTAssertNotNil(model.calibration(for: layout))
+    }
+
+    func testNormalizationAndInvalidWords() {
+        let model = PersonalTypingModel()
+        for word in ["STRAẞE", "ÜBER", "a\u{0308}rger"] {
+            XCTAssertTrue(model.keep(word))
+            XCTAssertTrue(model.recordWord(word))
+        }
+        XCTAssertEqual(model.lexicon.kept, ["straße", "über", "ärger"])
+        XCTAssertEqual(model.lexicon.counts, ["straße": 1, "über": 1, "ärger": 1])
+        XCTAssertFalse(model.lexicon.isKept("strasse"), "ß is not folded to ss")
+        for word in ["a", "two words", "can't", "word1", String(repeating: "a", count: 33)] {
+            XCTAssertFalse(model.keep(word)); XCTAssertFalse(model.recordWord(word))
+            XCTAssertFalse(model.rejectCorrection(typed: word, replacement: "hello"))
+        }
+        model.forgetCount("ÜBER")
+        XCTAssertNil(model.lexicon.counts["über"])
+        XCTAssertTrue(model.lexicon.isKept("über"))
+    }
+
+    func testWordAndKeepCapsUseCountThenRecencyAndKeepLRU() {
+        var tick = 0.0
+        let model = PersonalTypingModel(now: { tick += 1; return Date(timeIntervalSince1970: tick) })
+        for index in 0..<2000 { model.keep(word(index)); model.recordWord(word(index)) }
+        model.keep(word(0))
+        model.recordWord(word(0))
+        model.keep(word(2000)); model.recordWord(word(2000))
+        XCTAssertEqual(model.state.kept.count, 2000)
+        XCTAssertEqual(model.state.counts.count, 2000)
+        XCTAssertNotNil(model.state.kept[word(0)])
+        XCTAssertNil(model.state.kept[word(1)])
+        XCTAssertEqual(model.state.counts[word(0)]?.count, 2)
+        XCTAssertNil(model.state.counts[word(1)])
+        for _ in 0..<10_100 { model.recordWord(word(0)) }
+        XCTAssertEqual(model.state.counts[word(0)]?.count, 10_000)
+    }
+
+    func testRejectedPairsFIFOAndDeduplication() {
+        let model = PersonalTypingModel()
+        for index in 0..<513 { model.rejectCorrection(typed: word(index), replacement: "hello") }
+        XCTAssertEqual(model.state.rejected.count, 512)
+        XCTAssertFalse(model.lexicon.isRejected(typed: word(0), replacement: "hello"))
+        XCTAssertTrue(model.lexicon.isRejected(typed: word(1), replacement: "hello"))
+        model.rejectCorrection(typed: word(1).uppercased(), replacement: "HELLO")
+        XCTAssertEqual(model.state.rejected.count, 512)
+        XCTAssertEqual(model.state.rejected.first?.typed, word(1))
+    }
+
+    func testStateValidationAndCodableRoundTrip() throws {
+        let model = PersonalTypingModel()
+        model.learn([try label()], layout: layout, source: .keep)
+        model.keep("hello"); model.recordWord("hello")
+        model.rejectCorrection(typed: "hello", replacement: "help")
+        let original = model.state
+        let decoded = try JSONDecoder().decode(PersonalTypingModel.State.self, from: JSONEncoder().encode(original))
+        XCTAssertEqual(decoded.validated(), original)
+        let id = KeyboardLayoutSignature(layout).id
+        var bad = original; bad.layouts[id]?.keys["a"]?.meanX = .nan
+        XCTAssertNil(bad.validated())
+        bad = original; bad.layouts[id]?.keys["a"]?.varianceY = -0.1
+        XCTAssertNil(bad.validated())
+        bad = original; bad.layouts[id]?.keys["a"]?.n = 257
+        XCTAssertNil(bad.validated())
+        bad = original; bad.counts["hello"]?.count = -1
+        XCTAssertNil(bad.validated())
+        bad = original; bad.acceptedBySource[TouchLabelSource.keep.rawValue] = -1
+        XCTAssertNil(bad.validated())
+        bad = original; bad.rejectedByReason["unknown"] = 1
+        XCTAssertNil(bad.validated())
+        bad = original; bad.schemaVersion = 2
+        XCTAssertNil(bad.validated())
+        bad = original; bad.kept["HELLO"] = Date()
+        XCTAssertNil(bad.validated())
+        bad = original; bad.layouts[id]?.keys["ä"] = .init(n: 1)
+        XCTAssertNil(bad.validated())
+        bad = original; bad.layouts["wrong-id"] = bad.layouts.removeValue(forKey: id)
+        XCTAssertNil(bad.validated())
+        bad = original
+        for width in [410, 430, 450, 470] {
+            let signature = KeyboardLayoutSignature(KeyboardLayout(width: CGFloat(width)))
+            bad.layouts[signature.id] = .init(signature: signature, lastUpdated: Date(), keys: ["a": .init(n: 1)])
+        }
+        XCTAssertNil(bad.validated())
+        bad = original
+        for index in 0..<513 { bad.rejected.append(.init(typed: word(index), replacement: "hello")) }
+        XCTAssertNil(bad.validated())
+        bad = original
+        for index in 0..<2001 { bad.counts[word(index)] = .init(count: 1, lastUpdated: Date()) }
+        XCTAssertNil(bad.validated())
+        bad = original
+        for index in 0..<2001 { bad.kept[word(index)] = Date() }
+        XCTAssertNil(bad.validated())
+        XCTAssertEqual(PersonalTypingModel(state: bad).state, .init())
+    }
+
+    func testLearningCountersAndAlignmentRejectionsSaturate() throws {
+        var state = PersonalTypingModel.State()
+        state.acceptedBySource[TouchLabelSource.keep.rawValue] = Int(Int32.max)
+        let model = PersonalTypingModel(state: state)
+        model.learn([try label()], layout: layout, source: .keep)
+        XCTAssertEqual(model.summary.acceptedBySource[TouchLabelSource.keep.rawValue], Int(Int32.max))
+        model.recordRejection(.ambiguousAlignment, count: Int.max)
+        model.recordRejection(.ambiguousAlignment)
+        model.recordRejection(.layoutMismatch, count: -1)
+        XCTAssertEqual(model.summary.rejectedByReason[TouchLabelRejection.ambiguousAlignment.rawValue], Int(Int32.max))
+        XCTAssertNil(model.summary.rejectedByReason[TouchLabelRejection.layoutMismatch.rawValue])
+    }
+
+    func testResetClearsAggregatesProtectionsAndCounters() throws {
+        let model = PersonalTypingModel()
+        model.keep("hello"); model.recordWord("hello")
+        model.rejectCorrection(typed: "hello", replacement: "help")
+        model.learn([try label()], layout: layout, source: .keep)
+        _ = model.lexicon
+        model.reset()
+        XCTAssertEqual(model.lexicon, .empty)
+        XCTAssertEqual(model.state, .init())
+        XCTAssertEqual(model.summary.acceptedLabels, 0)
+    }
+}
