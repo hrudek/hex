@@ -183,6 +183,26 @@ final class WhisperTranscriberTests: XCTestCase {
         XCTAssertTrue(WhisperTranscriber.containsSpeech([Float](repeating: 0, count: 16_000) + tone))
     }
 
+    func testQuietRecordedSpeechIsNotRejectedBeforeWhisperRuns() throws {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "term-hex-1", withExtension: "wav"))
+        let original = try AudioProcessor.loadAudioAsFloatArray(fromPath: url.path)
+        XCTAssertFalse(original.isEmpty)
+        // Real speech at reduced gain, not a loud synthetic tone. Its loudest frame is
+        // 0.006–0.012 RMS: both versions were incorrectly rejected by the old 0.02 gate.
+        for gain in [Float(0.025), Float(0.05)] {
+            let quietSpeech = original.map { $0 * gain }
+            XCTAssertFalse(EnergyVAD().voiceActivity(in: quietSpeech).contains(true),
+                           "fixture must reproduce the old false rejection at gain \(gain)")
+            XCTAssertTrue(WhisperTranscriber.containsSpeech(quietSpeech), "gain \(gain)")
+        }
+    }
+
+    func testQuietSpeechAfterSilenceAndInPartialFramePasses() {
+        let tone = (0..<800).map { Float(0.012 * sin(Double($0) * 2 * .pi * 220 / 16_000)) }
+        XCTAssertTrue(WhisperTranscriber.containsSpeech(tone), "50 ms partial frame")
+        XCTAssertTrue(WhisperTranscriber.containsSpeech([Float](repeating: 0, count: 16_000) + tone))
+    }
+
     func testJoinedTextCollapsesWhitespaceAndEmptyChunksAreEmpty() {
         XCTAssertEqual(WhisperTranscriber.joinedText([" Hallo ", " Welt. "]), "Hallo Welt.")
         XCTAssertEqual(WhisperTranscriber.joinedText(["Erstens,\n", "\tzweitens."]), "Erstens, zweitens.")
@@ -250,14 +270,17 @@ final class WhisperTranscriberTests: XCTestCase {
         XCTAssertTrue(notInstalled.contains("Download it under Speech engine"), notInstalled)
         XCTAssertEqual(SpeechEngineError.notInstalled(.whisperLargeV3Turbo).localizedDescription,
                        "Whisper Large V3 Turbo is not downloaded. Download it under Speech engine.")
+        XCTAssertEqual(WhisperTranscriber.TranscriberError.silentAudio.localizedDescription,
+                       "The recording is too quiet for Whisper. Try speaking closer to the microphone.")
         XCTAssertEqual(WhisperTranscriber.TranscriberError.emptyTranscript.localizedDescription,
-                       "Whisper did not detect any speech.")
+                       "Whisper returned no text. Please try dictating again.")
     }
 
     func testWhisperAndEngineErrorsClassifyForTheDictationLog() {
         XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.notInstalled), .modelNotReady)
         XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.notPrepared), .modelNotReady)
-        XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.emptyTranscript), .noSpeech)
+        XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.silentAudio), .noSpeech)
+        XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.emptyTranscript), .other)
         XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.corruptModel("x")), .other)
         XCTAssertEqual(DictationLogASRFailure.classify(SpeechEngineError.notReady), .modelNotReady)
         XCTAssertEqual(DictationLogASRFailure.classify(SpeechEngineError.notInstalled(.whisperLargeV3Turbo)), .modelNotReady)

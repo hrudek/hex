@@ -75,8 +75,8 @@ enum DictationLogASRFailure: String, Codable, Sendable {
         if let error = error as? WhisperTranscriber.TranscriberError {
             switch error {
             case .notInstalled, .notPrepared: return .modelNotReady
-            case .emptyTranscript: return .noSpeech
-            case .corruptModel: return .other
+            case .silentAudio: return .noSpeech
+            case .emptyTranscript, .corruptModel: return .other
             }
         }
         if let error = error as? SpeechEngineError {

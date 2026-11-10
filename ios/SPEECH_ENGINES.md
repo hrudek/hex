@@ -148,14 +148,22 @@ released by ARC, never by `unloadModels()` while a transcription may use it.
 ### Transcription
 
 - The capture is read with `AudioProcessor.loadAudioAsFloatArray` (16 kHz mono).
-- Energy gate first (`EnergyVAD`): no voiced frame → "no speech" (logged as
-  `noSpeech`). WhisperKit 1.1.1's no-speech threshold is not implemented, and
-  Whisper invents text for silence.
+- Amplitude gate first (`EnergyVAD`, explicitly 0.005 RMS / about -46 dBFS):
+  no frame above the floor → "The recording is too quiet for Whisper" (logged
+  as `noSpeech`). This is not a speech classifier. The upstream default of
+  0.02 RMS / about -34 dBFS rejected valid quiet speech before the model ran;
+  model re-optimization cannot change this gate. The floor still rejects
+  digital silence and faint hum. WhisperKit 1.1.1's no-speech probability is
+  not implemented, and removing the gate entirely risks invented text for silence.
+  The lower floor can admit more background noise; it needs device validation.
 - `DecodingOptions`: task `transcribe`, language `de`/`en`/nil with
   `detectLanguage` only for Automatic, prefill prompt, special tokens skipped,
   no timestamps, VAD chunking for captures longer than 30 seconds, no prompt
   tokens. Built from `WhisperDecodingPlan` so tests check it without WhisperKit.
-- Chunk texts are joined and trimmed; empty → "no speech".
+- Chunk texts are joined and trimmed; an empty result now says "Whisper
+  returned no text" (logged as `other`), not that the recording contained no
+  speech. This distinguishes a decoder failure/empty result from rejection
+  before inference. Neither error unloads the engine or prevents another capture.
 - **Vocabulary:** Whisper gets no vocabulary prompt. Custom vocabulary and the
   tech glossary apply afterwards, exactly as for the other engines (spelling
   passes, AI cleanup, formatting); the section says so.
@@ -166,7 +174,26 @@ Each entry records the engine of its capture (`speechEngine`) and, for Whisper,
 the language it was asked for (`speechLanguage`: German, English, or
 "Automatic (detected by Whisper)"; the detected language is not recorded).
 Failures map to the existing reasons: not downloaded / not ready →
-`modelNotReady`, silence or empty text → `noSpeech`, damaged model → `other`.
+`modelNotReady`, below-floor recording → `noSpeech`, empty decoder result or
+damaged model → `other`. Older entries retain their original classification.
+
+## Quiet-recording investigation
+
+The previous generic "Whisper did not detect any speech" message came from two
+independent paths: the amplitude gate before inference and an empty decoder
+result. A screenshot of that message cannot identify which path failed, and
+neither path proves a corrupt Core ML optimization cache. No affected-device
+audio or diagnostic log was available for this fix.
+
+The committed speech fixture `term-hex-1.wav`, scaled to 2.5% and 5% amplitude,
+has peak 100 ms frame RMS of about 0.0062 and 0.0124. Both fail the previous
+0.02 gate and pass the explicit 0.005 floor. A Linux PCM calculation confirmed
+those values; added Swift tests exercise WhisperKit's actual gate and the two
+error paths, including a successful next capture with the same engine. They
+still require a macOS test run. This establishes a pre-inference false rejection,
+not successful recognition or the cause of the reported temporary improvement
+after optimization. Repeated real-device dictations and noise checks remain
+necessary; no automatic re-download or cache reset was added.
 
 ## What is and is not verified
 
@@ -201,6 +228,9 @@ shows both) for each case, with the engine and language.
 5. **Content:** names, numbers, dates and times; short (1–2 words) and long
    (45–60 s) dictations; silence and background noise (expect "no speech", no
    invented text).
+   Also speak quietly/farther from the microphone, then at normal volume, without
+   re-optimizing between captures. Compare failures: "recording is too quiet"
+   means the amplitude gate; "returned no text" means decoding produced nothing.
 6. **Keyboard:** warm-session dictation from another app with Typr in the
    background (Neural Engine, no GPU), repeated dictations in a row, auto-return.
    Also test a cold keyboard launch: preparation may exceed the 10-second handoff
