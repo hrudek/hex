@@ -34,6 +34,26 @@ final class CasualStyleTests: XCTestCase {
     }
 
     @MainActor
+    func testCapturedLogStylesCannotCollideWithHistoricalCasualLabel() throws {
+        for (style, expected) in [(DictationStyle.casual, "Casual (natural case)"),
+                                  (.veryCasual, "Very casual")] {
+            let context = DictationLogContext.capture(
+                keyboardJob: false, copyToPasteboard: false, style: style,
+                engine: "test", language: "de", duration: 1,
+                loudestAverage: nil, cleanupPath: .none, vocabularyCount: 0
+            )
+            XCTAssertEqual(context.style, expected)
+            XCTAssertNotEqual(context.style, "Casual")
+            let decoded = try JSONDecoder().decode(DictationLogContext.self, from: JSONEncoder().encode(context))
+            XCTAssertEqual(decoded.style, expected)
+        }
+        var historic = DictationLogContext()
+        historic.style = "Casual"
+        let decoded = try JSONDecoder().decode(DictationLogContext.self, from: JSONEncoder().encode(historic))
+        XCTAssertEqual(decoded.style, "Casual")
+    }
+
+    @MainActor
     func testSavedStyleSelectionAndCycleIncludeBothChatStyles() {
         let suite = "typr.tests.casual.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

@@ -147,7 +147,7 @@ and `src/apple_intelligence.rs` / `.swift` (used for meetings).
 - **D1:** Keep stage input on AI failure, stay Transcribing until processing and
   delivery finish, and publish nothing on cancellation/stale generation. Deliberate
   pipeline difference: iOS is **ASR → cleanup → TranscriptFormatter**, exactly once,
-  so Casual/Notes style casing and formatting win. Desktop runs deterministic
+  so Casual/Very casual/Notes style casing and formatting win. Desktop runs deterministic
   steps → corrections → AI rewrite → transformations. No desktop modes,
   corrections, browser context, custom transformations or OpenCode service are
   promised or added to iPhone by this analogy.
@@ -230,7 +230,7 @@ German, technical terms from context, and English terms never translated:
   technical terms; OUTPUT (the desktop's paste-only rule in the text field).
   After the transcript the prompt repeats "Output only the cleaned text." (as
   OpenWhispr's `wrapCleanupTranscript`). Per call it adds the language line
-  (explicit language only), a style line (Casual: keep the informal wording, no
+  (explicit language only), a style line (Casual and Very casual: keep the informal wording, no
   paragraphs; Notes: keep the marker words, add no line breaks), the Spellings list
   and the Context. The guided `text` field's description says the same.
 - **Plausibility check** (`CleanupGuard.rejection`). Free rewriting means the

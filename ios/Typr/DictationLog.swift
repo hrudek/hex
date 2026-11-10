@@ -152,7 +152,8 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.systemVersion = UIDevice.current.systemVersion
         context.keyboardJob = keyboardJob
         context.copyToPasteboard = copyToPasteboard
-        context.style = style.label
+        // Historic "Casual" entries used lowercase; never reuse that evidence label.
+        context.style = style == .casual ? "Casual (natural case)" : style.label
         context.speechEngine = engine
         context.speechLanguage = language
         context.recordingDuration = duration

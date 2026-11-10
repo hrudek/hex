@@ -80,6 +80,15 @@ deletion is never reported as successful merely because the button was tapped.
 Off/On/Clear fence capture callbacks. Clear changes archive lineage and separately
 fences storage loads/exports; fresh captures submitted after Clear survive.
 
+## Style labels in saved evidence
+
+Historical entries labelled `Casual` used the lowercase style now called **Very casual**.
+They remain unchanged. New entries record `Casual (natural case)` for the new
+capitalization-preserving style and `Very casual` for lowercase chat, so the viewer,
+exports and offline reports cannot mix the new style with historical `Casual` evidence.
+Both current chat styles omit the final period even after multiple sentences; the
+historical Casual formatter omitted it only for a single sentence.
+
 ## Files and migration
 
 `Application Support/Typr/DictationLog/v2/entries/<UUID>.json` is the source of

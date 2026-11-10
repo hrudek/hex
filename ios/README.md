@@ -75,8 +75,9 @@ it never accesses the microphone, speech model, or network.
     even after multiple sentences, keeping internal punctuation and final `?` / `!`.
     They share the same informal AI cleanup; without AI, Casual preserves recognition
     casing and capitalizes sentence starts rather than running keyboard autocorrect.
-    Existing saved Casual selections and historical logs retain the lowercase behavior
-    under the Very casual name. Filler trim removes äh/ähm/öhm/hm
+    Existing saved Casual selections become Very casual. Historical log entries labelled
+    `Casual` mean the old lowercase style and are not rewritten; new logs distinguish
+    `Casual (natural case)` from `Very casual`. Filler trim removes äh/ähm/öhm/hm
     always, but English um/uh/er/ah only from text that reads as English ("um 13 Uhr",
     "was er sagt" stay); a period after bzw., z. B., d. h., ca., usw. and similar
     abbreviations does not capitalize the next word. In every style, Verbatim
