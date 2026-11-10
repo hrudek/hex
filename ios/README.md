@@ -157,6 +157,10 @@ Purpose-based detail pages replace the old Typr/Experiments split:
 Settings keys, defaults, full-keyboard/autocorrect dependencies, archive retention
 and privacy behavior are unchanged. `SettingsComponents.swift` provides shared
 surfaces, scalable text and navigation routes; keyboard colors remain untouched.
+Menu entry points use compact single-line rows with standalone symbols, trailing
+values where useful, and aligned separators. Descriptions live on the detail
+pages (and remain available as accessibility hints), not under every menu title.
+At accessibility text sizes, rows may grow and wrap instead of clipping.
 `SettingsPresentationTests` checks route parsing and compact/large-text layout.
 Manual simulator screenshots can request `settings-keyboard`, `settings-writing`,
 `settings-history` and `settings-speech-engine`, plus `settings-overview`.

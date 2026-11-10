@@ -40,8 +40,8 @@ struct SettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.headline)
-                    .foregroundStyle(TyprTheme.textBase)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(TyprTheme.textMuted)
                     .accessibilityAddTraits(.isHeader)
                 if let subtitle {
                     Text(subtitle)
@@ -49,7 +49,7 @@ struct SettingsSection<Content: View>: View {
                         .foregroundStyle(TyprTheme.textMuted)
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 16)
             VStack(spacing: 0) { content }
                 .background(TyprTheme.bgBase, in: RoundedRectangle(cornerRadius: TyprTheme.cardRadius))
                 .overlay {
@@ -62,8 +62,10 @@ struct SettingsSection<Content: View>: View {
 }
 
 struct SettingsDivider: View {
+    var leading: CGFloat = 18
+
     var body: some View {
-        Divider().overlay(TyprTheme.borderWeak).padding(.leading, 18)
+        Divider().overlay(TyprTheme.borderWeak).padding(.leading, leading)
     }
 }
 
@@ -87,37 +89,54 @@ struct SettingsToggle: View {
     }
 }
 
+/// Compact entry point, not a feature card. Explanations belong on the destination.
+/// Normal text sizes use one line; accessibility sizes may wrap without clipping.
 struct SettingsLink: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let title: String
     let detail: String
     let icon: String
     var value: String? = nil
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(TyprTheme.agentBlue)
-                .frame(width: 38, height: 38)
-                .background(TyprTheme.layer02, in: RoundedRectangle(cornerRadius: 12))
+                .font(.system(size: 19, weight: .regular))
+                .foregroundStyle(TyprTheme.textBase)
+                .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.body.weight(.medium)).foregroundStyle(TyprTheme.textBase)
-                Text(detail).font(.subheadline).foregroundStyle(TyprTheme.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let value {
-                    Text(value).font(.caption.weight(.medium)).foregroundStyle(TyprTheme.agentBlue)
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
+                    titleLabel
+                    if let value { valueLabel(value) }
                 }
+                Spacer(minLength: 0)
+            } else {
+                titleLabel.lineLimit(1).layoutPriority(1)
+                Spacer(minLength: 8)
+                if let value { valueLabel(value).lineLimit(1) }
             }
-            Spacer(minLength: 0)
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(TyprTheme.textFaint)
                 .accessibilityHidden(true)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(detail)
+    }
+
+    private var titleLabel: some View {
+        Text(title).font(.body).foregroundStyle(TyprTheme.textBase)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func valueLabel(_ value: String) -> some View {
+        Text(value).font(.subheadline).foregroundStyle(TyprTheme.textMuted)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -173,6 +192,7 @@ struct SettingsPage<Content: View>: View {
         .background(TyprTheme.bgDeep.ignoresSafeArea())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.large)
+        .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(TyprTheme.bgDeep, for: .navigationBar)
         .scrollDismissesKeyboard(.interactively)
     }

@@ -62,6 +62,19 @@ final class SettingsPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testMenuEntryPointsStaySingleLineAndCompactAtStandardTextSize() {
+        for title in ["Keyboard", "Writing", "History & feedback", "Speech engine", "iOS keyboard settings", "Open dictation log"] {
+            let host = UIHostingController(rootView:
+                SettingsLink(title: title, detail: "Explanations stay on the destination", icon: "keyboard")
+                    .dynamicTypeSize(.large)
+            )
+            let size = host.sizeThatFits(in: CGSize(width: 353, height: 10_000))
+            XCTAssertEqual(size.height, 56, accuracy: 0.5, title)
+            XCTAssertLessThanOrEqual(size.width, 353.5, title)
+        }
+    }
+
+    @MainActor
     func testNavigationRowsWrapRatherThanFixingTheirHeight() {
         let row = SettingsLink(title: "History & feedback", detail: "Dictation log, exports and keyboard ratings",
                                icon: "clock.arrow.circlepath", value: "100 entries")

@@ -6,11 +6,11 @@ struct SettingsPreferences: View {
             NavigationLink(value: SettingsDestination.keyboard) {
                 SettingsLink(title: "Keyboard", detail: "Layout, suggestions and autocorrect", icon: "keyboard")
             }
-            SettingsDivider()
+            SettingsDivider(leading: 52)
             NavigationLink(value: SettingsDestination.writing) {
                 SettingsLink(title: "Writing", detail: "AI cleanup and custom vocabulary", icon: "textformat")
             }
-            SettingsDivider()
+            SettingsDivider(leading: 52)
             NavigationLink(value: SettingsDestination.history) {
                 SettingsLink(title: "History & feedback", detail: "Dictation log, exports and ratings", icon: "clock.arrow.circlepath")
             }

@@ -144,9 +144,7 @@ struct ContentView: View {
     private var standaloneView: some View {
         NavigationStack(path: $settingsPath) {
             settingsOverview
-                .navigationTitle("Settings")
-                .navigationBarTitleDisplayMode(.large)
-                .toolbarBackground(TyprTheme.bgDeep, for: .navigationBar)
+                .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: SettingsDestination.self) { destination in
                     SettingsPage(title: destination.title, subtitle: destination.subtitle) {
                         switch destination {
@@ -203,7 +201,7 @@ struct ContentView: View {
                     rowDivider
                     NavigationLink(value: SettingsDestination.speechEngine) {
                         SettingsLink(title: "Speech engine", detail: "On-device recognition and downloads", icon: "waveform",
-                                     value: dictation.preferredEngine?.displayName ?? "Automatic")
+                                     value: dictation.preferredEngine.map { $0 == .whisperLargeV3Turbo ? "Whisper" : $0.displayName } ?? "Automatic")
                     }
                     .buttonStyle(.plain)
                 }
