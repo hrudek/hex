@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct SettingsPreferences: View {
-    let engineName: String
-
     var body: some View {
         SettingsSection(title: "Preferences") {
             NavigationLink(value: SettingsDestination.keyboard) {
@@ -11,10 +9,6 @@ struct SettingsPreferences: View {
             SettingsDivider(leading: 52)
             NavigationLink(value: SettingsDestination.textProcessing) {
                 SettingsLink(title: "AI & vocabulary", detail: "AI cleanup and preferred spellings", icon: "wand.and.stars")
-            }
-            SettingsDivider(leading: 52)
-            NavigationLink(value: SettingsDestination.speechEngine) {
-                SettingsLink(title: "Speech engine", detail: "On-device recognition and downloads", icon: "waveform", value: engineName)
             }
             SettingsDivider(leading: 52)
             NavigationLink(value: SettingsDestination.history) {

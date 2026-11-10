@@ -7,6 +7,8 @@ enum SettingsDestination: String, CaseIterable, Hashable {
     case textProcessing = "writing"
     case history
     case speechEngine = "speech-engine"
+    case style
+    case language
 
     var title: String {
         switch self {
@@ -14,6 +16,8 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         case .textProcessing: "AI & vocabulary"
         case .history: "History & feedback"
         case .speechEngine: "Speech engine"
+        case .style: "Style"
+        case .language: "Language"
         }
     }
 
@@ -21,6 +25,8 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         switch self {
         case .keyboard, .textProcessing, .history: ""
         case .speechEngine: "Automatic chooses an engine until you select one. Audio stays on this iPhone."
+        case .style: "Choose how Typr formats your dictations. You can also change style from the keyboard."
+        case .language: "Choose the language you dictate in, not a translation language. Your speech engine stays selected."
         }
     }
 
