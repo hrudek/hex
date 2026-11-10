@@ -23,7 +23,11 @@ targets:
     platform: iOS
     sources:
       - Typr
-      - TyprShared
+      - path: TyprShared
+        excludes: [FullKeyboard/WordData]
+      - path: TyprShared/FullKeyboard/WordData
+        type: folder
+        buildPhase: resources
       - TyprActivity
       - Branding/TyprWordmark.swift
       - path: AppIcon.icon
@@ -88,7 +92,11 @@ targets:
     platform: iOS
     sources:
       - TyprKeyboard
-      - TyprShared
+      - path: TyprShared
+        excludes: [FullKeyboard/WordData]
+      - path: TyprShared/FullKeyboard/WordData
+        type: folder
+        buildPhase: resources
       - Branding/TyprWordmark.swift
     info:
       path: TyprKeyboard/Info.plist

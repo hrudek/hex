@@ -15,6 +15,28 @@ sync instructions or local dependencies.
 | Host detection safety (process-ID table) and the resuming URL table | [getdictus/dictus-ios](https://github.com/getdictus/dictus-ios) (`main`), which ports the table from [n0an/VivaDicta](https://github.com/n0an/VivaDicta) at `fac7599517d9110d0e8fc7b439b4e60709547144` | `DictusKeyboard/HostAppResolver.swift`, `DictusKeyboard/HostArbiterActivation.m`, `DictusCore/Sources/DictusCore/KnownAppSchemes.swift` | `8804c3629741b9aebe9475e0b2103769eb969dc5` | `ios/TyprShared/HostReturnCatalog.swift` (custom-scheme entries only; universal links left out), `ios/TyprKeyboard/KeyboardHost.swift` | MIT, © PIVI Solutions; VivaDicta MIT, © Anton Novoselov |
 | Whisper tokenizer special tokens: the special-token table (end, English, no-speech, no-timestamps, start-of-previous, start-of-transcript, first timestamp, transcribe, translate, whitespace) and the `allLanguageTokens` set built from `Constants.languages` | [argmaxinc/argmax-oss-swift](https://github.com/argmaxinc/argmax-oss-swift) (`v1.1.1`) | `Sources/WhisperKit/Core/Models.swift` (`WhisperTokenizerWrapper.init`) | `1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4` | `ios/Typr/WhisperTokenizer.swift` (`TyprWhisperTokenizer`: translated, not copied; every token must round-trip or loading fails instead of upstream's pre-V3 default IDs, the whitespace token is the byte-level `Ġ`, and the word split is Typr's own minimal one, not upstream's) | MIT, © 2024 argmax, inc.; notice in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
 
+## Static spatial keyboard decoder (step 2)
+
+Owner-approved narrow adaptation from [AVGVSTVS96/iikb](https://github.com/AVGVSTVS96/iikb)
+at `9c74e51f0218a814e2e99756087d3f38ef003614`, MIT, © 2026 Bassim Shahidy:
+
+- Sources: `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Decoder.swift`,
+  `Lexicon.swift`, `TouchModel.swift`.
+- Destination: `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift`.
+- Adapted ideas: bounded trie candidate search, spatial log-likelihood plus unigram
+  prior, offsets in key cells. Typr rewrites these as a fixed Gaussian and bounded
+  same-length traversal, with its own Unicode alphabet, checked TSW1 format and
+  conservative replacement policy. Not upstream's full A* search or learned/joint
+  predictive model. No hypothetical learning, edit paths, completions, dynamic
+  hit-testing, context/network model, swipe or personal/app memory is adopted.
+- None of iikb's word/model resources are copied. Separate FrequencyWords data
+  is owner-approved under CC BY-SA 4.0, not MIT; provenance, hashes and reproduction
+  are in `ios/TyprShared/FullKeyboard/WordData/README.md`.
+- Tests: `SpatialWordDecoderTests`, `ios/tools/keyboard_words/test_build.py`.
+  See `ios/KEYBOARD_SPATIAL_DECODER.md` for behavior and outstanding iPhone proof.
+- The iikb MIT notice is already reproduced in `THIRD_PARTY_NOTICES.md`; it also
+  covers this algorithm adoption at the pinned revision above.
+
 ## Carried keyboard PR paths
 
 The second row's current destination paths are listed below. In the adopted
