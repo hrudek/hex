@@ -118,10 +118,10 @@ struct DictationLogContext: Codable, Equatable, Sendable {
     var upstreamCleanupEnabled: Bool?
     var typrCleanupEnabled: Bool?
     /// Legacy (schema 2 before vocabularyTerms): active terms joined into one capped string.
-    /// Kept readable for older entries; new entries record `vocabularyTerms` instead.
+    /// Kept readable for older entries; new entries do not snapshot the full dictionary.
     var vocabularySnapshot: DictationLogText?
-    /// Every saved Custom vocabulary term at recording start, in saved order, even while the
-    /// experiment is off (`vocabularyEnabled` says whether they were applied). nil means not recorded.
+    /// Legacy complete dictionary snapshot. New entries retain only applied replacements,
+    /// never unrelated or inactive saved terms. Kept readable for existing archives.
     var vocabularyTerms: [String]?
     /// The dictation language picker's value ("automatic", "de", "en"). nil means not recorded.
     var dictationLanguage: String?
@@ -143,7 +143,7 @@ struct DictationLogContext: Codable, Equatable, Sendable {
                         loudestAverage: Float?, cleanupPath: DictationLogCleanupPath,
                         vocabularyCount: Int, vocabularyEnabled: Bool? = nil,
                         upstreamCleanupEnabled: Bool? = nil, typrCleanupEnabled: Bool? = nil,
-                        vocabularyTerms: [String]? = nil, cleanupContext: CleanupContext? = nil) -> Self {
+                        cleanupContext: CleanupContext? = nil) -> Self {
         var context = Self()
         context.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         context.appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
@@ -165,7 +165,8 @@ struct DictationLogContext: Codable, Equatable, Sendable {
         context.vocabularyEnabled = vocabularyEnabled
         context.upstreamCleanupEnabled = upstreamCleanupEnabled
         context.typrCleanupEnabled = typrCleanupEnabled
-        context.vocabularyTerms = vocabularyTerms.map(cappedVocabularyTerms)
+        // Do not retain the user's entire dictionary (including unrelated, inactive terms).
+        // Applied replacements remain recorded on the two spelling passes.
         context.dictationLanguage = cleanupContext?.language.rawValue
         context.cleanupContextSource = cleanupContext?.source?.rawValue
         context.cleanupContextCharacters = cleanupContext?.preceding?.count
@@ -247,6 +248,21 @@ struct DictationLogEntry: Identifiable, Codable, Equatable, Sendable {
     var promptRevision = CleanupPrompt.revision
     var guardRevision = CleanupGuard.revision
 
+    /// A selected cleanup path is not proof of a successful AI pass.
+    /// Rejected, late, skipped and failed answers must never be presented as revisions.
+    var feedbackAIText: DictationLogText? {
+        switch context.cleanupPath {
+        case .typr:
+            guard answerUse == "accepted" else { return nil }
+            return cleanupOutput ?? aiAnswer
+        case .upstream:
+            guard upstreamOutcome == "changed" || upstreamOutcome == "unchanged" else { return nil }
+            return cleanupOutput
+        case .none:
+            return nil
+        }
+    }
+
     var sourceLabel: String { context.keyboardJob ? "Keyboard" : "App" }
     var outputLabel: String {
         var outputs = ["shown in app"]
@@ -302,7 +318,22 @@ final class DictationLogStore {
     private var storageGeneration: UInt64 = 0
     private(set) var archiveID = UUID()
     private(set) var isEnabled: Bool
-    private(set) var isLoading = true
+    @ObservationIgnored private var feedbackLoadWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var isLoading = true {
+        didSet {
+            if !isLoading {
+                let waiters = feedbackLoadWaiters
+                feedbackLoadWaiters = []
+                waiters.forEach { $0.resume() }
+            }
+        }
+    }
+
+    /// Resolve lineage before creating an offer. Capture itself never waits for archive I/O.
+    func waitForFeedbackReadiness() async {
+        guard isLoading else { return }
+        await withCheckedContinuation { feedbackLoadWaiters.append($0) }
+    }
     private(set) var isClearing = false
     private var feedbackPermission: DictationFeedbackPermission?
     private let feedbackBridge: DictationFeedbackBridge?
@@ -523,14 +554,15 @@ final class DictationLogStore {
         }
     }
     func loadRecent() { for row in metadata.prefix(Self.maximumEntries) { loadEntry(row.id) } }
-    /// A nil note keeps the saved note (the inline "What I said" editor owns only the reference).
-    func saveFeedback(for id: UUID, expectedText: String, note: String?) {
-        guard expectedText.utf8.count <= 4_000, (note?.utf8.count ?? 0) <= 4_000 else { return }
+    /// nil preserves a field; an empty string explicitly clears it.
+    /// The everyday note editor never creates or overwrites a human reference.
+    func saveFeedback(for id: UUID, expectedText: String?, note: String?) {
+        guard (expectedText?.utf8.count ?? 0) <= 4_000, (note?.utf8.count ?? 0) <= 4_000 else { return }
         let order = DictationFeedbackOrder.app()
         loadEntry(id) { [weak self] source in
             guard let self else { return }; var entry = source
             if let previous = entry.referenceOrder, order <= previous { return }
-            entry.expectedText = expectedText.isEmpty ? nil : DictationLogText(expectedText)
+            if let expectedText { entry.expectedText = expectedText.isEmpty ? nil : DictationLogText(expectedText) }
             if let note { entry.feedbackNote = note.isEmpty ? nil : DictationLogText(note) }
             entry.referenceOrder = order; entry.revision = (entry.revision ?? 1) + 1; self.put(entry)
         }

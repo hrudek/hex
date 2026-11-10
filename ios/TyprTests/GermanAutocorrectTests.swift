@@ -6,15 +6,17 @@ import XCTest
 private final class FakeTextChecker: TextChecking {
     var valid: Set<String>
     var guessTable: [String: [String]]
+    var completionTable: [String: [String]]
 
-    init(valid: Set<String> = [], guesses: [String: [String]] = [:]) {
+    init(valid: Set<String> = [], guesses: [String: [String]] = [:], completions: [String: [String]] = [:]) {
         self.valid = valid
         self.guessTable = guesses
+        self.completionTable = completions
     }
 
     func isWordValid(_ word: String) -> Bool { valid.contains(word) }
     func guesses(for word: String) -> [String] { guessTable[word] ?? [] }
-    func completions(for prefix: String) -> [String] { [] }
+    func completions(for prefix: String) -> [String] { completionTable[prefix] ?? [] }
 }
 
 @MainActor
@@ -122,11 +124,77 @@ final class GermanAutocorrectTests: XCTestCase {
         XCTAssertEqual(target.text, "fuer")
     }
 
-    func testSettingsDefaultOnAndPersist() {
+    func testLanguageSettingsDefaultOnAndPersistIndependently() {
         let settings = TyprSettings(defaults: defaults)
-        XCTAssertTrue(settings.germanAutocorrect)
-        settings.germanAutocorrect = false
-        XCTAssertFalse(TyprSettings(defaults: defaults).germanAutocorrect)
+        defaults.set(false, forKey: "typr.germanAutocorrect")
+        XCTAssertTrue(settings.autocorrectGerman, "Retired experiment does not disable German")
+        XCTAssertTrue(settings.autocorrectEnglish)
+        for german in [false, true] {
+            for english in [false, true] {
+                settings.autocorrectGerman = german
+                settings.autocorrectEnglish = english
+                let reloaded = TyprSettings(defaults: defaults)
+                XCTAssertEqual(reloaded.autocorrectGerman, german)
+                XCTAssertEqual(reloaded.autocorrectEnglish, english)
+                let keyboard = FullKeyboardSettings(defaults: defaults)
+                keyboard.autocorrect = false
+                keyboard.autocorrect = true
+                XCTAssertEqual(reloaded.autocorrectGerman, german)
+                XCTAssertEqual(reloaded.autocorrectEnglish, english)
+            }
+        }
+    }
+
+    func testLanguageCombinationsAndMasterSwitch() {
+        for german in [false, true] {
+            for english in [false, true] {
+                let engine = makeEngine(germanOn: german)
+                engine.englishEnabled = english
+                XCTAssertEqual(fix(engine, "fuer"), german ? "für" : nil)
+                XCTAssertEqual(fix(engine, "teh"), english ? "the" : nil)
+                XCTAssertEqual(fix(engine, "dont"), english ? "don't" : nil)
+                engine.isEnabled = false
+                XCTAssertNil(fix(engine, "fuer"))
+                XCTAssertNil(fix(engine, "teh"))
+            }
+        }
+    }
+
+    func testGermanOnlyDoesNotUseEnglishDictionaryOrDeterministicFixes() {
+        let engine = makeEngine(english: ["hasu"], germanGuesses: ["hasu": ["Haus"]])
+        engine.englishEnabled = false
+        XCTAssertEqual(fix(engine, "hasu"), "Haus")
+        XCTAssertNil(fix(engine, "teh"))
+        XCTAssertNil(fix(engine, "dont"))
+        let suggestions = engine.suggestions(beforeInput: "hasu", field: .text, autocorrectionType: .default)
+        XCTAssertTrue(suggestions.contains { $0.replacement == "Haus" })
+        let contractions = engine.suggestions(beforeInput: "well", field: .text, autocorrectionType: .default)
+        XCTAssertFalse(contractions.contains { $0.replacement == "we'll" })
+    }
+
+    func testEnglishDictionaryGuessesAndCompletionsRespectSelection() {
+        let engine = AutocorrectEngine(
+            checker: FakeTextChecker(guesses: ["helo": ["hello"]], completions: ["hel": ["hello"]]),
+            learnedWords: LearnedWordsStore(defaults: defaults)
+        )
+        XCTAssertEqual(fix(engine, "helo"), "hello")
+        XCTAssertTrue(engine.suggestions(beforeInput: "hel", field: .text, autocorrectionType: .default)
+            .contains { $0.replacement == "hello" })
+        engine.englishEnabled = false
+        XCTAssertNil(fix(engine, "helo"))
+        let suggestions = engine.suggestions(beforeInput: "helo", field: .text, autocorrectionType: .default)
+        XCTAssertFalse(suggestions.contains { $0.replacement == "hello" })
+        XCTAssertFalse(engine.suggestions(beforeInput: "hel", field: .text, autocorrectionType: .default)
+            .contains { $0.replacement == "hello" })
+    }
+
+    func testTextReplacementIsIndependentOfLanguageSelection() {
+        let engine = makeEngine(germanOn: false)
+        engine.englishEnabled = false
+        engine.loadLexiconEntries([(userInput: "omw", documentText: "On my way!")])
+        XCTAssertEqual(fix(engine, "omw"), "On my way!")
+        engine.isEnabled = false
+        XCTAssertNil(fix(engine, "omw"))
     }
 
     func testRealDictionary() throws {

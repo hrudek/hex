@@ -197,9 +197,8 @@ extension DictationLogView {
     }
 }
 
-/// Typr: the everyday feedback view. Recognized text and the AI correction, each with Copy,
-/// then one field for what was actually said/expected. Everything else is still recorded and
-/// exported, but stays behind "More details".
+/// Original recognition and, only after an accepted AI pass, its result; then a free-form note.
+/// Diagnostic evidence and legacy human references remain under More details.
 struct DictationLogDetail: View {
     let store: DictationLogStore
     let entryID: UUID
@@ -213,16 +212,25 @@ struct DictationLogDetail: View {
         Group {
             if let entry {
                 List {
-                    DictationCopyableTextSection(title: "Recognized", field: entry.recognized,
-                        accessibilityName: "recognized text")
-                    DictationCopyableTextSection(title: "AI correction", field: entry.finalText,
-                        accessibilityName: "AI correction",
-                        footer: entry.context.cleanupPath == .none ? "No AI pass ran; this is the final text provided." : nil)
-                    DictationReferenceEditor(store: store, entry: entry, focusesOnAppear: focusesReference)
+                    DictationCopyableTextSection(title: "Original transcription", field: entry.recognized,
+                        accessibilityName: "original transcription",
+                        footer: "Unchanged output from speech recognition.")
+                    if let revised = entry.feedbackAIText {
+                        DictationCopyableTextSection(title: "AI-revised text", field: revised,
+                            accessibilityName: "AI-revised text",
+                            footer: "Accepted AI revision, before final style formatting.")
+                    }
+                    DictationNoteEditor(store: store, entry: entry, focusesOnAppear: focusesReference)
+                    if let problem = store.storageProblem {
+                        Section {
+                            Text(problem).font(.footnote).foregroundStyle(.red)
+                            Button("Retry storage") { store.retry() }
+                        }
+                    }
                     Section { DictationRatingButtons(store: store, entry: entry, mode: .rating) }
                     Section {
                         Toggle("More details", isOn: $showsDetails.animation())
-                            .accessibilityHint("Shows categories, notes, processing stages and diagnostics")
+                            .accessibilityHint("Shows categories, legacy references, processing stages and diagnostics")
                     }
                     if showsDetails { details(entry) }
                 }

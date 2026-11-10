@@ -8,9 +8,8 @@ struct TyprSettings {
     private enum Key {
         static let aiCleanup = "typr.aiCleanup"
         static let dictationLog = "typr.dictationLog"
-        static let showCleanupModel = "typr.showCleanupModel"
-        static let germanAutocorrect = "typr.germanAutocorrect"
-        static let keyboardSwitchKey = "typr.keyboardSwitchKey"
+        static let autocorrectGerman = "typr.autocorrectGerman"
+        static let autocorrectEnglish = "typr.autocorrectEnglish"
         static let hideSuggestionBar = "typr.hideSuggestionBar"
         static let dictationLanguage = "typr.dictationLanguage"
         static let preferredSpeechEngine = "typr.preferredSpeechEngine"
@@ -28,12 +27,6 @@ struct TyprSettings {
         nonmutating set { defaults?.set(newValue, forKey: Key.aiCleanup) }
     }
 
-    /// Show the configured cleanup model in the Typr card, without changing cleanup itself.
-    var showCleanupModel: Bool {
-        get { defaults?.object(forKey: Key.showCleanupModel) as? Bool ?? true }
-        nonmutating set { defaults?.set(newValue, forKey: Key.showCleanupModel) }
-    }
-
     /// Collection only. Off interrupts pending log entries but deliberately keeps saved history.
     var dictationLog: Bool {
         get { defaults?.object(forKey: Key.dictationLog) as? Bool ?? true }
@@ -46,17 +39,16 @@ struct TyprSettings {
         nonmutating set { defaults?.set(newValue, forKey: DictationFeedbackBridge.stripKey) }
     }
 
-    /// German autocorrect on the full keyboard (ae/oe/ue/ss to umlauts, German typo fixes). On by default.
-    var germanAutocorrect: Bool {
-        get { defaults?.object(forKey: Key.germanAutocorrect) as? Bool ?? true }
-        nonmutating set { defaults?.set(newValue, forKey: Key.germanAutocorrect) }
+    /// Independently selected autocorrect languages. Both default on.
+    /// Retired experiment switches do not override the language selection.
+    var autocorrectGerman: Bool {
+        get { defaults?.object(forKey: Key.autocorrectGerman) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.autocorrectGerman) }
     }
 
-    /// A key on both keyboards switches between the full keyboard and the compact dictation
-    /// bar (the full keyboard's key needs a short hold). On by default.
-    var keyboardSwitchKey: Bool {
-        get { defaults?.object(forKey: Key.keyboardSwitchKey) as? Bool ?? true }
-        nonmutating set { defaults?.set(newValue, forKey: Key.keyboardSwitchKey) }
+    var autocorrectEnglish: Bool {
+        get { defaults?.object(forKey: Key.autocorrectEnglish) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.autocorrectEnglish) }
     }
 
     /// The dictation language (a picker, not a switch). Automatic, the default, keeps the

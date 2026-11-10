@@ -95,10 +95,8 @@ struct DictationCopyableTextSection: View {
     }
 }
 
-/// Typr: "What I said" — the human reference (`expectedText`), edited inline. Starts empty for a
-/// new entry: model output never becomes a label without the owner pasting it on purpose.
-/// Saving keeps the separate note untouched.
-struct DictationReferenceEditor: View {
+/// Free-form expectations, never a corrected transcript or a training reference.
+struct DictationNoteEditor: View {
     let store: DictationLogStore
     let entry: DictationLogEntry
     var focusesOnAppear = false
@@ -111,7 +109,7 @@ struct DictationReferenceEditor: View {
         self.store = store
         self.entry = entry
         self.focusesOnAppear = focusesOnAppear
-        let current = entry.expectedText?.text ?? ""
+        let current = entry.feedbackNote?.text ?? ""
         _text = State(initialValue: current)
         _saved = State(initialValue: current)
     }
@@ -121,10 +119,19 @@ struct DictationReferenceEditor: View {
 
     var body: some View {
         Section {
-            TextEditor(text: $text)
-                .frame(minHeight: 110)
-                .focused($focused)
-                .accessibilityLabel("What I said")
+            ZStack(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text("Describe what did not meet your expectations or what could be improved …")
+                        .foregroundStyle(TyprTheme.textMuted)
+                        .padding(.horizontal, 5).padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $text)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 130)
+                    .focused($focused)
+                    .accessibilityLabel("What did you expect differently?")
+            }
             HStack {
                 Button(dirty ? "Save" : "Saved") { save() }
                     .buttonStyle(.borderedProminent)
@@ -139,14 +146,14 @@ struct DictationReferenceEditor: View {
                 Text("Too long: limit is 4,000 UTF-8 bytes. The text will not be truncated silently.")
                     .font(.footnote).foregroundStyle(.red)
             }
-            if entry.expectedText?.truncated == true {
-                Text("The saved text was truncated. Restore the complete text before using it as a reference.")
+            if entry.feedbackNote?.truncated == true {
+                Text("The saved note was truncated. You can restore the complete note here.")
                     .font(.footnote).foregroundStyle(.red)
             }
         } header: {
-            Text("What I said / expected")
+            Text("What did you expect differently?")
         } footer: {
-            Text("Copy a text above, paste it here and correct it to what you actually said or expected. Stored only on this iPhone and included in exports.")
+            Text("Share your observations, criticism or wishes. No corrected text is needed. Saved with this dictation on this iPhone and included in exports; nothing is uploaded automatically.")
         }
         .onAppear {
             // One-shot: a List re-fires onAppear when the section scrolls back into view.
@@ -154,7 +161,7 @@ struct DictationReferenceEditor: View {
             didAutoFocus = true
             Task { try? await Task.sleep(for: .milliseconds(450)); focused = true }
         }
-        .onChange(of: entry.expectedText?.text) { _, newValue in
+        .onChange(of: entry.feedbackNote?.text) { _, newValue in
             // Another editor saved: follow it unless there are unsaved edits here.
             let value = newValue ?? ""
             if !dirty { text = value }
@@ -165,7 +172,7 @@ struct DictationReferenceEditor: View {
 
     private func save() {
         guard withinLimit else { return }
-        store.saveFeedback(for: entry.id, expectedText: text, note: nil)
+        store.saveFeedback(for: entry.id, expectedText: nil, note: text)
         saved = text
     }
 }

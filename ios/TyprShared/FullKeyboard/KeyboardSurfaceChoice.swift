@@ -23,9 +23,8 @@ struct KeyboardSurfaceChoice {
         nonmutating set { defaults.set(newValue, forKey: Self.key) }
     }
 
-    /// Whether the full keyboard is mounted: its experiment on, and, with the Typr switch
-    /// key on, the compact bar not chosen. With the switch off this is today's rule.
-    static func wantsFullKeyboard(experimentOn: Bool, switchKeyOn: Bool, compactChosen: Bool) -> Bool {
-        experimentOn && !(switchKeyOn && compactChosen)
+    /// Whether the full keyboard is enabled and the compact bar was not chosen.
+    static func wantsFullKeyboard(experimentOn: Bool, compactChosen: Bool) -> Bool {
+        experimentOn && !compactChosen
     }
 }
