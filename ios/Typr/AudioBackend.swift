@@ -287,8 +287,7 @@ private final class TapCaptureAdapter: ActiveAudioCapture {
 
 @MainActor
 final class SystemAudioManager: AudioManaging {
-    private var engine = AVAudioEngine()
-    private var tapInstalled = false
+    private var inputGraph = TyprAudioInput()
     private var keepaliveAllowsBluetooth: Bool?
     private let tapRouter = TapRouter()
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
@@ -297,7 +296,7 @@ final class SystemAudioManager: AudioManaging {
     var onUnexpectedCaptureEnd: ((URL, Bool) -> Void)?
 
     var isKeepaliveRunning: Bool {
-        engine.isRunning
+        inputGraph.isRunning
     }
 
     init() {
@@ -322,26 +321,12 @@ final class SystemAudioManager: AudioManaging {
         stopKeepalive()
         try configureAudioSession(allowBluetooth: allowBluetooth)
 
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw CocoaError(.coderInvalidValue)
-        }
-
-        input.installTap(
-            onBus: 0,
-            bufferSize: 4_096,
-            format: format,
-            block: Self.tapBlock(routingTo: tapRouter)
-        )
-        tapInstalled = true
-        engine.prepare()
-        try engine.start()
+        try inputGraph.start(bufferHandler: Self.tapBlock(routingTo: tapRouter))
         keepaliveAllowsBluetooth = allowBluetooth
     }
 
     func ensureKeepalive(allowBluetooth: Bool) throws {
-        if engine.isRunning, keepaliveAllowsBluetooth == allowBluetooth {
+        if inputGraph.isRunning, keepaliveAllowsBluetooth == allowBluetooth {
             return
         }
         try startKeepalive(allowBluetooth: allowBluetooth)
@@ -349,14 +334,7 @@ final class SystemAudioManager: AudioManaging {
 
     func stopKeepalive() {
         keepaliveAllowsBluetooth = nil
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        if engine.isRunning {
-            engine.stop()
-        }
-        engine.reset()
+        inputGraph.stop()
     }
 
     func deactivateSession() {
@@ -468,8 +446,8 @@ final class SystemAudioManager: AudioManaging {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.tapInstalled = false
-                    self.engine = AVAudioEngine()
+                    self.inputGraph.stop()
+                    self.inputGraph = TyprAudioInput()
                     self.onSystemEvent?(.mediaServicesReset)
                 }
             }
