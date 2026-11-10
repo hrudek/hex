@@ -536,6 +536,7 @@ final class WhisperTranscriberTests: XCTestCase {
             try await WhisperPreparationComponent.prepare(optimizing: true, progressHandler: {
                 progress.append($0.detail)
             }) { _ in
+                // The nonescaping loader is awaited in the same task as the sequence.
                 withUnsafeCurrentTask { $0?.cancel() }
             }
         }

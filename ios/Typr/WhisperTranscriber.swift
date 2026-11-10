@@ -63,8 +63,8 @@ nonisolated enum WhisperPreparationComponent: String, CaseIterable, Sendable {
     }
 
     /// Keep each prewarm awaited before announcing or allocating the next component.
-    /// The isolated parameter keeps WhisperKit's non-Sendable models on their owning actor;
-    /// the closure also lets tests verify ordering/failure without allocating real model weights.
+    /// Preserve the caller's isolation; the closure lets tests verify ordering/failure without
+    /// allocating real model weights.
     static func prepare(
         optimizing: Bool,
         progressHandler: @Sendable (ModelPreparationProgress) -> Void,
@@ -96,8 +96,9 @@ nonisolated enum WhisperPreparationComponent: String, CaseIterable, Sendable {
 /// Whisper Large V3 Turbo on this iPhone through WhisperKit. Preparation is local only: it never
 /// downloads (no `WhisperKit.download`, `download: false`, a Typr tokenizer set before loading so
 /// WhisperKit's Hub tokenizer fallback is unreachable). Only `WhisperModelInstaller` downloads.
-/// The non-Sendable `WhisperKit` instance never leaves this actor; it is released by ARC (never
-/// `unloadModels()` while a transcription may hold it), and Typr never holds two instances.
+/// The loader exclusively owns the non-Sendable `WhisperKit` until it transfers the completed
+/// instance into this actor. It is released by ARC (never `unloadModels()` while a transcription
+/// may hold it), and Typr never holds two instances.
 actor WhisperTranscriber: LocalTranscribing {
     enum TranscriberError: LocalizedError, Equatable {
         case notInstalled
@@ -252,11 +253,13 @@ actor WhisperTranscriber: LocalTranscribing {
     /// Local only. Prewarming specializes the three models one at a time and releases each
     /// before the real load, so specialization never holds all model weights at once (WhisperKit's
     /// documented peak-memory trade-off; a cached load costs about twice as long, under a second).
-    private func loadKit(
+    // Task-local construction keeps the non-Sendable kit disconnected from actor state while
+    // the sequential loader closure uses it. Only the fully loaded instance is transferred in.
+    private nonisolated func loadKit(
         tokenizer: TyprWhisperTokenizer,
         optimizing: Bool,
         progressHandler: @escaping @Sendable (ModelPreparationProgress) -> Void
-    ) async throws -> WhisperKit {
+    ) async throws -> sending WhisperKit {
         let config = WhisperKitConfig(
             modelFolder: store.modelFolder.path,
             tokenizerFolder: store.tokenizerFolder,

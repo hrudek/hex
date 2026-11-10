@@ -754,7 +754,7 @@ final class DictationController {
         phase = .preparingModel
         copied = false
         modelPreparation = ModelPreparationProgress(
-            fractionCompleted: 0,
+            fractionCompleted: preferredEngine == .whisperLargeV3Turbo ? nil : 0,
             detail: "Checking model files"
         )
         let preferred = preferredEngine
