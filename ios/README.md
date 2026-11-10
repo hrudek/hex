@@ -68,9 +68,15 @@ it never accesses the microphone, speech model, or network.
     dictations: iOS won't start microphone input while Typr is in the
     background, and restarting it there ended the session after each one.
   - **Styles:** `Polished` (sentence case + punctuation + filler trim),
-    `Casual` (lowercase chat without trailing period), `Notes` (spoken
+    `Casual` (chat with natural capitalization, preserving recognized names and nouns),
+    `Very casual` (the former Casual: lowercase chat), `Notes` (spoken
     `"bullet"` / `"new line"` / `"new paragraph"` markers), and `Verbatim`, with cursor-aware
-    insertion spacing and repeating backspace. Filler trim removes äh/ähm/öhm/hm
+    insertion spacing and repeating backspace. Both chat styles drop the final period
+    even after multiple sentences, keeping internal punctuation and final `?` / `!`.
+    They share the same informal AI cleanup; without AI, Casual preserves recognition
+    casing and capitalizes sentence starts rather than running keyboard autocorrect.
+    Existing saved Casual selections and historical logs retain the lowercase behavior
+    under the Very casual name. Filler trim removes äh/ähm/öhm/hm
     always, but English um/uh/er/ah only from text that reads as English ("um 13 Uhr",
     "was er sagt" stay); a period after bzw., z. B., d. h., ca., usw. and similar
     abbreviations does not capitalize the next word. In every style, Verbatim
@@ -166,7 +172,7 @@ Purpose-based detail pages replace the old Typr/Experiments split:
   vocabulary/sounds-like forms. Technical explanations expand on demand.
 - **Speech engine:** explicit selection, status, downloads, retry/cancel, language
   warnings and expandable engine details. No automatic engine switching changes.
-- **Style:** Polished, Casual, Notes and Verbatim, each with a short explanation
+- **Style:** Polished, Casual, Very casual, Notes and Verbatim, each with a short explanation
   and a checkmark for the current choice. The page explains that AI cleanup skips
   Verbatim but vocabulary corrections still apply.
 - **Language:** single-line, label-only Automatic, German and English choices,

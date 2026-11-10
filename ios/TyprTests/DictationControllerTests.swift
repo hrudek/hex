@@ -631,9 +631,9 @@ final class DictationControllerTests: XCTestCase {
         controller.prepareModel()
         try await settle()
 
-        // Casual lowercases the whole sentence, so the second spelling pass has to
+        // Very casual lowercases the whole sentence, so the second spelling pass has to
         // restore the listed term.
-        controller.startRecording(keyboardJobID: "vocabulary-casual", styleOverride: .casual)
+        controller.startRecording(keyboardJobID: "vocabulary-casual", styleOverride: .veryCasual)
         try await settle()
         controller.finishRecording()
         try await settle()

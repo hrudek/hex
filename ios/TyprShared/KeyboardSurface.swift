@@ -575,22 +575,26 @@ struct KeyboardSurfaceView: View {
 
     private func styleTrayBar(palette p: KeyboardChromePalette) -> some View {
         HStack(spacing: 4) {
-            ForEach(DictationStyle.allCases, id: \.self) { candidate in
-                let active = candidate == model.style
-                Button {
-                    model.onStyleSelected?(candidate)
-                    model.setActiveTray(.none, reduceMotion: reduceMotion)
-                } label: {
-                    Text(candidate.label)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(active ? p.textBase : p.textMuted)
-                        .padding(.horizontal, 11)
-                        .frame(height: 26)
-                        .background(active ? p.chipActiveFill : p.chipIdleFill, in: Capsule())
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(DictationStyle.allCases, id: \.self) { candidate in
+                        let active = candidate == model.style
+                        Button {
+                            model.onStyleSelected?(candidate)
+                            model.setActiveTray(.none, reduceMotion: reduceMotion)
+                        } label: {
+                            Text(candidate.label)
+                                .font(.system(size: 13, weight: .medium))
+                                .fixedSize()
+                                .foregroundStyle(active ? p.textBase : p.textMuted)
+                                .padding(.horizontal, 11)
+                                .frame(height: 26)
+                                .background(active ? p.chipActiveFill : p.chipIdleFill, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
             }
-            Spacer(minLength: 4)
             closeTrayButton(palette: p)
         }
         .frame(height: 26)

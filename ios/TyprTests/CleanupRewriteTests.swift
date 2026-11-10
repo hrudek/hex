@@ -117,6 +117,7 @@ final class CleanupRewriteTests: XCTestCase {
     func testCasualAndNotesKeepTheirSpecifics() throws {
         let casual = try CleanupPrompt.transcript("bin gleich da okay", style: .casual)
         XCTAssertTrue(casual.contains("Style: casual chat message"))
+        XCTAssertEqual(casual, try CleanupPrompt.transcript("bin gleich da okay", style: .veryCasual))
         let notes = try CleanupPrompt.transcript("bullet Milch new line Brot", style: .notes)
         XCTAssertTrue(notes.contains("Keep the spoken words bullet, next bullet, bullet point, new line and new paragraph exactly as they are."))
         XCTAssertTrue(notes.contains("Add no line breaks or paragraphs."))
@@ -224,7 +225,8 @@ final class CleanupRewriteTests: XCTestCase {
         let answer = "Das Feedback-Menü hat Know-how für PR-Feedback, 5-10 TestFlight E-Mails und den Open-Source-Build."
         let cases: [(DictationStyle, Bool, Bool, String)] = [
             (.polished, false, false, spaced + "."),
-            (.casual, false, false, spaced.lowercased()),
+            (.casual, false, false, spaced),
+            (.veryCasual, false, false, spaced.lowercased()),
             (.notes, false, false, spaced),
             (.verbatim, false, false, spaced),
             (.verbatim, true, false, spaced),

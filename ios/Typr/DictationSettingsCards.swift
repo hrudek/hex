@@ -4,7 +4,8 @@ extension DictationStyle {
     var settingsDescription: String {
         switch self {
         case .polished: "Sentence case, clean punctuation and fewer fillers. For messages and longer text."
-        case .casual: "Lowercase chat text. Drops the final period in a single sentence; keeps question and exclamation marks."
+        case .casual: "Chat text with natural capitalization, like typing with iPhone autocorrect. Drops the final period, even after several sentences; keeps question and exclamation marks."
+        case .veryCasual: "Lowercase chat text. Drops the final period, even after several sentences; keeps question and exclamation marks."
         case .notes: "Turns spoken “bullet”, “new line” and “new paragraph” into bullets and line breaks. For lists and quick notes."
         case .verbatim: "Skips AI cleanup and style formatting. Vocabulary corrections, spaces instead of hyphens between words and basic spacing still apply."
         }

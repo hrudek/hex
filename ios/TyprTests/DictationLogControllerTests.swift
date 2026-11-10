@@ -216,12 +216,12 @@ final class DictationLogControllerTests: XCTestCase {
         try await f.dispose()
     }
 
-    func testCasualFormattingRestorationHasSeparateReplacementEvidence() async throws {
+    func testVeryCasualFormattingRestorationHasSeparateReplacementEvidence() async throws {
         let f = LogControllerFixture()
         let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
         vocabulary.isEnabled = true
         vocabulary.terms = ["iPhone"]
-        f.controller.setStyle(.casual)
+        f.controller.setStyle(.veryCasual)
         await f.asr.setOutput("my iphone works")
         f.model.result = "my iPhone works"
         try await f.start()
