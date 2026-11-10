@@ -60,6 +60,8 @@ actor WhisperTranscriber: LocalTranscribing {
         case silentAudio
         case emptyTranscript
         case corruptModel(String)
+        /// Specialization is expected and the storage it needs is not free (bytes available).
+        case insufficientStorage(Int64)
 
         var errorDescription: String? {
             switch self {
@@ -73,19 +75,37 @@ actor WhisperTranscriber: LocalTranscribing {
                 "Whisper returned no text. Please try dictating again."
             case .corruptModel(let detail):
                 "The Whisper model on this iPhone could not be loaded: \(detail) Download Whisper again."
+            case .insufficientStorage(let available):
+                "Whisper must be optimized for this iPhone first, which needs about "
+                    + ByteCountFormatter.string(fromByteCount: WhisperModelSpec.optimizationStorageBytes, countStyle: .file)
+                    + " of free storage ("
+                    + ByteCountFormatter.string(fromByteCount: available, countStyle: .file)
+                    + " is free). Free up storage, then prepare Whisper again."
             }
         }
     }
+
+    nonisolated static let loadingDetail = "Loading Whisper"
+    nonisolated static let optimizingDetail = "Optimizing Whisper for this iPhone. This can take a few minutes."
 
     nonisolated let displayName = SpeechEngineChoice.whisperLargeV3Turbo.displayName
 
     private let store: WhisperModelStore
     private let preparedLanguage: DictationLanguage
+    private let availableCapacity: @Sendable () -> Int64?
+    private let environment: String
     private var kit: WhisperKit?
 
-    init(store: WhisperModelStore = .production, language: DictationLanguage) {
+    init(
+        store: WhisperModelStore = .production,
+        language: DictationLanguage,
+        availableCapacity: (@Sendable () -> Int64?)? = nil,
+        environment: String = WhisperPreparationPlan.currentEnvironment()
+    ) {
         self.store = store
         self.preparedLanguage = language
+        self.availableCapacity = availableCapacity ?? { store.availableCapacity() }
+        self.environment = environment
     }
 
     var languageName: String {
@@ -151,10 +171,40 @@ actor WhisperTranscriber: LocalTranscribing {
         }
         try Task.checkCancellation()
 
+        let record = store.preparationRecord
+        let plan = WhisperPreparationPlan.decide(record: record, environment: environment,
+                                                 availableBytes: availableCapacity())
+        if case .insufficientStorage(let available) = plan {
+            throw TranscriberError.insufficientStorage(available)
+        }
         progressHandler(ModelPreparationProgress(
             fractionCompleted: 0.15,
-            detail: "Optimizing Whisper for this iPhone. The first time can take several minutes."
+            detail: plan == .optimize ? Self.optimizingDetail : Self.loadingDetail
         ))
+        // Marked before Core ML starts: if iOS terminates Typr while specializing, the next
+        // preparation expects specialization again and checks storage first.
+        store.writePreparationRecord(WhisperPreparationRecord(loadedEnvironment: record.loadedEnvironment,
+                                                              inProgress: true))
+        let kit: WhisperKit
+        do {
+            kit = try await loadKit(tokenizer: tokenizer)
+        } catch {
+            store.writePreparationRecord(WhisperPreparationRecord(loadedEnvironment: record.loadedEnvironment,
+                                                                  inProgress: false))
+            throw error
+        }
+        store.writePreparationRecord(WhisperPreparationRecord(loadedEnvironment: environment, inProgress: false))
+        // Skipped with the loader above; without it language prefill and detection are wrong.
+        kit.textDecoder.isModelMultilingual = true
+        try Task.checkCancellation()
+        self.kit = kit
+        progressHandler(ModelPreparationProgress(fractionCompleted: 1, detail: "Whisper ready"))
+    }
+
+    /// Local only. Prewarming specializes the three models one at a time and releases each
+    /// before the real load, so specialization never holds all model weights at once (WhisperKit's
+    /// documented peak-memory trade-off; a cached load costs about twice as long, under a second).
+    private func loadKit(tokenizer: TyprWhisperTokenizer) async throws -> WhisperKit {
         let config = WhisperKitConfig(
             modelFolder: store.modelFolder.path,
             tokenizerFolder: store.tokenizerFolder,
@@ -169,6 +219,8 @@ actor WhisperTranscriber: LocalTranscribing {
         // Set before loading: loadModels() then skips its tokenizer loader (and its Hub fallback).
         kit.tokenizer = tokenizer
         do {
+            try await kit.prewarmModels()
+            try Task.checkCancellation()
             try await kit.loadModels()
             try Self.validateLogitsSize(kit.textDecoder.logitsSize)
         } catch is CancellationError {
@@ -176,11 +228,7 @@ actor WhisperTranscriber: LocalTranscribing {
         } catch {
             throw TranscriberError.corruptModel(error.localizedDescription)
         }
-        // Skipped with the loader above; without it language prefill and detection are wrong.
-        kit.textDecoder.isModelMultilingual = true
-        try Task.checkCancellation()
-        self.kit = kit
-        progressHandler(ModelPreparationProgress(fractionCompleted: 1, detail: "Whisper ready"))
+        return kit
     }
 
     func transcribe(_ audioURL: URL) async throws -> String {

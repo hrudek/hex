@@ -359,6 +359,80 @@ final class WhisperTranscriberTests: XCTestCase {
         XCTAssertFalse(odd.wordTokens.flatMap { $0 }.contains(Int.max))
     }
 
+    // MARK: - Optimization storage guard
+
+    private static let env = "Version 27.0.1 (Build 24A446) | 1.0 (42) | rev"
+    private static let enough = WhisperModelSpec.optimizationStorageBytes
+    private static let tooLittle: Int64 = 300_000_000
+
+    func testFirstPreparationOptimizesOnlyWithEnoughStorage() {
+        let fresh = WhisperPreparationRecord()
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: fresh, environment: Self.env, availableBytes: Self.enough),
+                       .optimize)
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: fresh, environment: Self.env, availableBytes: Self.tooLittle),
+                       .insufficientStorage(available: Self.tooLittle))
+        // Unknown free space never blocks; Core ML reports its own failure.
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: fresh, environment: Self.env, availableBytes: nil),
+                       .optimize)
+    }
+
+    func testCompletedLoadInTheSameEnvironmentLoadsEvenWithLittleStorage() {
+        let loaded = WhisperPreparationRecord(loadedEnvironment: Self.env, inProgress: false)
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: loaded, environment: Self.env, availableBytes: Self.tooLittle),
+                       .load)
+    }
+
+    func testOSOrTyprUpdateExpectsOptimizationAgain() {
+        let loaded = WhisperPreparationRecord(loadedEnvironment: Self.env, inProgress: false)
+        let updated = "Version 27.1 (Build 24B5) | 1.0 (43) | rev"
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: loaded, environment: updated, availableBytes: Self.enough),
+                       .optimize)
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: loaded, environment: updated, availableBytes: Self.tooLittle),
+                       .insufficientStorage(available: Self.tooLittle))
+    }
+
+    func testUnfinishedPreviousPreparationChecksStorageAgain() {
+        // iOS terminated Typr while Core ML specialized: the cache cannot be trusted.
+        let interrupted = WhisperPreparationRecord(loadedEnvironment: Self.env, inProgress: true)
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: interrupted, environment: Self.env, availableBytes: Self.tooLittle),
+                       .insufficientStorage(available: Self.tooLittle))
+        XCTAssertEqual(WhisperPreparationPlan.decide(record: interrupted, environment: Self.env, availableBytes: Self.enough),
+                       .optimize)
+    }
+
+    func testPreparationRecordRoundTripsAndToleratesMissingOrDamagedFiles() throws {
+        XCTAssertEqual(store.preparationRecord, WhisperPreparationRecord())
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let record = WhisperPreparationRecord(loadedEnvironment: Self.env, inProgress: true)
+        store.writePreparationRecord(record)
+        XCTAssertEqual(store.preparationRecord, record)
+        try Data("not json".utf8).write(to: store.preparationURL)
+        XCTAssertEqual(store.preparationRecord, WhisperPreparationRecord())
+        // The record is not part of the install: it never changes "installed".
+        XCTAssertNotEqual(WhisperModelStore.preparationFileName, WhisperModelStore.markerFileName)
+    }
+
+    func testCurrentEnvironmentNamesOSTyprAndModelRevision() {
+        let environment = WhisperPreparationPlan.currentEnvironment()
+        XCTAssertTrue(environment.contains(ProcessInfo.processInfo.operatingSystemVersionString))
+        XCTAssertTrue(environment.hasSuffix(WhisperModelSpec.modelRevision))
+    }
+
+    func testInsufficientStorageMessageNamesNeededAndFreeSpace() {
+        let message = WhisperTranscriber.TranscriberError.insufficientStorage(Self.tooLittle).errorDescription ?? ""
+        let needed = ByteCountFormatter.string(fromByteCount: WhisperModelSpec.optimizationStorageBytes, countStyle: .file)
+        let free = ByteCountFormatter.string(fromByteCount: Self.tooLittle, countStyle: .file)
+        XCTAssertTrue(message.hasPrefix("Whisper must be optimized for this iPhone first"))
+        XCTAssertTrue(message.contains(needed))
+        XCTAssertTrue(message.contains("\(free) is free"))
+        XCTAssertTrue(message.hasSuffix("Free up storage, then prepare Whisper again."))
+    }
+
+    func testPreparationTextsDistinguishLoadingFromOptimizing() {
+        XCTAssertEqual(WhisperTranscriber.loadingDetail, "Loading Whisper")
+        XCTAssertTrue(WhisperTranscriber.optimizingDetail.hasPrefix("Optimizing Whisper for this iPhone"))
+    }
+
     func testLocalTokenizerAndInstallerCheckerRejectMissingFiles() async throws {
         // Both entry points read this local folder; no tokenizer.json is present.
         let empty = root.appendingPathComponent("empty-tokenizer", isDirectory: true)

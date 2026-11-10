@@ -83,6 +83,12 @@ nonisolated enum WhisperModelSpec {
     /// first optimization, plus room for the system to keep working.
     static let storageHeadroomBytes: Int64 = 500_000_000
 
+    /// Free space required before Core ML specializes ("optimizes") the model for this iPhone.
+    /// Observed on an iPhone 16 (iOS 27.0.1): free space fell by about 3.9 GB during the first
+    /// load and about 1.4 GB stayed as the system's specialization cache. With too little space
+    /// specialization never finishes, iOS purges the partial cache and the app is terminated.
+    static let optimizationStorageBytes: Int64 = 4_500_000_000
+
     /// Whisper V3's vocabulary size; any other logits size is a wrong or corrupt model.
     static let expectedLogitsSize = 51_866
 

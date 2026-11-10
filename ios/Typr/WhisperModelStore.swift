@@ -7,12 +7,14 @@ import Foundation
 ///     root/models/argmaxinc/whisperkit-coreml/openai_whisper-large-v3-v20240930_626MB/…
 ///     root/models/openai/whisper-large-v3/{config,tokenizer,tokenizer_config}.json
 ///     root/typr-whisper-installed.json   (the marker)
+///     root/typr-whisper-preparation.json (the last preparation, see `WhisperPreparationRecord`)
 ///
 /// Installed means the marker matches the pinned spec AND every pinned file exists with its exact
 /// size. A partial or invalid folder is never installed and never selectable. Typr never deletes
 /// the model (Delete is out of scope); a failed or cancelled download leaves its files for Retry.
 nonisolated struct WhisperModelStore: Sendable {
     static let markerFileName = "typr-whisper-installed.json"
+    static let preparationFileName = "typr-whisper-preparation.json"
 
     /// What the marker records; any difference (another revision) means not installed.
     struct Marker: Codable, Equatable, Sendable {
@@ -115,6 +117,25 @@ nonisolated struct WhisperModelStore: Sendable {
         try? fileManager.removeItem(at: markerURL)
     }
 
+    var preparationURL: URL {
+        root.appendingPathComponent(Self.preparationFileName)
+    }
+
+    /// The last preparation's record; empty when none was written or it cannot be read.
+    var preparationRecord: WhisperPreparationRecord {
+        guard let data = try? Data(contentsOf: preparationURL),
+              let record = try? JSONDecoder().decode(WhisperPreparationRecord.self, from: data) else {
+            return WhisperPreparationRecord()
+        }
+        return record
+    }
+
+    /// Best effort: a record that cannot be written only costs a more cautious next preparation.
+    func writePreparationRecord(_ record: WhisperPreparationRecord) {
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        try? data.write(to: preparationURL, options: .atomic)
+    }
+
     /// Free space for important downloads on the volume holding `root`; nil when unknown.
     func availableCapacity() -> Int64? {
         var probe = root
@@ -123,5 +144,52 @@ nonisolated struct WhisperModelStore: Sendable {
         }
         let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage
+    }
+}
+
+/// What Typr knows about Core ML's specialization of the Whisper model. Core ML offers no API to
+/// ask whether its cache will be hit, so Typr records the environment of the last successful load
+/// (OS build, Typr version and model revision: Core ML specializes again after OS and Typr
+/// updates) and whether a
+/// preparation was still running when Typr last stopped (iOS terminates Typr when
+/// specialization runs out of storage or memory).
+nonisolated struct WhisperPreparationRecord: Codable, Equatable, Sendable {
+    /// `environment` of the last preparation that loaded the model completely.
+    var loadedEnvironment: String?
+    /// Set before loading, cleared when the load ends. Still set at the next preparation means
+    /// the previous one never finished.
+    var inProgress = false
+}
+
+/// How a preparation proceeds, decided before any model work.
+nonisolated enum WhisperPreparationPlan: Equatable, Sendable {
+    /// The specialization from the last successful load in this environment is expected to be reused.
+    case load
+    /// Core ML is expected to specialize the model now, with enough free storage (or unknown).
+    case optimize
+    /// Specialization is expected and the storage it needs is not free. No model work starts.
+    case insufficientStorage(available: Int64)
+
+    static func decide(
+        record: WhisperPreparationRecord,
+        environment: String,
+        availableBytes: Int64?,
+        requiredBytes: Int64 = WhisperModelSpec.optimizationStorageBytes
+    ) -> WhisperPreparationPlan {
+        let expectsCache = record.loadedEnvironment == environment && !record.inProgress
+        if expectsCache { return .load }
+        // Unknown free space never blocks: Core ML reports its own failure.
+        if let availableBytes, availableBytes < requiredBytes {
+            return .insufficientStorage(available: availableBytes)
+        }
+        return .optimize
+    }
+
+    /// The environment Core ML keys its specialization on, as far as Typr can tell.
+    static func currentEnvironment(bundle: Bundle = .main, processInfo: ProcessInfo = .processInfo) -> String {
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return [processInfo.operatingSystemVersionString, "\(version) (\(build))",
+                WhisperModelSpec.modelRevision].joined(separator: " | ")
     }
 }
