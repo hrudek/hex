@@ -147,15 +147,21 @@ struct ContentView: View {
             settingsOverview
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: SettingsDestination.self) { destination in
-                    SettingsPage(title: destination.title, subtitle: destination.subtitle) {
-                        switch destination {
-                        case .keyboard: KeyboardSettingsCard()
-                        case .textProcessing: TextProcessingSettingsCard()
-                        case .cleanupPrompt: CleanupPromptEditor()
-                        case .history: HistorySettingsCard { showingLog = true }
-                        case .speechEngine: SpeechEngineCard(dictation: dictation)
-                        case .style: DictationStyleSettingsCard(dictation: dictation)
-                        case .language: DictationLanguageSettingsCard(dictation: dictation)
+                    if destination == .keyboardDiagnostics {
+                        // Owns its SettingsPage so pull-to-refresh reaches the scroll view.
+                        KeyboardDiagnosticsView()
+                    } else {
+                        SettingsPage(title: destination.title, subtitle: destination.subtitle) {
+                            switch destination {
+                            case .keyboard: KeyboardSettingsCard()
+                            case .keyboardDiagnostics: EmptyView() // Handled above.
+                            case .textProcessing: TextProcessingSettingsCard()
+                            case .cleanupPrompt: CleanupPromptEditor()
+                            case .history: HistorySettingsCard { showingLog = true }
+                            case .speechEngine: SpeechEngineCard(dictation: dictation)
+                            case .style: DictationStyleSettingsCard(dictation: dictation)
+                            case .language: DictationLanguageSettingsCard(dictation: dictation)
+                            }
                         }
                     }
                 }

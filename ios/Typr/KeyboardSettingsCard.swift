@@ -7,6 +7,7 @@ struct KeyboardSettingsCard: View {
     @Environment(\.openURL) private var openURL
     @State private var fullKeyboard = FullKeyboardSettings().isEnabled
     @State private var autocorrect = FullKeyboardSettings().autocorrect
+    @State private var personalLearning = TyprSettings().personalLearning
     @State private var autocorrectGerman = TyprSettings().autocorrectGerman
     @State private var autocorrectEnglish = TyprSettings().autocorrectEnglish
     @State private var hideSuggestionBar = TyprSettings().hideSuggestionBar
@@ -37,6 +38,16 @@ struct KeyboardSettingsCard: View {
                         .onChange(of: autocorrect) { _, enabled in
                             FullKeyboardSettings().autocorrect = enabled
                         }
+                    SettingsDivider()
+                    SettingsToggle(title: "Learn from my typing", detail: "Adapts to where you tap and to words you keep. Stays on this iPhone.", isOn: $personalLearning)
+                        .onChange(of: personalLearning) { _, enabled in
+                            TyprSettings().personalLearning = enabled
+                        }
+                    SettingsDivider()
+                    NavigationLink(value: SettingsDestination.keyboardDiagnostics) {
+                        SettingsLink(title: "Typing diagnostics", detail: "Saved statistics, touch learning and reset controls")
+                    }
+                    .buttonStyle(.plain)
                     if autocorrect {
                         SettingsDivider()
                         VStack(alignment: .leading, spacing: 16) {
@@ -76,6 +87,7 @@ struct KeyboardSettingsCard: View {
     private func refresh() {
         fullKeyboard = FullKeyboardSettings().isEnabled
         autocorrect = FullKeyboardSettings().autocorrect
+        personalLearning = TyprSettings().personalLearning
         autocorrectGerman = TyprSettings().autocorrectGerman
         autocorrectEnglish = TyprSettings().autocorrectEnglish
         hideSuggestionBar = TyprSettings().hideSuggestionBar
