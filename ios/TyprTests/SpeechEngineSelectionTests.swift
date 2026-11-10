@@ -673,7 +673,7 @@ final class SpeechEngineSelectionTests: XCTestCase {
         XCTAssertEqual(f.controller.selectEngine(.appleSpeech), .selected)
         try await f.waitUntil { if case .failed = f.controller.phase { true } else { false } }
         XCTAssertEqual(f.controller.phase,
-                       .failed("Apple Speech does not support Deutsch on this iPhone. Choose another language or engine."))
+                       .failed("Apple Speech does not support German on this iPhone. Choose another language or engine."))
         XCTAssertEqual(f.controller.preferredEngine, .appleSpeech, "the choice is kept, not replaced")
         XCTAssertNil(f.controller.currentEngine)
         XCTAssertFalse(f.controller.isModelReady, "a failed switch never retains the old readiness")
@@ -736,8 +736,8 @@ final class SpeechEngineSelectionTests: XCTestCase {
         XCTAssertEqual(SpeechEngineError.languageUnsupported(.appleSpeech, .english).localizedDescription,
                        "Apple Speech does not support English on this iPhone. Choose another language or engine.")
         if #available(iOS 26.0, *) {
-            XCTAssertEqual(AppleSpeechTranscriber.TranscriberError.languageUnsupported("Deutsch").localizedDescription,
-                           "Apple Speech does not support Deutsch on this iPhone. Choose another language or engine.")
+            XCTAssertEqual(AppleSpeechTranscriber.TranscriberError.languageUnsupported("German").localizedDescription,
+                           "Apple Speech does not support German on this iPhone. Choose another language or engine.")
         }
     }
 
@@ -769,8 +769,8 @@ final class SpeechEngineSelectionTests: XCTestCase {
         XCTAssertFalse(SpeechEngineAvailability.unsupportedDevice("x").isSupported)
         XCTAssertFalse(SpeechEngineAvailability.languageUnsupported("x").isSupported)
         XCTAssertEqual(SpeechEngineAvailability.installed.detail, "Installed on this iPhone")
-        XCTAssertEqual(SpeechEngineAvailability.languageUnsupported("Not available for Deutsch on this iPhone").detail,
-                       "Not available for Deutsch on this iPhone")
+        XCTAssertEqual(SpeechEngineAvailability.languageUnsupported("Not available for German on this iPhone").detail,
+                       "Not available for German on this iPhone")
     }
 
     func testProductionProviderReportsWhisperFromDiskOnly() async throws {

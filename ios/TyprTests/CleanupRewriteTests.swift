@@ -200,7 +200,7 @@ final class CleanupRewriteTests: XCTestCase {
     func testLanguagePickerValuesAndSpeechLocales() {
         XCTAssertEqual(DictationLanguage.allCases, [.automatic, .german, .english])
         XCTAssertEqual(DictationLanguage.allCases.map(\.rawValue), ["automatic", "de", "en"])
-        XCTAssertEqual(DictationLanguage.allCases.map(\.label), ["Automatic", "Deutsch", "English"])
+        XCTAssertEqual(DictationLanguage.allCases.map(\.label), ["Automatic", "German", "English"])
         XCTAssertEqual(DictationLanguage.automatic.speechLocaleCandidates(preferred: ["de-DE", "en-GB"], current: "de_DE"),
                        ["de-DE", "en-GB", "de_DE", "en-US"])
         // An explicit language never falls back to another language for the prepared locale.

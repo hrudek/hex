@@ -10,11 +10,11 @@ nonisolated enum DictationLanguage: String, CaseIterable, Codable, Sendable {
     case german = "de"
     case english = "en"
 
-    /// The picker label, in the language itself.
+    /// The picker label, matching the English settings UI.
     var label: String {
         switch self {
         case .automatic: "Automatic"
-        case .german: "Deutsch"
+        case .german: "German"
         case .english: "English"
         }
     }

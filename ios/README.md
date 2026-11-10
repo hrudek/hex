@@ -77,7 +77,7 @@ it never accesses the microphone, speech model, or network.
   - **Speech engine:** Apple Speech, Parakeet V2 or Whisper Large V3 Turbo, with
     languages, live status and an explicit Whisper download; an explicit choice
     never falls back to another engine ([SPEECH_ENGINES.md](SPEECH_ENGINES.md)).
-  - **Language (Automatic / Deutsch / English):** picks the Apple Speech locale
+  - **Language (Automatic / German / English):** picks the Apple Speech locale
     (an explicit language never falls back to another) and Whisper's language,
     and tells Typr AI cleanup which language to write (English terms in German
     speech stay English). A warm-session start also sends up to 300 characters
@@ -159,9 +159,9 @@ Purpose-based detail pages replace the old Typr/Experiments split:
 - **Style:** Polished, Casual, Notes and Verbatim, each with a short explanation
   and a checkmark for the current choice. The page explains that AI cleanup skips
   Verbatim but vocabulary corrections still apply.
-- **Language:** Automatic, Deutsch and English with recognition/cleanup explanations,
-  the current selection and the same Parakeet compatibility warning as the overview.
-  Automatic explains the different Apple Speech, Whisper and Parakeet behaviors.
+- **Language:** single-line, label-only Automatic, German and English choices,
+  a checkmark for the current selection and the same Parakeet compatibility warning
+  as the overview.
   Both choice pages apply selections through the existing controller setters and
   stay open so users can compare options; returning shows the updated overview value.
 - **History & feedback:** collection, archive/export/delete and keyboard ratings.

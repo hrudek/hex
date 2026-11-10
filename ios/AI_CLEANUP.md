@@ -112,7 +112,7 @@ above 400 word tokens is skipped (`budget`); generation is capped at
 `min(1200, utf8Bytes / 2 + 128)` response tokens. Dictations under three words are
 not cleaned (`too-short`). With the dictation language on **Automatic**, a detected
 language the model doesn't support is skipped (`language`) and an unclear one still
-goes to the model; with **Deutsch** or **English** chosen, cleanup is never skipped
+goes to the model; with **German** or **English** chosen, cleanup is never skipped
 for its language (see "Language, context and hyphens").
 
 Unavailable devices, disabled Apple Intelligence, a model not ready, unsupported
@@ -254,7 +254,7 @@ them. Every example in the prompt must pass the check (`testPromptExamplesPassTh
 
 ## Language, context and hyphens
 
-- **Language picker** (main settings, *Language*: Automatic / Deutsch / English;
+- **Language picker** (main settings, *Language*: Automatic / German / English;
   App Group key `typr.dictationLanguage`, default Automatic, not a switch).
   `DictationLanguage` gives the Apple Speech locale (de-DE, en-US, or a preferred
   locale of the same language such as de-CH); an explicit language never falls back to
@@ -372,7 +372,7 @@ Optional simulator run: Typr CI, distribution `simulator`,
 - [ ] Technical German dictations (pull request, mergen, GitHub, Branch, Agent):
       terms from context, no hyphenated English compounds, nothing translated,
       clumsy sentences rewritten, paragraphs in long dictations, keyboard context
-      in a chat about the same topic; Language Deutsch vs Automatic.
+      in a chat about the same topic; Language German vs Automatic.
 - [ ] Long dictations (45–60 s): cleanup finishes within the longer deadline.
 - [ ] Questions and dictated prompt injection remain data, never answered or obeyed.
 - [ ] Notes markers and line breaks survive; existing style formatting runs once.
