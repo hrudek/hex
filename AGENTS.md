@@ -7,14 +7,20 @@ Typr is a standalone iPhone dictation keyboard. Read [TYPR.md](TYPR.md) first
 
 ## One worktree per development task
 
-- Before a new feature, bug fix or refactor, create a task-specific branch and
-  Git worktree. Start from `main` unless the owner requests another base.
+- Before a new feature, bug fix or refactor, run `git fetch --prune origin`
+  successfully, then create a task-specific branch and Git worktree from the
+  freshly fetched `origin/main`, never from local `main` or an old checkout.
+  If fetching fails, stop rather than use cached refs. Another base requires
+  an explicit owner request.
 - Keep worktrees as sibling directories under the canonical repository root
   containing `.bare/`. Do not develop directly on `main`.
 - Run `git worktree list` and check the relevant worktree's status before
   making changes. Never overwrite or move another task's uncommitted work.
 - Resume an existing task in its own worktree; a new session does not require
-  another worktree. Run edits, builds and tests there.
+  another worktree. Before continuing, fetch `origin` successfully and merge
+  `origin/main` if `git merge-base --is-ancestor origin/main HEAD` fails;
+  preserve uncommitted work and resolve conflicts before editing.
+  Run edits, builds and tests there.
 
 ## Layout and checks
 
