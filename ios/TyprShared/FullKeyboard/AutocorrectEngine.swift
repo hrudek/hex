@@ -162,9 +162,9 @@ final class AutocorrectEngine {
         let insertedText: String
     }
 
-    /// Current-word touch evidence is available here for the later spatial decoder.
-    /// Step 1 deliberately does not use it for ranking or automatic replacements.
+    /// Fully aligned, RAM-only evidence for the static spatial decoder.
     let touchInput = KeyboardTouchInput()
+    let spatialDecoder: SpatialWordDecoder?
     let checker: TextChecking
     let learnedWords: LearnedWordsStore
     var isEnabled = true
@@ -178,8 +178,10 @@ final class AutocorrectEngine {
 
     init(
         checker: TextChecking? = nil,
-        learnedWords: LearnedWordsStore? = nil
+        learnedWords: LearnedWordsStore? = nil,
+        spatialDecoder: SpatialWordDecoder? = .bundled
     ) {
+        self.spatialDecoder = spatialDecoder
         self.checker = checker ?? SystemTextChecker()
         self.learnedWords = learnedWords ?? LearnedWordsStore()
     }
@@ -264,7 +266,7 @@ final class AutocorrectEngine {
         field: KeyboardFieldKind,
         autocorrectionType: UITextAutocorrectionType?
     ) -> [KeyboardSuggestion] {
-        _ = touchInput.evidence(beforeInput: beforeInput)
+        let evidence = touchInput.evidence(beforeInput: beforeInput)
         guard field == .text, autocorrectionType != .no else { return [] }
         guard let token = Self.currentToken(in: beforeInput) else { return [] }
 
@@ -274,13 +276,21 @@ final class AutocorrectEngine {
             && !learnedWords.contains(lower)
             && !Self.shorthandAllowlist.contains(lower)
 
-        let autoFix = allowAuto ? cautiousReplacement(for: token) : nil
+        let spatial = spatialResult(for: token, evidence: evidence)
+        let autoFix = allowAuto ? cautiousReplacement(for: token, spatial: spatial) : nil
         var pool: [String] = []
 
         if let autoFix {
             pool.append(autoFix)
         } else if englishEnabled, let suggested = Self.suggestOnlyContractions[lower] {
             pool.append(Self.matchCase(of: token, onto: suggested))
+        }
+
+        // Spatial words use the same slots, never changing the characters inserted by a tap.
+        for candidate in spatial?.candidates.prefix(4) ?? [] {
+            let text = spatialSpelling(candidate, token: token).text
+            if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { pool.append(text) }
+            if pool.count >= 2 { break }
         }
 
         // Prefix matches from Contacts / lexicon terms.
@@ -350,18 +360,43 @@ final class AutocorrectEngine {
         field: KeyboardFieldKind,
         autocorrectionType: UITextAutocorrectionType?
     ) -> (original: String, replacement: String)? {
-        _ = touchInput.evidence(beforeInput: beforeInput)
+        let evidence = touchInput.evidence(beforeInput: beforeInput)
         guard isEnabled, field == .text, autocorrectionType != .no else { return nil }
         guard let token = Self.currentToken(in: beforeInput) else { return nil }
         let lower = token.lowercased()
         guard !suppressedInSession.contains(lower),
               !learnedWords.contains(lower),
               !Self.shorthandAllowlist.contains(lower) else { return nil }
-        guard let fix = cautiousReplacement(for: token) else { return nil }
+        guard let fix = cautiousReplacement(for: token, spatial: spatialResult(for: token, evidence: evidence)) else { return nil }
         return (token, fix)
     }
 
-    private func cautiousReplacement(for token: String) -> String? {
+    private func spatialResult(for token: String, evidence: KeyboardTouchWord?) -> SpatialWordDecoder.Result? {
+        guard isEnabled, let evidence, evidence.text == token,
+              token == token.lowercased() || (token.first?.isUppercase == true && String(token.dropFirst()) == token.dropFirst().lowercased()),
+              !Self.shorthandAllowlist.contains(token.lowercased()) else { return nil }
+        var languages: Set<SpatialWordDecoder.Language> = []
+        if englishEnabled { languages.insert(.english) }
+        if german != nil { languages.insert(.german) }
+        return spatialDecoder?.decode(evidence, languages: languages)
+    }
+
+    private func spatialSpelling(_ candidate: SpatialWordDecoder.Candidate, token: String) -> (text: String, validated: Bool) {
+        switch candidate.language {
+        case .english:
+            let text = Self.matchCase(of: token, onto: candidate.word)
+            return (text, checker.isWordValid(text))
+        case .german:
+            // FrequencyWords is lowercase; never invent German noun capitalization for an auto-replacement.
+            if let spelling = german?.guesses(for: token).first(where: { $0.lowercased() == candidate.word }),
+               german?.isValid(spelling) == true {
+                return (Self.matchCase(of: token, onto: spelling), true)
+            }
+            return (Self.matchCase(of: token, onto: candidate.word), false)
+        }
+    }
+
+    private func cautiousReplacement(for token: String, spatial: SpatialWordDecoder.Result? = nil) -> String? {
         let lower = token.lowercased()
         // 1. Explicit iOS Text Replacement (`omw` -> `On my way!`).
         if let shortcut = lexiconShortcuts[lower] {
@@ -394,6 +429,18 @@ final class AutocorrectEngine {
         // 3. Single-edit `UITextChecker` typo on words of 3+ characters, never rewriting valid words.
         guard token.count >= 3, !token.contains("'") else { return nil }
         guard !englishEnabled || !checker.isWordValid(token) else { return nil }
+        // A complete but ambiguous spatial search must not silently become a spelling-only auto-fix.
+        // Explicit shortcuts, umlaut rules and deterministic fixes above retain their existing precedence.
+        if let spatial, !spatial.candidates.isEmpty {
+            let title = lower.prefix(1).uppercased() + lower.dropFirst()
+            guard !englishEnabled || !checker.isWordValid(lower),
+                  german?.isValid(token) != true, german?.isValid(lower) != true,
+                  german?.isValid(title) != true,
+                  !lexiconTerms.contains(where: { $0.lowercased() == lower }),
+                  let best = spatial.confident else { return nil }
+            let spelling = spatialSpelling(best, token: token)
+            return spelling.validated ? spelling.text : nil
+        }
         // Typr: a German word is valid too; German guesses win over English ones.
         if let german {
             guard !german.isValid(token) else { return nil }

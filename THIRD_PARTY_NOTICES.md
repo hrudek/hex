@@ -129,6 +129,30 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Static spatial keyboard recognition and word data
+
+`ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift` adapts the bounded trie search,
+spatial likelihood/prior combination and cell-relative geometry ideas from iikb's
+`Decoder.swift`, `Lexicon.swift` and `TouchModel.swift` at
+`9c74e51f0218a814e2e99756087d3f38ef003614`. This is a narrow rewritten implementation,
+not a port of its learned model; see [PORTS.md](PORTS.md). The iikb MIT notice above
+(Copyright (c) 2026 Bassim Shahidy) also applies to this adoption.
+
+The bundled `keyboard-de.words` and `keyboard-en.words` are derived from **Hermit Dave /
+FrequencyWords**, revision `525f9b560de45753a5ea01069454e72e9aa541c6`, 2018 DE/EN
+50k lists, originating from **OpenSubtitles 2018 / OpenSubtitles**. **Their content
+is CC BY-SA 4.0, not MIT**, as declared in the pinned source README:
+https://github.com/hermitdave/FrequencyWords/blob/525f9b560de45753a5ea01069454e72e9aa541c6/README.md#license .
+Typr normalizes/filters words and compiles the counts into a trie; the derived data
+remains CC BY-SA 4.0. Attribution, exact source links, modifications, hashes and
+reproduction instructions are in
+[ios/TyprShared/FullKeyboard/WordData/README.md](ios/TyprShared/FullKeyboard/WordData/README.md).
+That notice and the [full license](ios/TyprShared/FullKeyboard/WordData/CC-BY-SA-4.0.txt)
+are bundled with the data in both the app and keyboard. These notices do not
+claim endorsement by the original authors. Typr's own decoder/compiler code
+remains MIT. No iikb model or word resources, wordfreq or Python package dependency
+is bundled.
+
 ## FluidAudio 0.15.5
 
 The iPhone app uses the Swift package

@@ -1,8 +1,10 @@
 # Current-word touch evidence
 
-Step 1 of improving Typr's manual typing preserves information that fixed key hit-testing
-otherwise discards. It does **not** change hit-testing, suggestions, autocorrect, visible keys,
-gestures, settings or dictation. There is no new switch and no third-party code or word data.
+Step 1 (PR #95) preserved information that fixed key hit-testing otherwise discards,
+without changing typing/correction outputs. The tracker itself still changes no hit-testing,
+visible keys, gestures, settings or dictation and adds no switch, learning or word data.
+Step 2 now consumes its evidence in the separately documented
+[static spatial decoder](KEYBOARD_SPATIAL_DECODER.md).
 
 ## Ownership and coordinates
 
@@ -14,8 +16,8 @@ committed, exactly once and in insertion order. Shifted letters retain their ins
 
 Only a fully observed, contiguous prose word is available through
 `touchInput.evidence(beforeInput:)`. It must match `AutocorrectEngine.currentToken` exactly.
-Suggestions and replace-on-space validate that association, but deliberately do not use the
-points to rank candidates or select replacements yet. Hidden suggestions and disabled
+Suggestions and replace-on-space validate that association before using it for static
+spatial ranking. Missing evidence preserves the existing spelling-only path. Hidden suggestions and disabled
 autocorrect do not prevent tracking. Email/URL fields and missing document context do.
 
 ## Conservative invalidation
@@ -52,5 +54,5 @@ they compile/pass. Actual host callback ordering, fast two-thumb typing and keyb
 behavior require an iPhone check. Conservative host invalidation can reduce evidence
 coverage without changing what is typed; measure that coverage before building a decoder.
 
-Next steps are a separately reviewed spatial word decoder with licensed German/English word
-data, then a conservative personal touch model. Neither is implemented here.
+[Step 2](KEYBOARD_SPATIAL_DECODER.md) adds the static decoder and licensed DE/EN data.
+A conservative personal touch model remains a separate, unimplemented future decision.
