@@ -67,36 +67,71 @@ nonisolated struct SpatialWordLexicon {
     }
 }
 
-/// Geometry + a weak unigram prior, with no learned offsets, context, state updates or word cache.
-/// The bounded trie-search idea is adapted from AVGVSTVS96/iikb's Decoder/Lexicon (MIT),
-/// revision 9c74e51f0218a814e2e99756087d3f38ef003614; the fixed model and format are Typr's.
+/// Frozen geometry and weak word priors. Max-path scoring, not alignment marginalisation.
+// Best-first trie/edit/trail ideas adapted from AVGVSTVS96/iikb
+// Packages/KeyboardModules/Sources/KeyboardCore/Correction/Decoder.swift (MIT),
+// revision 08df5aa1e698d8587b6dcaef53f5e555ba1fac2a. TSW1 and policy are Typr's.
 @MainActor
 final class SpatialWordDecoder {
     enum Language: String, CaseIterable { case german = "de", english = "en" }
-    struct Candidate {
+    enum Edit: Equatable {
+        case none, missingLetter(at: Int), extraTap(at: Int), transposition(at: Int)
+    }
+    nonisolated struct Candidate {
         let word: String
-        let language: Language
+        let language: Language?
         let score: Double
         let spatialScore: Double
+        let edit: Edit
+        /// Candidate letter -> observed tap; missing letters have no tap.
+        let alignment: [Int?]
     }
-    struct Result {
+    enum Refusal: String, CaseIterable {
+        case incompleteSearch, noCandidate, belowMargin, ambiguous, editNeedsInvalidLiteral
+    }
+    enum AutoDecision { case replace(Candidate), refuse(Refusal) }
+    enum Unavailable { case evidence, resource }
+    enum Outcome { case result(Result), unavailable(Unavailable) }
+    nonisolated struct Result {
         let candidates: [Candidate]
         let literalScore: Double
         let literalSpatialScore: Double
+        let literalInLexicon: Bool
+        let complete: Bool
+        let visits: Int
+        let generated: Int
 
-        var confident: Candidate? {
-            guard let best = candidates.first,
-                  best.score - literalScore >= 3.0,
-                  best.spatialScore - literalSpatialScore >= 2.0,
-                  candidates.count < 2 || best.score - candidates[1].score >= 1.6 else { return nil }
-            return best
+        var geometryPrefersAlternative: Bool {
+            candidates.contains { candidate in
+                switch candidate.edit {
+                case .none, .transposition: candidate.spatialScore >= literalSpatialScore
+                case .missingLetter, .extraTap: false
+                }
+            }
+        }
+
+        /// Dictionary/casing, keeps, rejected pairs and field guards remain the caller's job.
+        func automaticDecision(literalIsValid: Bool) -> AutoDecision {
+            guard complete else { return .refuse(.incompleteSearch) }
+            guard let best = candidates.first else { return .refuse(.noCandidate) }
+            if best.edit != .none && literalIsValid { return .refuse(.editNeedsInvalidLiteral) }
+            guard best.score - literalScore >= 3,
+                  best.edit != .none || best.spatialScore - literalSpatialScore >= 2 else {
+                return .refuse(.belowMargin)
+            }
+            guard candidates.count < 2 || best.score - candidates[1].score >= 1.6 else {
+                return .refuse(.ambiguous)
+            }
+            return .replace(best)
         }
     }
 
     static let bundled = SpatialWordDecoder(bundle: .main)
-    static let searchBudget = 6_000
-    static let maxLetters = 32
+    nonisolated static let searchBudget = 6_000
+    nonisolated static let maxGenerated = 12_000
+    nonisolated static let maxLetters = 32
     private static let priorWeight = 0.35
+    private static let editPenalty = log(0.01)
     private var lexicons: [Language: SpatialWordLexicon]
     private var attempted: Set<Language> = []
     private let bundle: Bundle?
@@ -121,16 +156,111 @@ final class SpatialWordDecoder {
         return loaded
     }
 
+    nonisolated private struct Trail {
+        let parent: Int
+        let label: Int
+        let tap: Int?
+    }
+    nonisolated private struct State {
+        let source: Int
+        let node: Int
+        let tap: Int
+        let depth: Int
+        let trail: Int
+        let spatial: Double
+        let penalty: Double
+        let edit: Edit
+        let bound: Double
+    }
+    /// Heap entries and parent trails are integer indices; no per-state strings or arrays.
+    nonisolated private struct Frontier {
+        var states: [State] = []
+        var trails: [Trail] = []
+        var heap: [Int] = []
+        var capped = false
+
+        func precedes(_ a: Int, _ b: Int) -> Bool {
+            states[a].bound == states[b].bound ? a < b : states[a].bound > states[b].bound
+        }
+        mutating func push(_ state: State, letters: [(Int, Int?)]) {
+            // Cap both arenas. A transposition needs two spelling records.
+            guard states.count < SpatialWordDecoder.maxGenerated,
+                  trails.count + letters.count <= SpatialWordDecoder.maxGenerated else {
+                capped = true
+                return
+            }
+            var trail = state.trail
+            for (label, tap) in letters {
+                trails.append(Trail(parent: trail, label: label, tap: tap))
+                trail = trails.count - 1
+            }
+            let index = states.count
+            states.append(State(source: state.source, node: state.node, tap: state.tap, depth: state.depth,
+                                trail: trail, spatial: state.spatial, penalty: state.penalty,
+                                edit: state.edit, bound: state.bound))
+            heap.append(index)
+            var child = heap.count - 1
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard precedes(heap[child], heap[parent]) else { break }
+                heap.swapAt(child, parent)
+                child = parent
+            }
+        }
+        mutating func pop() -> State? {
+            guard let first = heap.first, let last = heap.popLast() else { return nil }
+            if !heap.isEmpty {
+                heap[0] = last
+                var parent = 0
+                while parent * 2 + 1 < heap.count {
+                    var child = parent * 2 + 1
+                    if child + 1 < heap.count, precedes(heap[child + 1], heap[child]) { child += 1 }
+                    guard precedes(heap[child], heap[parent]) else { break }
+                    heap.swapAt(child, parent)
+                    parent = child
+                }
+            }
+            return states[first]
+        }
+        func spelling(_ trail: Int) -> (String, [Int?]) {
+            var letters: [Character] = []
+            var alignment: [Int?] = []
+            var index = trail
+            while index >= 0 {
+                let entry = trails[index]
+                letters.append(SpatialWordLexicon.alphabet[entry.label])
+                alignment.append(entry.tap)
+                index = entry.parent
+            }
+            return (String(letters.reversed()), Array(alignment.reversed()))
+        }
+    }
+
     func decode(_ word: KeyboardTouchWord, languages: Set<Language>,
-                budget: Int = SpatialWordDecoder.searchBudget) -> Result? {
+                budget: Int = SpatialWordDecoder.searchBudget,
+                calibration: SpatialTouchCalibration? = nil,
+                personal: PersonalLexiconSnapshot = .empty, allowsEdits: Bool = true) -> Result? {
+        if case .result(let result) = decodeDetailed(word, languages: languages, budget: budget,
+                                                    calibration: calibration, personal: personal,
+                                                    allowsEdits: allowsEdits) { return result }
+        return nil
+    }
+
+    func decodeDetailed(_ word: KeyboardTouchWord, languages: Set<Language>,
+                        budget: Int = SpatialWordDecoder.searchBudget,
+                        calibration: SpatialTouchCalibration? = nil,
+                        personal: PersonalLexiconSnapshot = .empty, allowsEdits: Bool = true) -> Outcome {
         let literal = word.text.lowercased()
-        guard (3...Self.maxLetters).contains(word.samples.count), literal.count == word.samples.count,
-              word.layout.layer == .letters, word.layout.field == .text, !languages.isEmpty else { return nil }
-        // Do not partially decode a bilingual request if one resource is missing/corrupt.
+        let count = word.samples.count
+        guard (3...Self.maxLetters).contains(count), literal.count == count,
+              word.layout.layer == .letters, word.layout.field == .text, !languages.isEmpty else {
+            return .unavailable(.evidence)
+        }
+        // Never partially decode a bilingual request with missing data.
         var sources: [(Language, SpatialWordLexicon)] = []
         for language in Language.allCases where languages.contains(language) {
-            guard let lexicon = lexicon(language) else { return nil }
-            sources.append((language, lexicon))
+            guard let source = lexicon(language) else { return .unavailable(.resource) }
+            sources.append((language, source))
         }
         let alphabet = SpatialWordLexicon.alphabet
         var frames: [Int: CGRect] = [:]
@@ -138,76 +268,258 @@ final class SpatialWordDecoder {
             if let key = word.layout.key(.character(String(letter))) { frames[index] = key.frame }
         }
         var likelihoods: [[Double]] = []
+        var bestScores: [Double] = []
         var literalSpatial = 0.0
         for sample in word.samples {
             guard sample.text.count == 1, sample.text.lowercased().count == 1,
                   sample.key == word.layout.key(sample.key.kind),
+                  sample.key.character?.lowercased() == sample.text.lowercased(),
                   sample.point.x.isFinite, sample.point.y.isFinite,
                   let letter = sample.text.lowercased().first,
-                  let label = alphabet.firstIndex(of: letter),
-                  let observedFrame = frames[label], observedFrame.width > 0, observedFrame.height > 0 else { return nil }
+                  let label = alphabet.firstIndex(of: letter), frames[label] != nil else {
+                return .unavailable(.evidence)
+            }
             var scores = [Double](repeating: -.infinity, count: alphabet.count)
-            for (index, frame) in frames {
-                // Use a key pitch, not the tiled edge hit target (which can be unusually wide).
+            for index in alphabet.indices {
+                guard let frame = frames[index] else { continue }
                 let width = Double(frame.width + word.layout.metrics.gap)
                 let height = Double(frame.height + word.layout.metrics.rowGap)
-                guard width.isFinite, height.isFinite, width > 0, height > 0 else { return nil }
-                let dx = Double(sample.point.x - frame.midX) / width
-                let dy = Double(sample.point.y - frame.midY) / height
-                let distance = dx * dx + dy * dy
-                if distance <= 1.6 * 1.6 { scores[index] = -distance / (2 * 0.35 * 0.35) }
+                guard frame.width > 0, frame.height > 0, width.isFinite, height.isFinite,
+                      width > 0, height > 0 else { return .unavailable(.evidence) }
+                let key = calibration?.keys[alphabet[index]]
+                let dx = Double(sample.point.x - frame.midX) / width - (key?.offsetX ?? 0)
+                let dy = Double(sample.point.y - frame.midY) / height - (key?.offsetY ?? 0)
+                let sx = key?.sigmaX ?? SpatialTouchCalibration.staticSigma
+                let sy = key?.sigmaY ?? SpatialTouchCalibration.staticSigma
+                // Density in pitch coordinates. The -log(2πσxσy) term is essential:
+                // omitting it would reward broader personal distributions unfairly.
+                if dx * dx + dy * dy <= 1.6 * 1.6 {
+                    scores[index] = -0.5 * (dx * dx / (sx * sx) + dy * dy / (sy * sy))
+                        - log(2 * Double.pi * sx * sy)
+                }
             }
-            guard scores[label].isFinite, let best = scores.max(), best.isFinite else { return nil }
+            guard scores[label].isFinite, let best = scores.max(), best.isFinite else {
+                return .unavailable(.evidence)
+            }
+            // Literal is ungated by the relative six-log-unit candidate cutoff, and has no edits.
             literalSpatial += scores[label]
+            bestScores.append(best)
             for index in scores.indices where scores[index] < best - 6 { scores[index] = -.infinity }
             likelihoods.append(scores)
         }
-        let literalPrior = sources.map { _, lexicon in
-            lexicon.logPrior(for: literal) ?? log(1 / lexicon.total)
+        let floorPrior = sources.map { log(1 / $0.1.total) }.max() ?? 0
+        let literalPrior = sources.map { _, source in
+            source.logPrior(for: literal) ?? log(1 / source.total)
         }.max() ?? 0
-        var visits = 0
+        let literalScore = literalSpatial + Self.priorWeight * literalPrior + personal.bonus(for: literal)
+        let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
+        // Stray density: the tap's best gated key density, without assigning a letter.
+        // Thus an extra tap contributes bestScores[i] to spatialScore, plus log(.01)
+        // to total score. It is deliberately not a free deletion.
+        var suffix = [Double](repeating: 0, count: count + 1)
+        for index in (0..<count).reversed() { suffix[index] = suffix[index + 1] + bestScores[index] }
         var found: [String: Candidate] = [:]
-        for (language, lexicon) in sources {
-            // Depth <= 32; children ordered by spatial likelihood, then alphabet, for deterministic budgets.
-            func walk(_ index: Int, _ position: Int, _ spelling: String, _ spatial: Double) -> Bool {
-                visits += 1
-                guard visits <= budget, let node = lexicon.node(index) else { return false }
-                if position == word.samples.count {
-                    if node.count > 0, spelling != literal {
-                        let item = Candidate(word: spelling, language: language,
-                                             score: spatial + Self.priorWeight * log(node.count / lexicon.total),
-                                             spatialScore: spatial)
-                        if found[spelling].map({ item.score > $0.score }) ?? true { found[spelling] = item }
-                        // Keep only the best eight; they include the runner-up needed for confidence.
-                        if found.count > 8, let worst = found.values.sorted(by: Self.precedes).last {
-                            found.removeValue(forKey: worst.word)
-                        }
-                    }
-                    return true
-                }
-                var children: [(Int, Int, Double)] = []
-                var labels: Set<Int> = []
-                for child in node.children {
-                    guard let item = lexicon.node(child), labels.insert(item.label).inserted else { return false }
-                    let score = likelihoods[position][item.label]
-                    if score.isFinite { children.append((child, item.label, score)) }
-                }
-                children.sort { $0.2 == $1.2 ? $0.1 < $1.1 : $0.2 > $1.2 }
-                for (child, label, score) in children {
-                    if !walk(child, position + 1, spelling + String(alphabet[label]), spatial + score) { return false }
-                }
-                return true
+        var threshold = literalScore
+        func retain(_ candidate: Candidate) {
+            guard candidate.word != literal, candidate.score > literalScore else { return }
+            if let previous = found[candidate.word], !Self.precedes(candidate, previous) { return }
+            found[candidate.word] = candidate
+            if found.count > 8, let worst = found.values.sorted(by: Self.precedes).last {
+                found.removeValue(forKey: worst.word)
             }
-            // Exhaustion is not a trustworthy top-two result; discard it, rather than auto-correcting a partial search.
-            guard walk(0, 0, "", 0) else { return nil }
+            if found.count == 8 { threshold = found.values.map(\.score).min() ?? literalScore }
         }
-        let literalScore = literalSpatial + Self.priorWeight * literalPrior
-        // Do not displace a correctly typed word's usual completions with worse spatial alternatives.
-        return Result(candidates: found.values.filter { $0.score > literalScore }.sorted(by: Self.precedes),
-                      literalScore: literalScore, literalSpatialScore: literalSpatial)
+        // Personal scan is bounded independently of trie states; only normalized alphabet words
+        // absent from ALL selected corpora participate. A one-edit fixed-word DP scores them.
+        let personalWords = personal.kept.union(personal.counts.keys.filter { (personal.counts[$0] ?? 0) >= 2 }).sorted()
+        let personalComplete = personalWords.count <= 2_000
+        for spelling in personalWords.prefix(2_000) {
+            let letters = Array(spelling)
+            guard spelling == PersonalLexiconSnapshot.normalize(spelling),
+                  (2...Self.maxLetters).contains(letters.count),
+                  abs(letters.count - count) <= (allowsEdits ? 1 : 0) else { continue }
+            let labels = letters.compactMap { alphabet.firstIndex(of: $0) }
+            guard labels.count == letters.count else { continue }
+            // First letter can use tap 0, tap 1 (extra/transposition), or be missing.
+            if !allowsEdits && !likelihoods[0][labels[0]].isFinite { continue }
+            if allowsEdits && !likelihoods[0][labels[0]].isFinite && !likelihoods[1][labels[0]].isFinite
+                && (labels.count < 2 || !likelihoods[0][labels[1]].isFinite) { continue }
+            guard sources.allSatisfy({ $0.1.logPrior(for: spelling) == nil }),
+                  let reading = Self.reading(labels: labels, likelihoods: likelihoods,
+                                             stray: bestScores, allowsEdits: allowsEdits) else { continue }
+            retain(Candidate(word: spelling, language: nil,
+                             score: reading.spatial + reading.penalty + Self.priorWeight * floorPrior + personal.bonus(for: spelling),
+                             spatialScore: reading.spatial, edit: reading.edit, alignment: reading.alignment))
+        }
+        var frontier = Frontier()
+        // Prior <= 0, personal bonus <= 1, every remaining tap contributes at most its
+        // best density (including stray), future edit penalties <= 0. This admissible
+        // upper bound also handles POSITIVE normalized Gaussian densities.
+        for source in sources.indices {
+            frontier.push(State(source: source, node: 0, tap: 0, depth: 0, trail: -1,
+                                spatial: 0, penalty: 0, edit: .none,
+                                bound: suffix[0] + PersonalLexiconSnapshot.maxBonus), letters: [])
+        }
+        var visits = 0
+        var proven = false
+        while let first = frontier.heap.first {
+            if frontier.states[first].bound < threshold { proven = true; break }
+            guard visits < max(0, min(budget, Self.searchBudget)), !frontier.capped else { break }
+            guard let state = frontier.pop() else { break }
+            visits += 1
+            let (language, source) = sources[state.source]
+            guard let node = source.node(state.node) else { return .unavailable(.resource) }
+            if state.tap == count, node.count > 0 {
+                let (spelling, alignment) = frontier.spelling(state.trail)
+                retain(Candidate(word: spelling, language: language,
+                                 score: state.spatial + state.penalty + Self.priorWeight * log(node.count / source.total)
+                                    + personal.bonus(for: spelling),
+                                 spatialScore: state.spatial, edit: state.edit, alignment: alignment))
+            }
+            let canEdit = allowsEdits && state.edit == .none
+            func enqueue(node: Int, tap: Int, letters: [(Int, Int?)], spatial: Double, edit: Edit) {
+                let depth = state.depth + letters.count
+                guard depth <= Self.maxLetters else { return }
+                let penalty = edit == .none ? 0 : Self.editPenalty
+                let bound = spatial + penalty + suffix[tap] + PersonalLexiconSnapshot.maxBonus
+                guard bound >= threshold else { return }
+                frontier.push(State(source: state.source, node: node, tap: tap, depth: depth,
+                                    trail: state.trail, spatial: spatial, penalty: penalty,
+                                    edit: edit, bound: bound), letters: letters)
+            }
+            if canEdit, state.tap < count {
+                enqueue(node: state.node, tap: state.tap + 1, letters: [],
+                        spatial: state.spatial + bestScores[state.tap], edit: .extraTap(at: state.tap))
+            }
+            guard state.depth < Self.maxLetters else { continue }
+            var labels: Set<Int> = []
+            for child in node.children {
+                guard let item = source.node(child), labels.insert(item.label).inserted else { return .unavailable(.resource) }
+                if state.tap < count {
+                    let spatial = likelihoods[state.tap][item.label]
+                    if spatial.isFinite {
+                        enqueue(node: child, tap: state.tap + 1, letters: [(item.label, state.tap)],
+                                spatial: state.spatial + spatial, edit: state.edit)
+                    }
+                }
+                if canEdit {
+                    enqueue(node: child, tap: state.tap, letters: [(item.label, nil)],
+                            spatial: state.spatial, edit: .missingLetter(at: state.depth))
+                }
+                if canEdit, state.tap + 1 < count, state.depth + 2 <= Self.maxLetters,
+                   likelihoods[state.tap + 1][item.label].isFinite {
+                    var grandLabels: Set<Int> = []
+                    for grandchild in item.children {
+                        guard let next = source.node(grandchild), grandLabels.insert(next.label).inserted else {
+                            return .unavailable(.resource)
+                        }
+                        guard next.label != item.label, likelihoods[state.tap][next.label].isFinite else { continue }
+                        enqueue(node: grandchild, tap: state.tap + 2,
+                                letters: [(item.label, state.tap + 1), (next.label, state.tap)],
+                                spatial: state.spatial + likelihoods[state.tap + 1][item.label] + likelihoods[state.tap][next.label],
+                                edit: .transposition(at: state.depth))
+                    }
+                }
+            }
+        }
+        // Exact top-eight DISTINCT spellings above literal under frozen max-path scoring
+        // when complete: all eligible personal words scanned and frontier exhausted/bounded.
+        // Any arena truncation conservatively makes the proof incomplete, even if later pruned.
+        return .result(Result(candidates: found.values.sorted(by: Self.precedes), literalScore: literalScore,
+                              literalSpatialScore: literalSpatial, literalInLexicon: literalInLexicon,
+                              complete: personalComplete && !frontier.capped && (proven || frontier.heap.isEmpty),
+                              visits: visits, generated: frontier.states.count))
+    }
+
+    nonisolated private struct Reading {
+        let spatial: Double
+        let penalty: Double
+        let edit: Edit
+        let alignment: [Int?]
+    }
+
+    /// Fixed-word one-edit alignment DP, expanded into its O(n) possible edit locations.
+    /// Spatial substitutions remain allowed at every aligned position, as in the trie.
+    private static func reading(labels: [Int], likelihoods: [[Double]], stray: [Double],
+                                allowsEdits: Bool) -> Reading? {
+        let n = labels.count
+        let m = likelihoods.count
+        var best: Reading?
+        func consider(_ alignment: [Int?], _ edit: Edit, extra: Int? = nil) {
+            var spatial = extra.map { stray[$0] } ?? 0
+            for index in labels.indices {
+                if let tap = alignment[index] { spatial += likelihoods[tap][labels[index]] }
+            }
+            guard spatial.isFinite else { return }
+            let penalty = edit == .none ? 0 : Self.editPenalty
+            if let current = best, current.spatial + current.penalty >= spatial + penalty { return }
+            best = Reading(spatial: spatial, penalty: penalty, edit: edit, alignment: alignment)
+        }
+        if n == m {
+            consider((0..<n).map { Optional($0) }, .none)
+            if allowsEdits {
+                for index in 0..<(n - 1) where labels[index] != labels[index + 1] {
+                    var alignment = (0..<n).map { Optional($0) }
+                    alignment.swapAt(index, index + 1)
+                    consider(alignment, .transposition(at: index))
+                }
+            }
+        } else if allowsEdits, n == m + 1 {
+            for missing in 0..<n {
+                consider((0..<n).map { $0 == missing ? nil : ($0 < missing ? $0 : $0 - 1) }, .missingLetter(at: missing))
+            }
+        } else if allowsEdits, m == n + 1 {
+            for extra in 0..<m {
+                consider((0..<n).map { $0 < extra ? $0 : $0 + 1 }, .extraTap(at: extra), extra: extra)
+            }
+        }
+        return best
+    }
+
+    /// Conservative text-only learning labels: at most one unit-cost spelling edit.
+    /// Repeated-letter optimal alignments are merged, dropping only ambiguous positions;
+    /// a transposed pair is always dropped. No spatial evidence is guessed here.
+    static func align(word: String, taps: [Character]) -> [Int?]? {
+        let letters = Array(word.lowercased())
+        let typed = taps.map { Character(String($0).lowercased()) }
+        let n = letters.count
+        let m = typed.count
+        guard n > 0, n <= maxLetters, m > 0, m <= maxLetters, abs(n - m) <= 1 else { return nil }
+        var readings: [[Int?]] = []
+        if n == m {
+            let mismatches = (0..<n).filter { letters[$0] != typed[$0] }
+            if mismatches.count <= 1 { return (0..<n).map { $0 } }
+            if mismatches.count == 2, let first = mismatches.first, mismatches[1] == first + 1,
+               letters[first] == typed[first + 1], letters[first + 1] == typed[first] {
+                return (0..<n).map { $0 == first || $0 == first + 1 ? nil : $0 }
+            }
+            return nil
+        }
+        if n == m + 1 {
+            for missing in 0..<n {
+                let alignment: [Int?] = (0..<n).map { $0 == missing ? nil : ($0 < missing ? $0 : $0 - 1) }
+                if letters.indices.allSatisfy({ i in alignment[i].map { letters[i] == typed[$0] } ?? true }) {
+                    readings.append(alignment)
+                }
+            }
+        } else {
+            for extra in 0..<m {
+                let alignment = (0..<n).map { Optional($0 < extra ? $0 : $0 + 1) }
+                if letters.indices.allSatisfy({ i in alignment[i].map { letters[i] == typed[$0] } ?? false }) {
+                    readings.append(alignment)
+                }
+            }
+        }
+        guard var result = readings.first else { return nil }
+        for reading in readings.dropFirst() {
+            for index in result.indices where result[index] != reading[index] { result[index] = nil }
+        }
+        return result
     }
 
     private static func precedes(_ a: Candidate, _ b: Candidate) -> Bool {
-        a.score == b.score ? a.word < b.word : a.score > b.score
+        if a.score != b.score { return a.score > b.score }
+        if a.word != b.word { return a.word < b.word }
+        return (a.language?.rawValue ?? "") < (b.language?.rawValue ?? "")
     }
 }
