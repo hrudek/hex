@@ -104,6 +104,10 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertLessThanOrEqual(accessible.width, 320.5)
     }
 
+    func testDictationLanguageLabelsMatchSettingsLanguage() {
+        XCTAssertEqual(DictationLanguage.german.label, "German")
+    }
+
     func testEveryDictationStyleExplainsItsBehavior() {
         for style in DictationStyle.allCases {
             XCTAssertFalse(style.settingsDescription.isEmpty, style.rawValue)
@@ -121,7 +125,7 @@ final class SettingsPresentationTests: XCTestCase {
     func testDictationLinksShowSelectedValuesAtStandardAndAccessibilitySizes() {
         for (title, value) in [("Speech engine", "Apple Speech"), ("Speech engine", "Parakeet V2"),
                                ("Speech engine", "Whisper"), ("Style", "Polished"),
-                               ("Language", "Automatic"), ("Language", "Deutsch")] {
+                               ("Language", "Automatic"), ("Language", "German")] {
             func size(_ type: DynamicTypeSize) -> CGSize {
                 let host = UIHostingController(rootView:
                     SettingsLink(title: title, detail: "Open details", value: value).dynamicTypeSize(type)
