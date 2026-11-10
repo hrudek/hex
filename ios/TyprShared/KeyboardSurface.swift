@@ -60,9 +60,32 @@ final class KeyboardViewModel: ObservableObject {
     @Published var activeTray: PickerTray = .none
     /// Typr: the utility row starts with a key that shows the full keyboard.
     @Published var showsFullKeyboardSwitch = false
-    @Published var feedback: DictationFeedbackPresentation?
+    var problemPanelDuration: TimeInterval = 6
+    private var problemCloseWork: DispatchWorkItem?
+    @Published var feedback: DictationFeedbackPresentation? {
+        didSet {
+            guard feedback?.offer != oldValue?.offer || feedback?.panelContent != oldValue?.panelContent else { return }
+            problemCloseWork?.cancel()
+            guard let feedback, feedback.panelContent == .problem else { return }
+            let offer = feedback.offer
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.feedback?.offer == offer,
+                      self.feedback?.panelContent == .problem else { return }
+                self.dismissFeedback()
+            }
+            problemCloseWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + problemPanelDuration, execute: work)
+        }
+    }
     var onFeedbackRating: ((String, [String]?) -> Void)?
     func dismissFeedback() { feedback = nil }
+
+    /// Shared rating behavior; queue failures restore a retry panel on either surface.
+    func rateFeedback(_ rating: String, issues: [String]? = nil) {
+        onFeedbackRating?(rating, issues)
+        if rating == "bad" { feedback?.rating = "bad" }
+        else { dismissFeedback() }
+    }
 
     // Non-published live telemetry read directly by `DotScopeHostView` / button tap handlers
     // so 25–30 Hz polling never invalidates SwiftUI views mid-spring.
@@ -495,6 +518,13 @@ struct KeyboardSurfaceView: View {
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(isHostedExtension ? Color.clear : TyprTheme.bgDeep)
+        .accessibilityHidden(model.hasFullAccess && model.feedback != nil && !isStageActive)
+        .overlay {
+            if model.hasFullAccess, model.feedback != nil, !isStageActive {
+                TyprFeedbackTray(model: model)
+                    .background(Color(uiColor: FullKeyboardPalette(isDark: palette.isDark).backdrop))
+            }
+        }
         .preferredColorScheme(isHostedExtension ? nil : .dark)
     }
 
@@ -504,8 +534,7 @@ struct KeyboardSurfaceView: View {
         let p = palette
         return ZStack {
             Group {
-                if model.feedback != nil { TyprFeedbackTray(model: model) }
-                else { defaultTopBar(palette: p) }
+                defaultTopBar(palette: p)
             }
                 .typrTrayReveal(model.activeTray == .none, reduceMotion: reduceMotion, offsetY: -3)
 

@@ -5,6 +5,8 @@ import SwiftUI
 struct ExperimentsCard: View {
     @State private var fullKeyboard = FullKeyboardSettings().isEnabled
     @State private var autocorrect = FullKeyboardSettings().autocorrect
+    @State private var autocorrectGerman = TyprSettings().autocorrectGerman
+    @State private var autocorrectEnglish = TyprSettings().autocorrectEnglish
     @State private var customVocabulary = CustomVocabularySettings().isEnabled
 
     var body: some View {
@@ -53,6 +55,27 @@ struct ExperimentsCard: View {
                     .onChange(of: autocorrect) { _, enabled in
                         FullKeyboardSettings().autocorrect = enabled
                     }
+
+                    if autocorrect {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Autocorrect languages")
+                                .font(.system(size: 12))
+                                .foregroundStyle(TyprTheme.textMuted)
+                            Toggle("Deutsch", isOn: $autocorrectGerman)
+                                .onChange(of: autocorrectGerman) { _, enabled in
+                                    TyprSettings().autocorrectGerman = enabled
+                                }
+                            Toggle("English", isOn: $autocorrectEnglish)
+                                .onChange(of: autocorrectEnglish) { _, enabled in
+                                    TyprSettings().autocorrectEnglish = enabled
+                                }
+                        }
+                        .font(.system(size: 15))
+                        .foregroundStyle(TyprTheme.textBase)
+                        .tint(TyprTheme.success)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                    }
                 }
             }
             .background(
@@ -97,6 +120,8 @@ struct ExperimentsCard: View {
             let settings = FullKeyboardSettings()
             fullKeyboard = settings.isEnabled
             autocorrect = settings.autocorrect
+            autocorrectGerman = TyprSettings().autocorrectGerman
+            autocorrectEnglish = TyprSettings().autocorrectEnglish
             customVocabulary = CustomVocabularySettings().isEnabled
         }
     }

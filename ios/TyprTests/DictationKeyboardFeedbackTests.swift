@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -55,6 +56,88 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
     private func event(_ offer: DictationFeedbackOffer, rating: String = "bad", issues: [String]? = nil,
                        id: UUID = UUID(), date: Date = Date()) -> DictationFeedbackEvent {
         .init(eventID: id, offer: offer, rating: rating, issues: issues, createdAt: date)
+    }
+
+    func testColdStartArchiveReadinessAndRecreatedKeyboardOwnership() async throws {
+        let f = Fixture()
+        XCTAssertTrue(f.store.isLoading)
+        var context = DictationLogContext(); context.keyboardJob = true
+        let recording = try XCTUnwrap(f.store.begin(token: f.store.token(), context: context))
+        recording.recognized("Original.", spelled: "Original.", asrMilliseconds: 12)
+        let job = UUID().uuidString
+        KeyboardBridge(defaults: f.defaults).ownFeedbackJob(job)
+        await f.store.waitForFeedbackReadiness()
+        recording.finish(text: "Original.", beforeSpelling: "Original.")
+        let offer = try XCTUnwrap(f.store.makeKeyboardFeedbackOffer(recording: recording,
+            jobID: job, resultID: UUID().uuidString, expiresAt: Date().addingTimeInterval(600)))
+        // No controller-local job state survives; the new extension instance reads the bridge.
+        let recreated = KeyboardBridge(defaults: f.defaults)
+        let presentation = DictationFeedbackPresentation.inserted(offer: offer, resultID: offer.resultID,
+            ownedJobs: recreated.feedbackJobs, permission: f.bridge.permission, now: Date())
+        XCTAssertEqual(presentation?.panelContent, .ask)
+        f.store.saveFeedback(for: offer.entryID, expectedText: nil, note: "I expected the name to be preserved.")
+        try await f.drain()
+        let saved = try f.diskEntry(offer.entryID)
+        XCTAssertNil(saved.expectedText)
+        XCTAssertEqual(saved.feedbackNote?.text, "I expected the name to be preserved.")
+        XCTAssertEqual(saved.recognized?.text, "Original.")
+        XCTAssertEqual(saved.finalText?.text, "Original.")
+        await f.dispose()
+    }
+
+    func testNoteEditorPreservesLegacyReferenceRatingAndTextVersions() async throws {
+        let f = Fixture(); try await f.ready(); let offer = f.offer()
+        f.store.saveFeedback(for: offer.entryID, expectedText: "Legacy reference.", note: "Old note.")
+        f.store.rate(offer.entryID, rating: "bad", issues: ["unwanted_rewrite"])
+        f.store.saveFeedback(for: offer.entryID, expectedText: nil, note: "Please keep my informal tone.")
+        await f.store.storage.flush()
+        var saved = try f.diskEntry(offer.entryID)
+        XCTAssertEqual(saved.expectedText?.text, "Legacy reference.")
+        XCTAssertEqual(saved.feedbackNote?.text, "Please keep my informal tone.")
+        XCTAssertEqual(saved.rating, "bad")
+        XCTAssertEqual(saved.issues, ["unwanted_rewrite"])
+        XCTAssertEqual(saved.finalText?.text, "Synthetic result.")
+        f.store.saveFeedback(for: offer.entryID, expectedText: nil, note: String(repeating: "ü", count: 2_001))
+        XCTAssertEqual(f.store.entry(offer.entryID)?.feedbackNote?.text, saved.feedbackNote?.text)
+        f.store.saveFeedback(for: offer.entryID, expectedText: nil, note: "")
+        await f.store.storage.flush()
+        saved = try f.diskEntry(offer.entryID)
+        XCTAssertNil(saved.feedbackNote)
+        XCTAssertEqual(saved.expectedText?.text, "Legacy reference.")
+        await f.dispose()
+    }
+
+    func testFeedbackJobOwnershipIsBoundedAndSurvivesBridgeRecreation() {
+        let suite = "feedback.jobs.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let bridge = KeyboardBridge(defaults: defaults)
+        let jobs = (0..<40).map { _ in UUID().uuidString }
+        jobs.forEach { bridge.ownFeedbackJob($0) }
+        XCTAssertEqual(KeyboardBridge(defaults: defaults).feedbackJobs, Set(jobs.suffix(32)))
+    }
+
+    func testFeedbackShowsOnlyAcceptedAIOutputAndKeepsRecognitionUnchanged() {
+        var context = DictationLogContext(); context.cleanupPath = .typr
+        var entry = DictationLogEntry(context: context)
+        entry.recognized = DictationLogText("uh original")
+        entry.finalText = DictationLogText("Formatted.")
+        entry.cleanupOutput = DictationLogText("AI revision")
+        entry.aiAnswer = DictationLogText("Rejected or late answer")
+        for use in [nil, "late", "rejected(empty); not used"] as [String?] {
+            entry.answerUse = use
+            XCTAssertNil(entry.feedbackAIText)
+        }
+        entry.answerUse = "accepted"
+        XCTAssertEqual(entry.feedbackAIText?.text, "AI revision")
+        entry.context.cleanupPath = .upstream
+        entry.upstreamOutcome = "no result"
+        XCTAssertNil(entry.feedbackAIText)
+        entry.upstreamOutcome = "changed"
+        XCTAssertEqual(entry.feedbackAIText?.text, "AI revision")
+        entry.context.cleanupPath = .none
+        XCTAssertNil(entry.feedbackAIText)
+        XCTAssertEqual(entry.recognized?.text, "uh original")
     }
 
     func testDefaultOnAndFreshInsertedExactMatchingOnly() {
@@ -235,9 +318,48 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         return view
     }
 
+    func testCompactSurfaceUsesFullPanelAndSharedActions() {
+        let model = KeyboardViewModel()
+        model.configureFixture(snapshot: .offline, now: 10_000)
+        model.feedback = .snapshotFixture()
+        var ratings: [String] = []
+        var opened: URL?
+        model.onFeedbackRating = { rating, _ in ratings.append(rating) }
+        model.onOpenURL = { opened = $0 }
+        let host = UIHostingController(rootView: KeyboardSurfaceView(model: model))
+        // SwiftUI mounts UIViewRepresentable children as part of window presentation.
+        // A detached hosting view can have no feedback panel in its UIKit hierarchy.
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 140))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        host.view.layoutIfNeeded()
+        pumpMainRunLoop()
+        let problem = visibleButton("Problem", in: host.view)
+        XCTAssertNotNil(problem, "the compact surface has full-size rating tiles, not a reduced tray")
+        problem?.sendActions(for: .touchUpInside)
+        pumpMainRunLoop()
+        XCTAssertEqual(ratings, ["bad"])
+        let entryID = model.feedback?.offer.entryID
+        visibleButton(TyprFeedbackPanel.openAccessibilityLabel, in: host.view)?.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened.flatMap { TyprFeedbackLink.entryID(from: $0) }, entryID)
+        XCTAssertNotNil(opened)
+        XCTAssertNil(model.feedback)
+
+        model.feedback = .snapshotFixture()
+        pumpMainRunLoop()
+        visibleButton("Good", in: host.view)?.sendActions(for: .touchUpInside)
+        XCTAssertEqual(ratings, ["bad", "good"])
+        XCTAssertNil(model.feedback)
+    }
+
     func testFeedbackPanelTilesAreLargeAndInsideInBothAppearances() {
-        for dark in [false, true] {
-            let height = KeyboardLayout.height(for: .portrait, showsStrip: false)
+        for (dark, height) in [(false, CGFloat(140)), (true, CGFloat(140)),
+                               (false, KeyboardLayout.height(for: .portrait, showsStrip: false)),
+                               (true, KeyboardLayout.height(for: .portrait, showsStrip: false))] {
             let panel = TyprFeedbackPanel(frame: CGRect(x: 0, y: 0, width: 393, height: height))
             panel.palette = FullKeyboardPalette(isDark: dark)
             panel.metrics = KeyboardMetrics.for(.portrait, innerWidth: 393, showsStrip: false)
@@ -265,7 +387,7 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
             // The rating tiles take the room the keys had.
             let goodButton = visibleButton("Good", in: panel)!
             let good = goodButton.convert(goodButton.bounds, to: panel)
-            XCTAssertGreaterThan(good.height, 120)
+            XCTAssertGreaterThan(good.height, height == 140 ? 70 : 120)
             XCTAssertGreaterThan(good.width, 150)
             // Problem offers only Fix in Typr and ✕.
             panel.content = .problem

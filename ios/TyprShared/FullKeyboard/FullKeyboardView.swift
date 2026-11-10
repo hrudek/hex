@@ -30,7 +30,10 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// Fixtures force the suggestion bar on or off; the keyboard follows Typr's switch.
     var suggestionBarOverride: Bool? { didSet { applySuggestionBarSetting() } }
     /// How long Fix in Typr stays after Problem before the panel closes itself.
-    var problemPanelDuration: TimeInterval = 6
+    var problemPanelDuration: TimeInterval {
+        get { model.problemPanelDuration }
+        set { model.problemPanelDuration = newValue }
+    }
 
     private let stripView = KeyboardStripView()
     private let plane: KeyboardKeyPlaneView
@@ -44,7 +47,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private var panelContent: TyprFeedbackPanel.Content?
     /// A failure message closed with ✕ stays closed until it changes.
     private var dismissedNotice: String?
-    private var problemCloseWork: DispatchWorkItem?
     private var styleMenu: TyprStyleMenuView?
     private var palette = FullKeyboardPalette(isDark: false)
     private var didApplyPalette = false
@@ -118,7 +120,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
 
         engine.autocorrect.isEnabled = FullKeyboardSettings().autocorrect
-        if TyprSettings().germanAutocorrect { // Typr
+        engine.autocorrect.englishEnabled = TyprSettings().autocorrectEnglish
+        if TyprSettings().autocorrectGerman {
             let instance = GermanAutocorrect.system()
             cachedGerman = instance
             engine.autocorrect.german = instance
@@ -179,8 +182,13 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             engine.autocorrect.isEnabled = wantsAutocorrect
             engine.refreshSuggestions()
         }
-        // Typr: German autocorrect switch (cached instance, built once).
-        let wantsGerman = TyprSettings().germanAutocorrect
+        let wantsEnglish = TyprSettings().autocorrectEnglish
+        if engine.autocorrect.englishEnabled != wantsEnglish {
+            engine.autocorrect.englishEnabled = wantsEnglish
+            engine.refreshSuggestions()
+        }
+        // Cache the German dictionary across language selection changes.
+        let wantsGerman = TyprSettings().autocorrectGerman
         if wantsGerman != (engine.autocorrect.german != nil) {
             if wantsGerman {
                 let instance = cachedGerman ?? GermanAutocorrect.system()
@@ -415,10 +423,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private var wantedPanelContent: TyprFeedbackPanel.Content? {
         guard !showsRecording else { return nil }
         if model.hasFullAccess, let feedback = model.feedback {
-            if let message = feedback.message, message.hasPrefix("Not queued") {
-                return .retry(message)
-            }
-            return feedback.rating == "bad" ? .problem : .ask
+            return feedback.panelContent
         }
         guard let notice = hiddenBarNotice, notice != dismissedNotice else { return nil }
         return .notice(notice)
@@ -431,7 +436,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         guard next != panelContent else { return }
         let wasShown = panelContent != nil
         panelContent = next
-        if next == .problem { scheduleProblemClose() } else { cancelProblemClose() }
         if let next {
             let panel = feedbackPanel ?? makeFeedbackPanel()
             panel.palette = palette
@@ -475,12 +479,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// Good closes the panel at once; Problem leaves Fix in Typr and ✕ for a moment.
     private func rate(_ rating: String, issues: [String]? = nil) {
         keyFeedback()
-        model.onFeedbackRating?(rating, issues)
-        if rating == "bad" {
-            model.feedback?.rating = "bad"
-        } else {
-            model.dismissFeedback()
-        }
+        model.rateFeedback(rating, issues: issues)
     }
 
     private func dismissPanel() {
@@ -495,22 +494,6 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             }
             refreshFeedbackPanel()
         }
-    }
-
-    private func scheduleProblemClose() {
-        cancelProblemClose()
-        guard let offer = model.feedback?.offer else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.panelContent == .problem, self.model.feedback?.offer == offer else { return }
-            self.model.dismissFeedback()
-        }
-        problemCloseWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + problemPanelDuration, execute: work)
-    }
-
-    private func cancelProblemClose() {
-        problemCloseWork?.cancel()
-        problemCloseWork = nil
     }
 
     /// The views a panel covers; the suggestion bar only when it is on.

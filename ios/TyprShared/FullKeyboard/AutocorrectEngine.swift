@@ -165,6 +165,7 @@ final class AutocorrectEngine {
     let checker: TextChecking
     let learnedWords: LearnedWordsStore
     var isEnabled = true
+    var englishEnabled = true
     /// Typr: German layer; `nil` keeps today's behaviour exactly.
     var german: GermanAutocorrect?
     private(set) var lexiconShortcuts: [String: String] = [:]
@@ -274,7 +275,7 @@ final class AutocorrectEngine {
 
         if let autoFix {
             pool.append(autoFix)
-        } else if let suggested = Self.suggestOnlyContractions[lower] {
+        } else if englishEnabled, let suggested = Self.suggestOnlyContractions[lower] {
             pool.append(Self.matchCase(of: token, onto: suggested))
         }
 
@@ -292,10 +293,10 @@ final class AutocorrectEngine {
         // Spelling guesses or prefix completions from `UITextChecker`.
         if pool.count < 2 && token.count >= 2 {
             // Typr: German-valid words count as valid; German guesses come first.
-            let valid = Self.shorthandAllowlist.contains(lower) || learnedWords.contains(lower) || checker.isWordValid(token)
+            let valid = Self.shorthandAllowlist.contains(lower) || learnedWords.contains(lower) || (englishEnabled && checker.isWordValid(token))
                 || (german?.isValid(token) ?? false)
             if !valid {
-                for guess in (german?.guesses(for: token) ?? []) + rankedGuesses(for: token) {
+                for guess in (german?.guesses(for: token) ?? []) + (englishEnabled ? rankedGuesses(for: token) : []) {
                     let cased = Self.matchCase(of: token, onto: guess)
                     if cased.caseInsensitiveCompare(token) != .orderedSame,
                        !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
@@ -304,7 +305,7 @@ final class AutocorrectEngine {
                     if pool.count >= 2 { break }
                 }
             }
-            if pool.count < 2 {
+            if englishEnabled && pool.count < 2 {
                 let completions = checker.completions(for: token)
                     .filter { $0.count > token.count && $0.count <= token.count + 8 }
                     .sorted { a, b in
@@ -372,13 +373,13 @@ final class AutocorrectEngine {
         if let german,
            let umlaut = german.umlautReplacement(
                for: token,
-               englishValid: checker.isWordValid(token) || checker.isWordValid(lower)
+               englishValid: englishEnabled && (checker.isWordValid(token) || checker.isWordValid(lower))
            ) {
             return umlaut
         }
 
         // 2. Deterministic contractions and common QWERTY transpositions.
-        if let fixed = Self.unambiguousFixes[lower], german?.blocksEnglishFix(lower) != true {
+        if englishEnabled, let fixed = Self.unambiguousFixes[lower], german?.blocksEnglishFix(lower) != true {
             if isAllCaps && token.count < 3 { return nil }
             return Self.matchCase(of: token, onto: fixed)
         }
@@ -387,7 +388,7 @@ final class AutocorrectEngine {
 
         // 3. Single-edit `UITextChecker` typo on words of 3+ characters, never rewriting valid words.
         guard token.count >= 3, !token.contains("'") else { return nil }
-        guard !checker.isWordValid(token) else { return nil }
+        guard !englishEnabled || !checker.isWordValid(token) else { return nil }
         // Typr: a German word is valid too; German guesses win over English ones.
         if let german {
             guard !german.isValid(token) else { return nil }
@@ -408,6 +409,7 @@ final class AutocorrectEngine {
             }
         }
 
+        guard englishEnabled else { return nil }
         var bestGuess: String?
         var bestScore = Double.greatestFiniteMagnitude
         for (rank, rawGuess) in checker.guesses(for: token).prefix(8).enumerated() {

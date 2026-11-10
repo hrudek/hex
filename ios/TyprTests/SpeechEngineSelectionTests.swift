@@ -1364,19 +1364,35 @@ final class SpeechEngineSelectionTests: XCTestCase {
     // MARK: - Whisper results through the unchanged pipeline
 
     func testWhisperSilenceFailsCleanlyAndTheKeyboardGetsTheReason() async throws {
+        try await assertWhisperFailureRecovers(
+            .silentAudio,
+            message: "The recording is too quiet for Whisper. Try speaking closer to the microphone."
+        )
+    }
+
+    func testWhisperEmptyDecodeIsNotReportedAsSilenceAndNextDictationWorks() async throws {
+        try await assertWhisperFailureRecovers(
+            .emptyTranscript,
+            message: "Whisper returned no text. Please try dictating again."
+        )
+    }
+
+    private func assertWhisperFailureRecovers(
+        _ error: WhisperTranscriber.TranscriberError, message: String
+    ) async throws {
         let f = fixture(preferred: .whisperLargeV3Turbo)
         try await f.ready()
         let whisper = try XCTUnwrap(f.fake.instances(of: .whisperLargeV3Turbo).first)
-        await whisper.setFailure(WhisperTranscriber.TranscriberError.emptyTranscript)
+        await whisper.setFailure(error)
 
         f.controller.startRecording(keyboardJobID: "silent")
         try await f.waitUntil { f.controller.phase == .recording }
         f.controller.finishRecording()
         try await f.waitUntil { f.controller.phase != .transcribing && f.controller.canChangeEngine }
-        XCTAssertEqual(f.controller.phase, .failed("Whisper did not detect any speech."))
+        XCTAssertEqual(f.controller.phase, .failed(message))
         XCTAssertEqual(f.controller.transcript, "")
         XCTAssertEqual(f.bridge.snapshot().state, .failed)
-        XCTAssertEqual(f.bridge.snapshot().message, "Whisper did not detect any speech.")
+        XCTAssertEqual(f.bridge.snapshot().message, message)
         XCTAssertNil(f.bridge.snapshot().transcript)
         XCTAssertTrue(f.controller.canChangeEngine)
         XCTAssertEqual(f.controller.currentEngine, .whisperLargeV3Turbo, "a silent capture keeps the engine ready")

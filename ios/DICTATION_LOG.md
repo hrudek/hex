@@ -26,7 +26,7 @@ There is no automatic count, age or aggregate byte eviction.
 
 ## Everyday feedback
 
-Open **Typr → Show dictation log**, or tap **Fix in Typr** on the keyboard after
+Open **Typr → Show dictation log**, or tap **Feedback in Typr** on the keyboard after
 Problem (see below). The list uses metadata, a 120-character preview and All /
 Unrated / Problems filters. Leading Good and trailing Problem swipes have explicit
 VoiceOver equivalents.
@@ -34,16 +34,19 @@ VoiceOver equivalents.
 The detail is built for daily feedback and shows only:
 
 1. **Recognized**: the raw speech-recognition text, with a **Copy** button.
-2. **AI correction**: the final text provided (after AI cleanup, formatting and
-   vocabulary), with a **Copy** button. Without an AI pass it says so.
-3. **What I said / expected**: an inline field for the human reference
-   (`expectedText`). Copy a text above, paste it and correct it instead of
-   retyping. **Save** (also on Done and when leaving the detail) owns only this
-   field; the separate note is never touched by it.
+2. **AI-revised text**: the accepted cleanup output before final formatting, with
+   **Copy**. Shown only after an accepted Typr or successful upstream AI pass,
+   never for disabled, skipped, rejected, late or failed cleanup.
+3. **What did you expect differently?**: an inline free-form feedback note
+   (`feedbackNote`), with a descriptive placeholder. No corrected final text is
+   requested. **Save** (also on Done and when leaving the detail) owns only the
+   note and preserves any legacy `expectedText`. The note and both text versions
+   belong to the same immutable entry ID and are included in explicit exports.
+   Storage failures appear here with Retry; no automatic upload is performed.
 4. Good / Problem buttons.
 
 Everything else is still recorded and exported, but hidden behind **More
-details** (off each time the detail opens): issue categories, the note editor,
+details** (off each time the detail opens): issue categories, legacy reference editing,
 every processing stage, vocabulary replacements, diffs and technical
 diagnostics. Problem saves immediately; optional issue choices are:
 `misheard`, `missing_or_shortened`, `unwanted_rewrite`, `punctuation_formatting`,
@@ -158,11 +161,15 @@ text. Technical diagnostics remain collapsed. Exact complete duplicate stages
 reference earlier stages in improvement text; truncated prefixes never dedupe.
 Missing older evidence means not recorded, not unchanged/off.
 
-Every entry freezes the complete saved Custom vocabulary as `context.vocabularyTerms`
-(a JSON string array, in saved order, max 100 terms × 64 characters), even while
-the experiment is off; `vocabularyEnabled` says whether the terms were applied and
-`vocabularyCount` counts the applied ones. Older entries may instead carry the
-legacy joined `vocabularySnapshot` (active terms only, capped to 4,000 bytes). Entries
+New entries no longer collect the complete saved dictionary: unrelated/inactive
+terms are not feedback evidence. Applied replacements (before/after/term/source),
+enabled state and applied-term count remain for diagnosis. Existing
+`context.vocabularyTerms` and `vocabularySnapshot` stay readable/exportable;
+this change does not silently rewrite retained history. Entry/result/job IDs,
+permission generations, processing outcomes, stage texts, bounded replacements,
+versions and timing remain because they establish association, explain failed
+or unwanted processing, and support functional checks. No new runtime trace,
+audio, prompt, cursor-context text or network collection is added. Entries
 since prompt revision `2026-11-09a` also record `context.dictationLanguage`
 (`automatic`, `de`, `en`) and, when Typr cleanup was offered preceding text, only its
 source (`cleanupContextSource`: `keyboard` or `previous-dictations`) and length
@@ -200,35 +207,59 @@ PR. Real iPhone file protection/lock, background lifecycle, share recipients,
 VoiceOver and on-device model quality still require hardware verification.
 
 
+### Required iPhone acceptance matrix for the unified loop
+
+These are **pending hardware checks**, not results inferred from unit tests.
+
+| Keyboard | App before dictation | Check |
+| --- | --- | --- |
+| Full | Terminated | Cold open/auto-return, insert once, full feedback panel appears |
+| Dictation-only | Terminated | Same flow and controls within the 140 pt surface |
+| Full | Already running / warm mic | In-keyboard dictation, identical feedback behavior |
+| Dictation-only | Already running / warm mic | Same flow, layout and controls |
+
+For each row: test Good, dismiss, Problem → Feedback in Typr, correct entry,
+unchanged original, accepted AI text only, note Save → reopen → explicit JSON
+export. Repeat without AI cleanup and with a failed/rejected AI pass; no
+mislabelled AI section should appear. Check light/dark, VoiceOver, queue failure
+→ Retry and archive write failure → Retry storage. A recreated extension must
+not lose ownership or insert the same result twice.
+
 ## Keyboard quick feedback (B)
 
 Typr › Keyboard dictation feedback is **on by default** (independent of the
-archive collection switch). Good / Problem / dismiss use the existing compact
-tray, or on the full keyboard a large panel that covers the keys after each
-dictation, like the recording panel. On the full keyboard Good and ✕ close the
-panel at once (the rating is queued in the background); Problem leaves only
-**Fix in Typr** and ✕, and closes itself after a few seconds. Only a rating that
-could not be queued brings the panel back, with Retry. The full keyboard no
-longer offers Undo dictation. The panel lays out its tiles with explicit frames
-because it is built only when a result arrives.
+archive collection switch). Both surfaces use the same `TyprFeedbackPanel`:
+large Good / Problem tiles and dismiss, covering the available keyboard area.
+The dictation-only keyboard keeps its 140 pt height; the panel occupies that
+whole area rather than a 26 pt tray. Good and ✕ close at once (ratings queue in
+the background); Problem leaves **Feedback in Typr** and ✕ for six seconds.
+The model owns rating/timeout behavior for both surfaces. Queue failures restore
+the same Retry panel. The full keyboard no longer offers Undo dictation.
 
-After **Problem**, the keyboard shows **Fix in Typr** instead of issue categories:
-the keyboard cannot usefully show what was recognized and what AI made of it.
-Fix in Typr opens `typr://typr/feedback?entry=<UUID>` (the entry ID
-only, never text); the app opens the log on that entry with **What I said**
-focused. The link never starts a dictation session. Categories remain available
-in the app under More details. No keyboard text editor, document inspection for
-feedback, clipboard copy or network request.
-The compact targets are at least 44 pt wide, **26 pt high**, matching the existing
-tray; they are not 44 pt tall. The full keyboard's tiles fill the key area.
+**Feedback in Typr** opens `typr://typr/feedback?entry=<UUID>` (only the
+entry ID, never text), focused on the note for exactly that dictation. The link
+does not start recording. Categories and legacy reference editing stay under
+More details. No keyboard text editor, document inspection for feedback,
+clipboard copy or network request.
 
-Only this keyboard instance's newly inserted, locally initiated result gets an
+Cold-start correctness has two boundaries: the keyboard records a bounded,
+text-free list of its 32 most recent job IDs in the App Group before opening
+Typr (also for warm starts), so recreation of the extension does not lose result
+ownership. The app waits for archive lineage/permission initialization before
+finishing and publishing a logged keyboard result with its offer; capture does
+not wait. Previously loading could suppress the offer permanently while the
+keyboard already consumed the result. Generation/cancellation, exact result
+matching, permission and expiry checks still apply; there is no “latest entry”
+fallback and no replay of an already-inserted transcript.
+
+Only a newly inserted, locally initiated result owned by the keyboard (including
+its persisted handoff jobs) gets an
 offer. Entry/job/result IDs, archive lineage, generation and a ten-minute offer
 expiry match explicitly. A stored previous result alone never prompts. First
 editing, another recording, keyboard disappearance, dismiss, expiry, no Full
-Access, either switch off or generation revocation hide it. On the compact tray
-style and next recording remain reachable; on the full keyboard the panel needs
-one tap (Good, Problem then ✕, or ✕) before the keys and the Typr key return.
+Access, either switch off or generation revocation hide it. On both surfaces the
+panel needs dismissal (Good, Problem then ✕, or ✕) before dictation/style/typing
+controls return.
 The opt-out preserves ordinary keyboard behavior.
 
 One protected, backup-excluded, text-free App Group JSON file per event carries
@@ -264,10 +295,12 @@ Delete/opt-out, simultaneous writers/cap, malformed/expired events, unloaded
 entries, load-with-new-offer generation stability, the full-keyboard panel
 (Good closes at once without touching host text, ✕, Problem's timeout, Retry,
 Typr messages without the suggestion bar), a feedback offer that arrives after
-the full keyboard was mounted (the on-device order), Fix in Typr opening the
-exact entry link, link
-routing that never parses as a launch request, and reference saves that keep
-the note. Scene names: `keyboard-feedback`,
+the full keyboard was mounted (the on-device order), Feedback in Typr opening the
+exact entry link, link routing that never parses as a launch request, reference
+saves that keep the note, and note-only saves that preserve legacy references.
+New regression cases cover cold archive readiness plus recreated bridge ownership,
+bounded job retention, accepted-only AI display, a full panel in the 140 pt compact
+surface (light/dark), and its shared rating/open actions. Scene names: `keyboard-feedback`,
 `keyboard-feedback-problem`, `full-keyboard-feedback[-dark]` and
 `full-keyboard-feedback-problem[-dark]`. Fixtures are synthetic, not real extension
 or device proof. Linux strict Swift 6 typechecking uses platform stubs; all eight

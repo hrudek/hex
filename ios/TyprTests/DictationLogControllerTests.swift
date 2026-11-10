@@ -86,6 +86,14 @@ private final class LogControllerFixture {
         // themselves are continuation-driven, not simulated four-second wall-clock waits.
         for _ in 0..<8 { try await Task.sleep(for: .milliseconds(25)) }
     }
+    func waitUntilFinished(file: StaticString = #filePath, line: UInt = #line) async throws {
+        // Keyboard completion also waits for cold archive readiness.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while env.store.entries.first?.status != .finished, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(env.store.entries.first?.status, .finished, file: file, line: line)
+    }
     func start() async throws {
         controller.prepareModel(); try await settle()
         controller.startRecording(keyboardJobID: "a"); try await settle()
@@ -153,14 +161,14 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertEqual(entry.context.cleanupPath, .typr)
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.before.text, "iphone")
         XCTAssertEqual(entry.firstSpellingPass?.changes.first?.after.text, "iPhone")
-        XCTAssertEqual(entry.context.vocabularyTerms, ["iPhone"])
+        XCTAssertNil(entry.context.vocabularyTerms)
         XCTAssertNil(entry.context.vocabularySnapshot)
         XCTAssertEqual(entry.cleanupOutput?.text, "iPhone works")
         XCTAssertEqual(entry.formattedText?.text, TranscriptFormatter.format("iPhone works", style: .polished))
         try await f.dispose()
     }
 
-    func testEveryEntryRecordsAllSavedVocabularyTermsEvenWhenOff() async throws {
+    func testUnrelatedSavedVocabularyIsNotCollected() async throws {
         let f = LogControllerFixture()
         let vocabulary = CustomVocabularySettings(defaults: f.env.defaults)
         vocabulary.isEnabled = false
@@ -173,10 +181,9 @@ final class DictationLogControllerTests: XCTestCase {
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.vocabularyEnabled, false)
         XCTAssertEqual(entry.context.vocabularyCount, 0)
-        XCTAssertEqual(entry.context.vocabularyTerms, ["herdr", "pi Agent", "GitHub"])
-        XCTAssertTrue(entry.improvementText.contains(
-            #"Vocabulary terms (3; saved, not applied): "herdr", "pi Agent", "GitHub""#))
-        XCTAssertTrue(entry.plainText.contains(#""pi Agent""#))
+        XCTAssertNil(entry.context.vocabularyTerms)
+        XCTAssertFalse(entry.plainText.contains(#""pi Agent""#))
+        XCTAssertFalse(entry.plainText.contains("GitHub"))
         try await f.dispose()
     }
 
@@ -185,7 +192,8 @@ final class DictationLogControllerTests: XCTestCase {
         await f.asr.setOutput("Erstelle einen Pulrequest auf Gitub")
         f.model.result = "Erstelle einen Pull Request auf GitHub"
         try await f.start()
-        f.controller.finishRecording(); try await f.settle()
+        f.controller.finishRecording()
+        try await f.waitUntilFinished()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.recognized?.text, "Erstelle einen Pulrequest auf Gitub")
         XCTAssertEqual(entry.aiInput?.text, "Erstelle einen Pull Request auf GitHub")
@@ -229,7 +237,7 @@ final class DictationLogControllerTests: XCTestCase {
         vocabulary.isEnabled = true // On but empty is not Off.
         f.controller.setStyle(.verbatim)
         try await f.start()
-        f.controller.finishRecording(); try await f.settle()
+        f.controller.finishRecording(); try await f.waitUntilFinished()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.cleanupPath, .none)
         XCTAssertEqual(entry.context.typrCleanupEnabled, true)
@@ -420,6 +428,5 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertFalse(failed.plainText.contains("SECRET-ERROR-PAYLOAD"))
         await env.dispose()
     }
-
 
 }
