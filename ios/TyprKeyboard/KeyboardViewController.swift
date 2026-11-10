@@ -49,6 +49,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        fullKeyboard?.discardTouchEvidence()
         pollTimer?.invalidate()
         pollTimer = nil
         viewModel.dismissFeedback()
@@ -77,6 +78,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func selectionDidChange(_ textInput: UITextInput?) {
         super.selectionDidChange(textInput)
+        fullKeyboard?.discardTouchEvidence()
         KeyboardHost.harvest()
     }
 
