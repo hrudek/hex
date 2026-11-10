@@ -126,24 +126,53 @@ selection, keyboard handoff, intents and the primary button never download it.
 ### Preparation (local only)
 
 After the user chooses Whisper while idle, Typr releases the previous engine
-and loads Whisper ("Optimizing Whisper for this iPhone"; the first time Core ML
-specializes the model, which can take several minutes; later launches reuse
-the cache). The path cannot reach the network:
+and loads Whisper. The first load in an environment lets Core ML specialize
+("optimize") the model for this iPhone, which takes a few minutes; later loads
+reuse the system's cache. The path cannot reach the network:
 
 1. Exact files and marker, else "not downloaded" (no download).
-2. `AutoTokenizerWrapper.from(modelFolder:)` parses the three tokenizer files
+2. Storage guard, before any model work (`WhisperPreparationPlan`): Core ML
+   offers no API to ask whether its specialization cache will be hit, so Typr
+   keeps `typr-whisper-preparation.json` next to the marker: the environment
+   (OS version and build, Typr version and build, model revision) of the last
+   complete load, and whether a preparation was still running when Typr last
+   stopped. Same environment and no interrupted preparation → **Loading
+   Whisper**. Otherwise specialization is expected → **Optimizing Whisper for
+   this iPhone**, but only with at least 4.5 GB free
+   (`WhisperModelSpec.optimizationStorageBytes`,
+   `volumeAvailableCapacityForImportantUsage`); with less, preparation stops
+   before any model work: "Whisper must be optimized for this iPhone first,
+   which needs about 4.5 GB of free storage (… is free). Free up storage, then
+   prepare Whisper again." (logged as `modelNotReady`). Unknown free space
+   does not block. The record is not part of the install and never changes
+   "installed".
+3. `AutoTokenizerWrapper.from(modelFolder:)` parses the three tokenizer files
    locally; `TyprWhisperTokenizer` resolves every special token by exact
    round trip (a damaged tokenizer is a local error instead of upstream's
    pre-V3 default IDs).
-3. `WhisperKit(WhisperKitConfig(modelFolder:, tokenizerFolder:, computeOptions:,
+4. `WhisperKit(WhisperKitConfig(modelFolder:, tokenizerFolder:, computeOptions:,
    prewarm: false, load: false, download: false))`, then `kit.tokenizer = …`
-   **before** `loadModels()`, so WhisperKit's tokenizer loader (and its Hub
-   fallback) never runs.
-4. The decoder's vocabulary must be 51,866 (V3), else a local error; then
+   **before** loading, so WhisperKit's tokenizer loader (and its Hub fallback)
+   never runs. Then `prewarmModels()` (public in 1.1.1; its prewarm pass
+   returns before the tokenizer loader) specializes the three models one at a
+   time and releases each, and `loadModels()` loads them from the cache: peak
+   memory during specialization stays at one model instead of all weights plus
+   the compiler's working memory (WhisperKit's documented trade-off: a cached
+   load takes about twice as long, under a second).
+5. The decoder's vocabulary must be 51,866 (V3), else a local error; then
    `isModelMultilingual = true` (skipped with that loader).
 
 The `WhisperKit` instance stays inside the `WhisperTranscriber` actor and is
 released by ARC, never by `unloadModels()` while a transcription may use it.
+
+Why the guard exists (observed on an iPhone 16, iOS 27.0.1, November 2026):
+with about 300 MB free, iOS repeatedly purged the specialization cache from
+Typr's `Library/Caches` (CacheDelete), specialization could not finish, and
+iOS terminated Typr (one Jetsam report at the 3.4 GB per-process limit). With
+7.6 GB free, the first load specialized in about 85 seconds, free space fell
+by about 3.9 GB at its lowest and about 1.4 GB stayed; a relaunch reused the
+cache without specializing again. Specialization is repeated after OS and
+Typr updates and whenever iOS purges the cache under storage pressure.
 
 ### Transcription
 
