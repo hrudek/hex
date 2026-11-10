@@ -105,7 +105,7 @@ final class KeyboardBridgeTests: XCTestCase {
             "Let's ship the ios build tonight."
         )
         XCTAssertEqual(
-            TranscriptFormatter.format("Um, Sounds Good.", style: .casual),
+            TranscriptFormatter.format("Um, Sounds Good.", style: .veryCasual),
             "sounds good"
         )
         XCTAssertEqual(

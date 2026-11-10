@@ -5,7 +5,9 @@ import NaturalLanguage
 
 nonisolated enum DictationStyle: String, Codable, CaseIterable, Sendable {
     case polished
-    case casual
+    // Keep the old stored value for the renamed lowercase style (settings, links and logs).
+    case casual = "casualCapitalized"
+    case veryCasual = "casual"
     case notes
     case verbatim
 
@@ -13,6 +15,7 @@ nonisolated enum DictationStyle: String, Codable, CaseIterable, Sendable {
         switch self {
         case .polished: "Polished"
         case .casual: "Casual"
+        case .veryCasual: "Very casual"
         case .notes: "Notes"
         case .verbatim: "Verbatim"
         }
@@ -21,7 +24,8 @@ nonisolated enum DictationStyle: String, Codable, CaseIterable, Sendable {
     var shortHint: String {
         switch self {
         case .polished: "Clean punctuation and filler trim"
-        case .casual: "Lowercase texting, no trailing period"
+        case .casual: "Natural capitalization, no trailing period"
+        case .veryCasual: "Lowercase texting, no trailing period"
         case .notes: "Spoken bullets and line breaks"
         case .verbatim: "Exact words from the model"
         }
@@ -47,16 +51,16 @@ nonisolated enum TranscriptFormatter {
             let cleaned = stripStandaloneFillers(in: trimmed)
             return polishSentences(cleaned)
 
-        case .casual:
+        case .casual, .veryCasual:
             let cleaned = stripStandaloneFillers(in: trimmed)
-            var lowered = collapseHorizontalSpaces(in: cleaned).lowercased()
-            // Keep standalone "i" and "i'm"/"i'll"/"i've"/"i'd" capitalized naturally, or pure casual lowercase?
-            // Pure texting style: lowercase start and drop single-sentence trailing period, keep ? and !.
-            lowered = fixSpacingBeforePunctuation(in: lowered)
-            if lowered.hasSuffix("."), !lowered.dropLast().contains(where: { ".!?".contains($0) }) {
-                lowered.removeLast()
+            var result = fixSpacingBeforePunctuation(in: collapseHorizontalSpaces(in: cleaned))
+            result = style == .veryCasual ? result.lowercased() : capitalizeSentenceStarts(in: result)
+            // Both chat styles omit the final period, regardless of sentence count.
+            // Internal punctuation and final question/exclamation marks stay unchanged.
+            if result.hasSuffix(".") {
+                result.removeLast()
             }
-            return lowered.trimmingCharacters(in: .whitespacesAndNewlines)
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
 
         case .notes:
             let cleaned = stripStandaloneFillers(in: trimmed)

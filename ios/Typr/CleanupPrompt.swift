@@ -20,7 +20,7 @@ enum CleanupPrompt {
         switch style {
         case .notes:
             lines.append("Style: notes. Keep the spoken words bullet, next bullet, bullet point, new line and new paragraph exactly as they are. Add no line breaks or paragraphs.")
-        case .casual:
+        case .casual, .veryCasual:
             lines.append("Style: casual chat message. Fix the errors but keep the informal wording; no paragraphs.")
         case .polished, .verbatim:
             break
