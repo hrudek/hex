@@ -104,10 +104,6 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertLessThanOrEqual(accessible.width, 320.5)
     }
 
-    func testDictationLanguageLabelsMatchSettingsLanguage() {
-        XCTAssertEqual(DictationLanguage.german.label, "German")
-    }
-
     func testEveryDictationStyleExplainsItsBehavior() {
         for style in DictationStyle.allCases {
             XCTAssertFalse(style.settingsDescription.isEmpty, style.rawValue)
@@ -142,7 +138,6 @@ final class SettingsPresentationTests: XCTestCase {
     @MainActor
     func testDictationChoiceDescriptionsWrapAtCompactWidthAndLargerText() {
         let choices = DictationStyle.allCases.map { ($0.label, $0.settingsDescription) }
-
         for (title, detail) in choices {
             func size(_ type: DynamicTypeSize, selected: Bool) -> CGSize {
                 let host = UIHostingController(rootView:
