@@ -47,7 +47,7 @@ sends telemetry.
 
 ## Languages
 
-The **Language** picker (Automatic / Deutsch / English) applies to every engine:
+The **Language** picker (Automatic / German / English) applies to every engine:
 
 - **Apple Speech:** Automatic tries the preferred languages, the current
   locale, then en-US. An explicit language prepares only that language
@@ -58,10 +58,10 @@ The **Language** picker (Automatic / Deutsch / English) applies to every engine:
   (`DictationLanguage.availabilityLocaleCandidates`), but the locale prepared
   is the strict one. Changes during capture or preparation are deferred until
   idle; another capture cannot start with the previous locale.
-- **Parakeet V2:** English only. With Deutsch or Automatic the section warns
+- **Parakeet V2:** English only. With German or Automatic the section warns
   that German speech is not recognized correctly; Typr does not block German or
   change the engine.
-- **Whisper:** Deutsch → `de`, English → `en`, Automatic → Whisper detects the
+- **Whisper:** German → `de`, English → `en`, Automatic → Whisper detects the
   language (`detectLanguage: true`; WhisperKit's default would force English).
   The language is passed with each captured dictation; it never translates.
 
@@ -252,7 +252,7 @@ shows both) for each case, with the engine and language.
 3. **Restart:** relaunch with Whisper chosen: it prepares at launch without any
    network request; first optimization time vs later (cold vs warm). Repeat after
    an iOS update: Core ML can invalidate its specialization cache and optimize again.
-4. **Languages:** Deutsch, English, Automatic with German and English speech;
+4. **Languages:** German, English, Automatic with German and English speech;
    mixed German with English tech terms (Pull Request, GitHub, Branch).
 5. **Content:** names, numbers, dates and times; short (1–2 words) and long
    (45–60 s) dictations; silence and background noise (expect "no speech", no
@@ -271,6 +271,6 @@ shows both) for each case, with the engine and language.
    Whisper models.
 8. **Memory and thermal:** peak memory during preparation and transcription;
    device temperature and battery over ten consecutive dictations.
-9. **Parakeet with Deutsch:** warning shown, engine unchanged.
+9. **Parakeet with German:** warning shown, engine unchanged.
 10. **Apple Speech on iOS 18:** row shows "Requires iOS 26 or later"; an explicit
     choice fails with that reason and does not fall back.
