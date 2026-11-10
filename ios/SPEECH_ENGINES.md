@@ -153,14 +153,29 @@ reuse the system's cache. The path cannot reach the network:
 4. `WhisperKit(WhisperKitConfig(modelFolder:, tokenizerFolder:, computeOptions:,
    prewarm: false, load: false, download: false))`, then `kit.tokenizer = …`
    **before** loading, so WhisperKit's tokenizer loader (and its Hub fallback)
-   never runs. Then `prewarmModels()` (public in 1.1.1; its prewarm pass
-   returns before the tokenizer loader) specializes the three models one at a
-   time and releases each, and `loadModels()` loads them from the cache: peak
+   never runs. Typr uses the public `WhisperMLModel.loadModel(prewarmMode: true)`
+   API to specialize the three pinned `.mlmodelc` components one at a time
+   (audio features, text decoder, audio encoder), releasing each before the next.
+   This preserves the sequential prewarm semantics of WhisperKit 1.1.1 without
+   its opaque whole-model `prewarmModels()` call. `loadModels()` then loads them
+   from the cache: peak
    memory during specialization stays at one model instead of all weights plus
    the compiler's working memory (WhisperKit's documented trade-off: a cached
    load takes about twice as long, under a second).
 5. The decoder's vocabulary must be 51,866 (V3), else a local error; then
    `isModelMultilingual = true` (skipped with that loader).
+
+Core ML does not expose measured progress within a component's specialization.
+Whisper preparation therefore has no percentage or fixed 15% bar: the engine
+page, main recording stage and keyboard handoff show an animated indeterminate
+indicator and the current real phase. The component phases say *Step 1 of 3*,
+*Step 2 of 3* and *Step 3 of 3*; these are component counts, not equally weighted
+time estimates. Tokenizer reading, loading the prepared models and validation
+have their own phase text. The setup checklist says *Preparing* instead of an
+invented percentage. No elapsed time, countdown or simulated progress is shown.
+Measured download and other engines' progress bars are unchanged. Tests cover
+step order, awaiting completion, failure/cancellation and indeterminate row
+state; a simulator run and real-iPhone layout/animation checks remain required.
 
 The `WhisperKit` instance stays inside the `WhisperTranscriber` actor and is
 released by ARC, never by `unloadModels()` while a transcription may use it.

@@ -145,7 +145,8 @@ struct KeyboardSetupCard: View {
         case .modelRequired where dictation.preferredEngine == .whisperLargeV3Turbo:
             return "Download required"
         case .preparingModel:
-            return "\(Int(dictation.modelPreparation.fractionCompleted * 100))%"
+            guard let fraction = dictation.modelPreparation.fractionCompleted else { return "Preparing" }
+            return "\(Int(fraction * 100))%"
         case .failed where !dictation.isModelReady || dictation.currentEngine == nil:
             return "Failed"
         default:

@@ -2,7 +2,8 @@ import FluidAudio
 import Foundation
 
 struct ModelPreparationProgress: Sendable {
-    let fractionCompleted: Double
+    /// Nil when the underlying operation cannot report measured progress.
+    let fractionCompleted: Double?
     let detail: String
 }
 

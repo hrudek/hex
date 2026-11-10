@@ -475,6 +475,79 @@ final class WhisperTranscriberTests: XCTestCase {
         XCTAssertTrue(message.hasSuffix("Free up storage, then prepare Whisper again."))
     }
 
+    func testPreparationStepsReportRealComponentsWithoutPercentages() {
+        let components = WhisperPreparationComponent.allCases
+        XCTAssertEqual(components, [.melSpectrogram, .textDecoder, .audioEncoder])
+        for (index, component) in components.enumerated() {
+            let optimizing = component.progress(optimizing: true)
+            let loading = component.progress(optimizing: false)
+            XCTAssertNil(optimizing.fractionCompleted)
+            XCTAssertNil(loading.fractionCompleted)
+            XCTAssertTrue(optimizing.detail.hasPrefix("Optimizing Whisper "))
+            XCTAssertTrue(loading.detail.hasPrefix("Loading Whisper "))
+            XCTAssertTrue(optimizing.detail.hasSuffix("Step \(index + 1) of 3"))
+            XCTAssertFalse(optimizing.detail.contains("%"))
+        }
+        XCTAssertEqual(components.map(\.computeUnits),
+                       [WhisperModelSpec.melComputeUnits, WhisperModelSpec.textDecoderComputeUnits,
+                        WhisperModelSpec.audioEncoderComputeUnits])
+    }
+
+    func testPreparationAwaitsEachComponentBeforeAnnouncingTheNext() async throws {
+        let events = ProgressLog()
+        try await WhisperPreparationComponent.prepare(optimizing: true, progressHandler: {
+            XCTAssertNil($0.fractionCompleted)
+            events.append($0.detail)
+        }) { component in
+            // The next phase must not have been announced while this component loads.
+            XCTAssertEqual(events.values.last, component.progress(optimizing: true).detail)
+            await Task.yield()
+            events.append("Finished \(component.rawValue)")
+        }
+        XCTAssertEqual(events.values, [
+            "Optimizing Whisper audio features · Step 1 of 3", "Finished MelSpectrogram",
+            "Optimizing Whisper text decoder · Step 2 of 3", "Finished TextDecoder",
+            "Optimizing Whisper audio encoder · Step 3 of 3", "Finished AudioEncoder"
+        ])
+    }
+
+    func testPreparationFailureDoesNotAnnounceOrLoadLaterSteps() async {
+        enum Failure: Error { case load }
+        let progress = ProgressLog()
+        var loaded: [WhisperPreparationComponent] = []
+        do {
+            try await WhisperPreparationComponent.prepare(optimizing: false, progressHandler: {
+                progress.append($0.detail)
+            }) { component in
+                loaded.append(component)
+                if component == .textDecoder { throw Failure.load }
+            }
+            XCTFail("Expected the model failure")
+        } catch {
+            XCTAssertTrue(error is Failure)
+        }
+        XCTAssertEqual(loaded, [.melSpectrogram, .textDecoder])
+        XCTAssertEqual(progress.values.count, 2)
+    }
+
+    func testCancelledPreparationDoesNotStartAnotherComponent() async {
+        let progress = ProgressLog()
+        let task = Task {
+            try await WhisperPreparationComponent.prepare(optimizing: true, progressHandler: {
+                progress.append($0.detail)
+            }) { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+        }
+        do {
+            try await task.value
+            XCTFail("Expected cancellation")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(progress.values, ["Optimizing Whisper audio features · Step 1 of 3"])
+    }
+
     func testPreparationTextsDistinguishLoadingFromOptimizing() {
         XCTAssertEqual(WhisperTranscriber.loadingDetail, "Loading Whisper")
         XCTAssertTrue(WhisperTranscriber.optimizingDetail.hasPrefix("Optimizing Whisper for this iPhone"))

@@ -1,5 +1,21 @@
 import SwiftUI
 
+/// Unknown Core ML progress must animate without implying a measured percentage.
+struct ModelPreparationIndicator: View {
+    let progress: ModelPreparationProgress
+
+    var body: some View {
+        Group {
+            if let fraction = progress.fractionCompleted {
+                ProgressView(value: fraction)
+            } else {
+                ProgressView()
+            }
+        }
+        .accessibilityLabel(progress.detail)
+    }
+}
+
 /// What one engine row shows, computed from plain values so it is testable without views.
 nonisolated struct SpeechEngineRowState: Equatable, Sendable {
     enum Action: Equatable, Sendable {
@@ -18,8 +34,9 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
     /// "In use", "In use · automatic" or "Chosen" (chosen but not ready yet).
     let badge: String?
     let status: String
-    /// 0...1 when a download or preparation is running.
+    /// Measured fraction, when available. Indeterminate preparation has no percentage.
     let progress: Double?
+    let isIndeterminate: Bool
     let action: Action
     let actionTitle: String?
     /// False for choosing/preparing while a dictation runs; downloads are always allowed.
@@ -54,13 +71,14 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
             ? "First use optimizes the model for several minutes. Vocabulary and the tech glossary apply after recognition, not as Whisper hints."
             : nil
 
-        func row(_ status: String, progress: Double? = nil, action: Action = .none, title: String? = nil) -> SpeechEngineRowState {
+        func row(_ status: String, progress: Double? = nil, isIndeterminate: Bool = false, action: Action = .none, title: String? = nil) -> SpeechEngineRowState {
             let enabled: Bool
             switch action {
             case .use, .prepare: enabled = canChangeEngine
             default: enabled = true
             }
             return SpeechEngineRowState(engine: engine, badge: badge, status: status, progress: progress,
+                                        isIndeterminate: isIndeterminate,
                                         action: action, actionTitle: title, actionEnabled: enabled,
                                         warning: warning, note: note)
         }
@@ -79,7 +97,8 @@ nonisolated struct SpeechEngineRowState: Equatable, Sendable {
             }
         }
         if isChosen, current != engine, let preparation {
-            return row(preparation.detail, progress: preparation.fractionCompleted)
+            return row(preparation.detail, progress: preparation.fractionCompleted,
+                       isIndeterminate: preparation.fractionCompleted == nil)
         }
         if isChosen, current != engine, let failure {
             if isWhisper, whisperInstall != .installed {
@@ -241,6 +260,10 @@ struct SpeechEngineCard: View {
                 .foregroundStyle(TyprTheme.textMuted)
             if let progress = state.progress {
                 ProgressView(value: progress).tint(TyprTheme.textBase)
+            } else if state.isIndeterminate {
+                ProgressView()
+                    .tint(TyprTheme.textBase)
+                    .accessibilityLabel(state.status)
             }
             if let warning = state.warning {
                 Text(warning)
