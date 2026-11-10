@@ -137,6 +137,12 @@ it never accesses the microphone, speech model, or network.
     and resume warm keepalive when iOS signals `.shouldResume`. Bluetooth HFP
     input is opt-in (**Use Bluetooth headphones**, default off) so AirPods stay
     in full-fidelity output by default.
+  - **Audio-route startup safety:** `TyprAudioInput` owns the input graph in
+    Objective-C. A start creates a fresh engine after session activation and uses
+    the native tap format (`nil`), avoiding a pinned format from an old route.
+    AVFAudio exceptions during graph setup become recoverable errors; failed
+    graphs are discarded, including when cleanup raises. Swift `do/catch` alone
+    cannot catch these exceptions. A running warm input is still reused.
 - **Action Button, Control Center, Back Tap & Live Activity:**
   - `DictateWithTyprIntent` (`AudioRecordingIntent` + `LiveActivityIntent`) and
     `TyprDictationControl` (`ControlWidget`) start recording on first press with
@@ -227,6 +233,10 @@ xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>
   style formatting; host-return order (bundle ID → resuming URL → swipe),
   host process table and share-sheet refusal logic with injected openers;
   and UI layouts.
+- **Audio-input regression coverage (requires a simulator test run):**
+  `AudioInputTests` injects Objective-C graph failures (tap installation,
+  preparation, startup and cleanup), verifies error conversion, native-format
+  taps, graph disposal and a successful retry. This does not reproduce CarPlay.
 - **Requires a physical iPhone:** Real `AVAudioSession` background keepalive
   survival across lock/app switches, live orange indicator behavior, on-device
   `SpeechTranscriber` / Neural Engine Parakeet latency, the Whisper download,
@@ -250,3 +260,19 @@ xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>
   TestFlight. Manual `distribution=simulator` runs are available before merge;
   see [TYPR.md](../TYPR.md). These checks do not prove physical-iPhone
   behavior; a test's presence is not evidence of a passing run.
+
+### CarPlay microphone-start regression check
+
+The 2026-11-10 crash in TestFlight build 88.1 was an uncaught AVFAudio
+exception in `installTapOnBus` at approximately 16:54 local time. The private
+report identifies the failing operation, but not the assertion text or active
+route; a CarPlay route/format transition is suspected, not proven. No raw device
+reports or identifiers are committed.
+
+On a real iPhone, connect CarPlay and start dictation both cold and with **Keep
+mic warm** enabled; repeat while connecting/disconnecting CarPlay and with **Use
+Bluetooth headphones** both off and on. Verify that speech is captured on a
+stable route, an unavailable route gives a recoverable failure rather than an
+app exit, the next attempt can succeed, and repeated warm dictations do not
+restart microphone input. Also check built-in mic and Bluetooth headphones
+without CarPlay. These hardware checks have not yet been performed for this fix.

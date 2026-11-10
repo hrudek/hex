@@ -78,6 +78,7 @@ targets:
         OTHER_SWIFT_FLAGS: $(inherited) -Xfrontend -disable-autolink-framework -Xfrontend FoundationModels
         PRODUCT_BUNDLE_IDENTIFIER: dev.rudek.typr
         PRODUCT_NAME: Typr
+        SWIFT_OBJC_BRIDGING_HEADER: Typr/Typr-Bridging-Header.h
     scheme:
       gatherCoverageData: false
       testTargets:
