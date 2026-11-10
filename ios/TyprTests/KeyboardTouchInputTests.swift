@@ -212,7 +212,8 @@ final class KeyboardTouchInputTests: XCTestCase {
         tap(.layerSwitch(.numbers))
         XCTAssertNil(evidence)
         tap(.character("'"))
-        tap(.layerSwitch(.letters))
+        // Apostrophe already returns to letters; there is no ABC key to tap now.
+        XCTAssertEqual(engine.layout.layer, .letters)
         type("s")
         XCTAssertNil(evidence)
         tap(.space)
