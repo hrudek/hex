@@ -26,7 +26,7 @@ There is no automatic count, age or aggregate byte eviction.
 
 ## Everyday feedback
 
-Open **Typr → Show dictation log**, or tap **Feedback in Typr** on the keyboard after
+Open **Settings → History & feedback → Open dictation log**, or tap **Feedback in Typr** on the keyboard after
 Problem (see below). The list uses metadata, a 120-character preview and All /
 Unrated / Problems filters. Leading Good and trailing Problem swipes have explicit
 VoiceOver equivalents.

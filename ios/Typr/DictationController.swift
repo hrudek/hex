@@ -1550,6 +1550,11 @@ final class DictationController {
             controller.warmDuration = .fifteenMinutes
             controller.keyboardSessionEnabled = false
 
+        case "settings-overview", "settings-keyboard", "settings-writing", "settings-history", "settings-speech-engine":
+            controller.phase = .ready
+            controller.warmDuration = .off
+            controller.keyboardSessionEnabled = false
+
         case "ready":
             controller.phase = .ready
             controller.warmDuration = .off

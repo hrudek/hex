@@ -83,7 +83,7 @@ it never accesses the microphone, speech model, or network.
     speech stay English). A warm-session start also sends up to 300 characters
     of the field's text before the cursor to the app as cleanup context (never
     logged); see [AI_CLEANUP.md](AI_CLEANUP.md#language-context-and-hyphens).
-  - **Full keyboard Typr key (Experiments › Full keyboard):** A quick tap
+  - **Full keyboard Typr key (Settings › Keyboard › Full keyboard):** A quick tap
     types a space, exactly like the space bar (autocorrect, double-space
     period). A still hold of 0.35 s starts dictation in a warm session (or
     opens Typr without one), with a haptic. Moving more than 10 pt before
@@ -99,11 +99,11 @@ it never accesses the microphone, speech model, or network.
     and typo fixes. Turning autocorrect off keeps the language choices for later.
     iOS Text Replacement and contact suggestions remain language-independent.
     Retired German-autocorrect and keyboard-switch experiment values are ignored.
-  - **AI cleanup (Typr settings, iOS 26+):** On by default. Typr's on-device
+  - **AI cleanup (Settings › Writing, iOS 26+):** On by default. Typr's on-device
     Apple Intelligence rewrite runs before formatting in every style but `Verbatim`,
     with plain-transcript fallback. The inherited cleanup experiment has been removed;
     turning **AI cleanup** off runs no model-based cleanup. See [AI_CLEANUP.md](AI_CLEANUP.md).
-  - **Custom vocabulary (Experiments › Custom vocabulary):** Off by default.
+  - **Custom vocabulary (Settings › Writing › Custom vocabulary):** Off by default.
     A local list of up to 100 names and phrases, applied to every engine. After
     transcription, matching words are rewritten to the listed spelling across
     case, spaces, tabs, a single hyphen, and possessive apostrophes, before
@@ -138,6 +138,30 @@ it never accesses the microphone, speech model, or network.
     `TyprDictationControl` (`ControlWidget`) start recording on first press with
     a Dynamic Island / Lock Screen Live Activity (`Stop` and `Cancel` buttons)
     and transcribe + copy to the clipboard on second press.
+
+## Settings interface
+
+The app is primarily the keyboard's settings companion. A dark, compact overview
+keeps dictation language, style and microphone controls immediately accessible.
+Purpose-based detail pages replace the old Typr/Experiments split:
+
+- **Keyboard:** full keyboard, suggestion bar, conditional autocorrect/languages,
+  and the link to iOS keyboard settings.
+- **Writing:** on-device AI cleanup with availability/last outcome, and editable
+  vocabulary/sounds-like forms. Technical explanations expand on demand.
+- **Speech engine:** explicit selection, status, downloads, retry/cancel, language
+  warnings and expandable engine details. No automatic engine switching changes.
+- **History & feedback:** collection, archive/export/delete and keyboard ratings.
+  Feedback URLs still open the requested archive entry from any settings page.
+
+Settings keys, defaults, full-keyboard/autocorrect dependencies, archive retention
+and privacy behavior are unchanged. `SettingsComponents.swift` provides shared
+surfaces, scalable text and navigation routes; keyboard colors remain untouched.
+`SettingsPresentationTests` checks route parsing and compact/large-text layout.
+Manual simulator screenshots can request `settings-keyboard`, `settings-writing`,
+`settings-history` and `settings-speech-engine`, plus `settings-overview`.
+These are opt-in launch fixtures, not app/runtime data collection. A simulator
+render does not prove interaction or layout on a physical iPhone.
 
 ## Build & Test
 

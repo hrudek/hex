@@ -83,7 +83,7 @@ unchanged by this feature).
 
 ## Contract
 
-The **AI cleanup** switch in Typr settings is on by default, stored as
+The **Clean up dictations** switch in **Settings → Writing** is on by default, stored as
 `typr.aiCleanup` in the App Group. Each recording freezes the switch and style.
 Changing either affects the next recording. Off, Verbatim, or absent injected
 cleanup dependencies retains the existing transcript path: no model session,
@@ -122,7 +122,7 @@ all fall back to plain ASR text, formatted as before. Cleanup failures do not
 set `.failed`; ASR failures retain their existing error behavior. Logs use
 `ai-cleanup` and fixed reason strings, never transcript text or model error text.
 
-The Typr card shows the **last dictation's outcome** under the switch, e.g.
+The Writing page shows the **last dictation's outcome** under the switch, e.g.
 “cleaned up by Apple Intelligence (1.8 s)”, “Apple Intelligence changed nothing”,
 “skipped: fewer than 3 words”, “skipped: a language … doesn't support”, “took longer than 6.3 s … (it finished
 after 8.2 s)” or “change was not used: it contained a number or link you didn't say”. It is stored in the App Group as

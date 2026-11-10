@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The custom vocabulary list shown under its experiment toggle.
+/// Preferred spellings and sounds-like forms, under Writing settings.
 struct CustomVocabularyEditor: View {
     private let settings = CustomVocabularySettings()
 
@@ -21,23 +21,24 @@ struct CustomVocabularyEditor: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 10) {
                         Text(term)
-                            .font(.system(size: 14))
+                            .font(.body)
                             .foregroundStyle(TyprTheme.textBase)
-                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         Spacer(minLength: 8)
 
                         Button {
                             toggleSoundsLike(for: term)
                         } label: {
-                            Image(systemName: "waveform")
+                            Image(systemName: editingTerm == term ? "checkmark" : "waveform")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(editingTerm == term ? TyprTheme.textBase : TyprTheme.textMuted)
-                                .frame(width: 26, height: 26)
+                                .frame(width: 32, height: 32)
                                 .background(TyprTheme.layer02, in: Circle())
+                                .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Sounds like for \(term)")
+                        .accessibilityLabel(editingTerm == term ? "Save sounds-like forms for \(term)" : "Edit sounds-like forms for \(term)")
 
                         Button {
                             remove(term)
@@ -45,8 +46,9 @@ struct CustomVocabularyEditor: View {
                             Image(systemName: "xmark")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(TyprTheme.textMuted)
-                                .frame(width: 26, height: 26)
+                                .frame(width: 32, height: 32)
                                 .background(TyprTheme.layer02, in: Circle())
+                                .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove \(term)")
@@ -82,7 +84,7 @@ struct CustomVocabularyEditor: View {
             }
 
             TextField("Add a word or phrase", text: $draft)
-                .font(.system(size: 14))
+                .font(.body)
                 .foregroundStyle(TyprTheme.textBase)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -93,7 +95,7 @@ struct CustomVocabularyEditor: View {
                 }
                 .disabled(isAtLimit)
                 .padding(.horizontal, 12)
-                .frame(minHeight: 38)
+                .frame(minHeight: 48)
                 .background(
                     TyprTheme.layer01,
                     in: RoundedRectangle(
@@ -116,13 +118,8 @@ struct CustomVocabularyEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text(
-                "Typr fixes the spelling of listed words when it hears them. "
-                    + "When the speech engine writes a word as something else, tap the "
-                    + "waveform and add what it writes under Sounds like (for example "
-                    + "Herder, Herda for herdr). Your terms win over Typr's built-in tech terms."
-            )
-            .font(.system(size: 12))
+            Text("Your spellings take priority over built-in tech terms. Tap the waveform to add what the engine writes instead, e.g. Herder for herdr.")
+            .font(.subheadline)
             .foregroundStyle(TyprTheme.textMuted)
             .fixedSize(horizontal: false, vertical: true)
         }
