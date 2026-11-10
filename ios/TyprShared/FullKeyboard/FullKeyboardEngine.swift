@@ -54,6 +54,9 @@ final class FullKeyboardEngine {
         var key: KeyboardKey
         var startPoint: CGPoint
         var point: CGPoint
+        /// Captured geometry; layout changes and key-to-key slides make evidence ambiguous.
+        var evidenceLayout: KeyboardLayout
+        var hasUnambiguousPoint = true
         /// A character that already went in because another key went down after it.
         var committed: Bool
         /// The page a 123/ABC press came from; releasing over a character returns there.
@@ -159,10 +162,19 @@ final class FullKeyboardEngine {
 
     /// Call after the text or the cursor changed outside these keys.
     func textDidChange() {
+        discardTouchEvidence()
         lastSpaceAt = nil
         autocorrect.clearPendingUndo()
         refreshAutoCapitalization()
         refreshSuggestions()
+    }
+
+    /// Invalidates in-flight taps too: a late release must not recreate evidence after a cursor/field change.
+    func discardTouchEvidence() {
+        autocorrect.touchInput.clear()
+        for id in touchOrder {
+            touches[id]?.hasUnambiguousPoint = false
+        }
     }
 
     func refreshAutoCapitalization() {
@@ -178,6 +190,8 @@ final class FullKeyboardEngine {
     }
 
     func refreshSuggestions() {
+        // Validate even with the strip hidden or autocorrection disabled.
+        _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         let next = showsStrip ? autocorrect.suggestions(
             beforeInput: target.documentContextBeforeInput,
             field: field,
@@ -190,6 +204,7 @@ final class FullKeyboardEngine {
     }
 
     func acceptSuggestion(_ suggestion: KeyboardSuggestion) {
+        discardTouchEvidence()
         if let token = AutocorrectEngine.currentToken(in: target.documentContextBeforeInput) {
             for _ in 0..<token.count {
                 target.deleteBackward()
@@ -214,7 +229,7 @@ final class FullKeyboardEngine {
                 activeAccentMenu = nil
                 activeAccentTouchID = nil
             } else {
-                commitCharacter(touch.key)
+                commitCharacter(touch)
             }
             touch.committed = true
             touches[other] = touch
@@ -224,6 +239,7 @@ final class FullKeyboardEngine {
             key: key,
             startPoint: point,
             point: point,
+            evidenceLayout: layout,
             committed: false,
             returnLayer: nil
         )
@@ -288,6 +304,7 @@ final class FullKeyboardEngine {
         // 2. Spacebar cursor trackpad: horizontal drag >= 10 pt slides the text caret.
         if touch.key.kind == .space {
             if !touch.isTrackpad, abs(point.x - touch.startPoint.x) >= Self.trackpadActivationDistance {
+                discardTouchEvidence()
                 touch.isTrackpad = true
                 touch.trackpadAnchorX = point.x
                 lastSpaceAt = nil
@@ -317,6 +334,8 @@ final class FullKeyboardEngine {
         // 3. Sliding across character keys updates the active key and re-anchors the hold timer.
         if touch.key.character != nil, !touch.committed,
            let under = layout.hitTest(point), under.character != nil, under.kind != touch.key.kind {
+            touch.hasUnambiguousPoint = false
+            discardTouchEvidence()
             touch.key = under
             touch.startPoint = point
             touches[id] = touch
@@ -346,7 +365,7 @@ final class FullKeyboardEngine {
         switch touch.key.kind {
         case .character:
             if !touch.committed {
-                commitCharacter(touch.key)
+                commitCharacter(touch)
             }
         case .shift:
             shift.shiftUp()
@@ -379,6 +398,7 @@ final class FullKeyboardEngine {
     }
 
     func touchCancelled(id: Int) {
+        discardTouchEvidence()
         if activeAccentTouchID == id {
             activeAccentMenu = nil
             activeAccentTouchID = nil
@@ -389,6 +409,7 @@ final class FullKeyboardEngine {
     }
 
     func cancelAllTouches() {
+        autocorrect.touchInput.clear()
         let hadTouches = !touches.isEmpty || activeAccentMenu != nil
         touches.removeAll()
         touchOrder.removeAll()
@@ -419,6 +440,7 @@ final class FullKeyboardEngine {
     }
 
     func deleteBackward(allowAutocorrectUndo: Bool = true) {
+        let beforeDeletion = target.documentContextBeforeInput
         if allowAutocorrectUndo,
            let undo = autocorrect.consumePendingUndo(),
            let before = target.documentContextBeforeInput,
@@ -427,6 +449,7 @@ final class FullKeyboardEngine {
                 target.deleteBackward()
             }
             target.insertText(undo.original)
+            autocorrect.touchInput.clear()
             autocorrect.suppressAndKeep(undo.original)
             lastSpaceAt = nil
             didEdit()
@@ -434,11 +457,13 @@ final class FullKeyboardEngine {
         }
         autocorrect.clearPendingUndo()
         target.deleteBackward()
+        autocorrect.touchInput.deletedBackward(before: beforeDeletion, after: target.documentContextBeforeInput)
         lastSpaceAt = nil
         didEdit()
     }
 
     func deleteWordBackward() {
+        autocorrect.touchInput.clear()
         autocorrect.clearPendingUndo()
         guard let before = target.documentContextBeforeInput, !before.isEmpty else {
             deleteBackward(allowAutocorrectUndo: false)
@@ -463,14 +488,19 @@ final class FullKeyboardEngine {
 
     // MARK: - Typing
 
-    private func commitCharacter(_ key: KeyboardKey) {
+    private func commitCharacter(_ touch: ActiveTouch) {
+        let key = touch.key
         guard let character = key.character else { return }
         let text = layerState.layer == .letters && shift.isUppercase ? character.uppercased() : character
         if layerState.layer == .letters {
             shift.didType()
         }
         autocorrect.clearPendingUndo()
-        insert(text)
+        if touch.hasUnambiguousPoint, touch.evidenceLayout == layout {
+            insert(text, sample: .init(text: text, point: touch.point, key: key))
+        } else {
+            insert(text)
+        }
     }
 
     private func commitAccentSelection(_ chosen: String) {
@@ -489,6 +519,9 @@ final class FullKeyboardEngine {
     }
 
     private func typeSpace() {
+        // Keep evidence through replacementOnSpace, then discard the completed word.
+        _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
+        defer { autocorrect.touchInput.clear() }
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
             autocorrect.clearPendingUndo()
@@ -522,8 +555,15 @@ final class FullKeyboardEngine {
         lastSpaceAt = now
     }
 
-    private func insert(_ text: String) {
+    private func insert(_ text: String, sample: KeyboardTouchWord.Sample? = nil) {
+        let before = target.documentContextBeforeInput
         target.insertText(text)
+        if let sample {
+            autocorrect.touchInput.append(text: text, point: sample.point, key: sample.key,
+                                         layout: layout, before: before, after: target.documentContextBeforeInput)
+        } else {
+            autocorrect.touchInput.clear()
+        }
         lastSpaceAt = nil
         layerState.didInsert(text)
         rebuildLayoutIfNeeded()
@@ -545,6 +585,7 @@ final class FullKeyboardEngine {
     }
 
     private func rebuildLayout() {
+        let previous = layout
         layout = KeyboardLayout(
             width: width,
             orientation: orientation,
@@ -554,5 +595,6 @@ final class FullKeyboardEngine {
             horizontalInset: horizontalInset,
             showsStrip: showsStrip
         )
+        if layout != previous { discardTouchEvidence() }
     }
 }

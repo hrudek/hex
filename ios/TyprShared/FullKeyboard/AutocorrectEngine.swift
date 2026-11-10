@@ -162,6 +162,9 @@ final class AutocorrectEngine {
         let insertedText: String
     }
 
+    /// Current-word touch evidence is available here for the later spatial decoder.
+    /// Step 1 deliberately does not use it for ranking or automatic replacements.
+    let touchInput = KeyboardTouchInput()
     let checker: TextChecking
     let learnedWords: LearnedWordsStore
     var isEnabled = true
@@ -261,6 +264,7 @@ final class AutocorrectEngine {
         field: KeyboardFieldKind,
         autocorrectionType: UITextAutocorrectionType?
     ) -> [KeyboardSuggestion] {
+        _ = touchInput.evidence(beforeInput: beforeInput)
         guard field == .text, autocorrectionType != .no else { return [] }
         guard let token = Self.currentToken(in: beforeInput) else { return [] }
 
@@ -346,6 +350,7 @@ final class AutocorrectEngine {
         field: KeyboardFieldKind,
         autocorrectionType: UITextAutocorrectionType?
     ) -> (original: String, replacement: String)? {
+        _ = touchInput.evidence(beforeInput: beforeInput)
         guard isEnabled, field == .text, autocorrectionType != .no else { return nil }
         guard let token = Self.currentToken(in: beforeInput) else { return nil }
         let lower = token.lowercased()

@@ -232,8 +232,14 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
+    /// Selection changes and keyboard dismissal must not retain current-word taps.
+    func discardTouchEvidence() {
+        engine.discardTouchEvidence()
+    }
+
     /// Frees non-essential UI and Metal drawables when the extension approaches its memory ceiling.
     func handleMemoryWarning() {
+        discardTouchEvidence()
         dismissStyleMenu()
         if !showsRecording, let panel = recordingPanel {
             panel.tearDown()

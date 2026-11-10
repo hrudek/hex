@@ -110,6 +110,9 @@ it never accesses the microphone, speech model, or network.
     and typo fixes. Turning autocorrect off keeps the language choices for later.
     iOS Text Replacement and contact suggestions remain language-independent.
     Retired German-autocorrect and keyboard-switch experiment values are ignored.
+  - **[Current-word touch evidence](KEYBOARD_TOUCH_INPUT.md):** the full keyboard keeps bounded
+    current-word letter positions and layout in RAM for future spatial correction, with
+    conservative invalidation. No persistent typing log, learning or correction changes yet.
   - **AI cleanup (Settings › AI & vocabulary, iOS 26+):** On by default. Typr's on-device
     Apple Intelligence rewrite runs before formatting in every style but `Verbatim`,
     with plain-transcript fallback. The inherited cleanup experiment has been removed;
