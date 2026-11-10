@@ -73,7 +73,10 @@ it never accesses the microphone, speech model, or network.
     insertion spacing and repeating backspace. Filler trim removes äh/ähm/öhm/hm
     always, but English um/uh/er/ah only from text that reads as English ("um 13 Uhr",
     "was er sagt" stay); a period after bzw., z. B., d. h., ca., usw. and similar
-    abbreviations does not capitalize the next word.
+    abbreviations does not capitalize the next word. In every style, Verbatim
+    included and with or without AI cleanup, English and technical compounds lose
+    their hyphens ("Pull-Request" → "Pull Request"; E-Mail, PR-Feedback, 5-10
+    and German compounds keep them; see [AI_CLEANUP.md](AI_CLEANUP.md#language-context-and-hyphens)).
   - **Speech engine:** Apple Speech, Parakeet V2 or Whisper Large V3 Turbo, with
     languages, live status and an explicit Whisper download; an explicit choice
     never falls back to another engine ([SPEECH_ENGINES.md](SPEECH_ENGINES.md)).

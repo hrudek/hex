@@ -1,8 +1,9 @@
 import Foundation
 
-/// A deterministic pass over an accepted cleanup answer. The on-device model joins English and
-/// technical compounds with hyphens ("Pull-Request", "Speech-to-Text-Apps"); the owner writes them
-/// with spaces ("Pull Request", "Speech to Text Apps"). Conservative: a hyphenated word is split only
+/// A deterministic pass before style formatting, in every style and with or without AI cleanup
+/// (also over an accepted cleanup answer, before its change is judged). The on-device model and the
+/// speech engines join English and technical compounds with hyphens ("Pull-Request",
+/// "Speech-to-Text-Apps"); the owner writes them with spaces ("Pull Request", "Speech to Text Apps"). Conservative: a hyphenated word is split only
 /// when every part is a listed English or technical word. Everything else keeps its hyphen: E-Mail and
 /// other one-letter parts, abbreviations ("PR-Feedback", "AI-Modell"), numbers and ranges ("5-10",
 /// "iPhone-17"), German compounds ("Feedback-Menü", "Speech-to-Text-Nachrichten"), and any word inside

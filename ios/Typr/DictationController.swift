@@ -1084,7 +1084,9 @@ final class DictationController {
                     }
                     text = spelled
                 }
-                let beforeSpelling = TranscriptFormatter.format(text, style: session.style)
+                // English and technical compounds with spaces in every style, with or without an
+                // accepted AI answer: speech engines hyphenate them too ("Open-Source-Build").
+                let beforeSpelling = TranscriptFormatter.format(CleanupHyphens.apply(text), style: session.style)
                 recording?.processingStages(cleanupOutput: text, formattedText: beforeSpelling)
                 var secondPass = DictationLogSpellingPass()
                 let observeSecond: ((String, String, String) -> Void)? = recording == nil ? nil : { before, after, term in

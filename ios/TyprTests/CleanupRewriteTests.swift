@@ -195,6 +195,40 @@ final class CleanupRewriteTests: XCTestCase {
         XCTAssertFalse(CleanupHyphens.splits("pull-to"))
     }
 
+    /// Speech engines hyphenate compounds too: the pass runs before formatting in every style,
+    /// with AI cleanup off, in Verbatim and when cleanup falls back to the transcript.
+    func testHyphenPassRunsWithoutAnAcceptedAnswerInEveryStyle() async throws {
+        let raw = "Open-Source-Build für das Keyboard-Update und schreib eine E-Mail"
+        let cases: [(DictationStyle, Bool, Bool, String)] = [
+            (.polished, false, false, "Open Source Build für das Keyboard Update und schreib eine E-Mail."),
+            (.casual, false, false, "open source build für das keyboard update und schreib eine e-mail"),
+            (.notes, false, false, "Open Source Build für das Keyboard Update und schreib eine E-Mail"),
+            (.verbatim, false, false, "Open Source Build für das Keyboard Update und schreib eine E-Mail"),
+            (.verbatim, true, false, "Open Source Build für das Keyboard Update und schreib eine E-Mail"),
+            (.polished, true, true, "Open Source Build für das Keyboard Update und schreib eine E-Mail."),
+        ]
+        for (style, enabled, unavailable, expected) in cases {
+            let suite = "cleanup.hyphens.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let session = ContextSession(), bg = CleanupTestBackground(), clock = CleanupTestSleeper()
+            let deps = TranscriptCleanupDependencies(
+                cleaner: ContextCleaner(unavailableReason: unavailable ? "unavailable" : nil, session: session),
+                language: CleanupTestLanguage(allowed: true), background: bg, isEnabled: { enabled }, sleep: clock.sleep)
+            let asr = ContextASR(output: raw)
+            let controller = DictationController(audio: ContextAudio(), keyboardBridge: KeyboardBridge(defaults: defaults),
+                transcriber: asr, transcriberFactory: { asr }, autoPrepareOnInit: false,
+                customVocabularySettings: CustomVocabularySettings(defaults: defaults), cleanup: deps,
+                languageSettings: TyprSettings(defaults: defaults))
+            controller.prepareModel(); try await settle()
+            controller.startRecording(styleOverride: style); try await settle()
+            controller.finishRecording(); try await settle()
+            XCTAssertTrue(session.inputs.isEmpty, "\(style)")
+            XCTAssertEqual(controller.transcript, expected, "\(style), enabled: \(enabled)")
+            controller.cancelCurrentJob(); clock.fire(); try await settle()
+        }
+    }
+
     // MARK: - Language
 
     func testLanguagePickerValuesAndSpeechLocales() {

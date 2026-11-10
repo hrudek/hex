@@ -46,7 +46,8 @@ Custom vocabulary experiment keeps its own switch.
   spellings are restored, as before. Verbatim and cleanup-off paths get the same spelling fixes.
   The same cleanup call receives the recording's frozen language and data-only preceding text:
   glossary/user spellings do not replace that context, and the language picker does not bypass
-  the spelling passes. After an accepted answer, the hyphen pass runs before style formatting;
+  the spelling passes. The hyphen pass runs before style formatting on every path (accepted
+  answer, fallback, Off and Verbatim);
   the final result (with user spellings restored) is what the in-memory context history keeps.
   `CleanupRewriteTests.testGlossaryAndUserSpellingsIntegrateWithLanguageContextAndLog` covers
   the combined path with Custom vocabulary both on and off, including speech hints, frozen
@@ -282,14 +283,17 @@ them. Every example in the prompt must pass the check (`testPromptExamplesPassTh
   `cleanupContextSource` (`keyboard` / `previous-dictations`) and
   `cleanupContextCharacters`, never the context text. The keyboard still never
   accesses the microphone, speech model or network.
-- **Hyphen pass** (`CleanupHyphens`, after an accepted answer, before formatting):
+- **Hyphen pass** (`CleanupHyphens`, before formatting in every style, with or without
+  AI cleanup; an accepted answer gets it first, so a hyphen-only change counts as unchanged):
   splits a hyphenated word only when every part is a listed English or technical
   word ("Pull-Request" → "Pull Request", "Speech-to-Text-Apps" → "Speech to Text
   Apps", "GitHub-Stars" → "GitHub Stars"). It keeps E-Mail and other one-letter
   parts, abbreviations (PR-Feedback, AI-Modell), digits (5-10, iPhone-17), German
   compounds (Feedback-Menü) and words inside links, addresses and file names.
   Extend `CleanupHyphens.englishWords` with lowercase singulars that are not also
-  common German compound parts. Plain ASR text without an accepted answer is not changed.
+  common German compound parts. Speech engines hyphenate too, so the pass also covers
+  plain ASR text: AI cleanup off, Verbatim, skips and fallbacks (Verbatim's only change
+  besides spacing; owner decision).
 - **Budget and deadline.** The on-device model shares about 4,096 tokens between
   instructions (about 1,100–1,300 tokens), the per-call lines (language, style,
   spellings, 300-character context: a few hundred), the transcript and the answer.
@@ -329,7 +333,7 @@ after the transcript, language/style lines, context JSON that cannot break out,
 free-rewrite acceptance, the duplicated-transcript rule, hyphen splits and kept
 hyphens, language picker values/locales/storage, explicit-language admission and
 `too-short`, context and vocabulary handed to the model, the hyphen pass on accepted
-answers, deadline/budget values, context tail/history, the keyboard start command's
+answers and without one in every style (off, Verbatim, unavailable fallback), deadline/budget values, context tail/history, the keyboard start command's
 capped context, log fields without context text, and the controller passing keyboard
 context, then previous-dictation context and the chosen language. These tests were
 written on Linux without a Swift toolchain and **have not run locally**; PR CI compiles
