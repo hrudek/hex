@@ -142,7 +142,7 @@ struct SettingsWarmDurationControl: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(duration == .off ? "Microphone off" : "Keep microphone warm for \(duration.shortLabel)")
+                .accessibilityLabel(duration == .off ? "Microphone off" : "Keep microphone warm for \(duration.title)")
                 .accessibilityAddTraits(duration == selected ? .isSelected : [])
             }
         }

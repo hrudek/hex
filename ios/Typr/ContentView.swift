@@ -196,6 +196,8 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
+                SettingsPreferences()
+
                 SettingsSection(title: "Dictation") {
                     settingsCard
                     rowDivider
@@ -205,7 +207,6 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                SettingsPreferences()
                 SettingsSection(title: "Try your keyboard", subtitle: "Tap below to test typing and dictation.") {
                     practiceField
                 }
@@ -251,11 +252,6 @@ struct ContentView: View {
                 size: 20,
                 color: showRecordingPill ? TyprTheme.warmPearl : TyprTheme.textBase
             )
-
-            Text("Typr")
-                .font(.system(size: 17, weight: .semibold))
-                .tracking(-0.2)
-                .foregroundStyle(TyprTheme.textBase)
 
             Spacer()
 
