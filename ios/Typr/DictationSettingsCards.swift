@@ -6,7 +6,7 @@ extension DictationStyle {
         case .polished: "Sentence case, clean punctuation and fewer fillers. For messages and longer text."
         case .casual: "Lowercase chat text. Drops the final period in a single sentence; keeps question and exclamation marks."
         case .notes: "Turns spoken “bullet”, “new line” and “new paragraph” into bullets and line breaks. For lists and quick notes."
-        case .verbatim: "Skips AI cleanup and style formatting. Vocabulary corrections, spaced English compounds (Pull Request) and basic spacing still apply."
+        case .verbatim: "Skips AI cleanup and style formatting. Vocabulary corrections, spaces instead of hyphens between words and basic spacing still apply."
         }
     }
 }

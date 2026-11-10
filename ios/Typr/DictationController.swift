@@ -1062,7 +1062,10 @@ final class DictationController {
                     firstPass.record(before: before, after: after, term: term,
                                      source: source == .builtIn ? source.rawValue : nil)
                 }
-                let prepared = session.vocabulary.beforeCleanup(rawText, onReplacement: observeFirst)
+                // Hyphens between words become spaces first (owner style, every style and path), so
+                // spelling and cleanup see "Pull Request" and a hyphenated user term is restored.
+                let prepared = session.vocabulary.beforeCleanup(CleanupHyphens.spaceCompounds(rawText),
+                                                                onReplacement: observeFirst)
                 let spelled = prepared.text
                 recording?.recognized(rawText, spelled: spelled, asrMilliseconds: asrMilliseconds, spellingPass: firstPass)
                 var text = spelled
@@ -1084,9 +1087,7 @@ final class DictationController {
                     }
                     text = spelled
                 }
-                // English and technical compounds with spaces in every style, with or without an
-                // accepted AI answer: speech engines hyphenate them too ("Open-Source-Build").
-                let beforeSpelling = TranscriptFormatter.format(CleanupHyphens.apply(text), style: session.style)
+                let beforeSpelling = TranscriptFormatter.format(text, style: session.style)
                 recording?.processingStages(cleanupOutput: text, formattedText: beforeSpelling)
                 var secondPass = DictationLogSpellingPass()
                 let observeSecond: ((String, String, String) -> Void)? = recording == nil ? nil : { before, after, term in
