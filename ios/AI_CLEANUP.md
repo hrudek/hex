@@ -140,7 +140,7 @@ a particular dictation will be cleaned:
 
 - With Typr AI cleanup on, it shows Apple's on-device foundation model with
   general use and permissive content transformations. Unavailable Typr cleanup
-  falls back to plain text if unavailable.
+  falls back to the plain transcript.
 - With AI cleanup off, it says no model is configured. Below iOS 26 or without
   FoundationModels, it says the model requires iOS 26 or later, regardless of the
   switch. Neither case looks up model availability.
