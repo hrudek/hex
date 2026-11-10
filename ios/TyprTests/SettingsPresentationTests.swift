@@ -104,12 +104,9 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertLessThanOrEqual(accessible.width, 320.5)
     }
 
-    func testEveryDictationChoiceExplainsItsBehavior() {
+    func testEveryDictationStyleExplainsItsBehavior() {
         for style in DictationStyle.allCases {
             XCTAssertFalse(style.settingsDescription.isEmpty, style.rawValue)
-        }
-        for language in DictationLanguage.allCases {
-            XCTAssertFalse(language.settingsDescription.isEmpty, language.rawValue)
         }
         XCTAssertTrue(DictationStyle.notes.settingsDescription.contains("new line"))
         XCTAssertTrue(DictationStyle.notes.settingsDescription.contains("new paragraph"))
@@ -118,8 +115,6 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertEqual(TranscriptFormatter.format("bullet first bullet second", style: .notes), "- First\n- Second")
         XCTAssertTrue(DictationStyle.verbatim.settingsDescription.contains("Skips AI cleanup"))
         XCTAssertTrue(DictationStyle.verbatim.settingsDescription.contains("Vocabulary corrections"))
-        XCTAssertTrue(DictationLanguage.automatic.settingsDescription.contains("Whisper detects"))
-        XCTAssertTrue(DictationLanguage.automatic.settingsDescription.contains("Parakeet V2 is English only"))
     }
 
     @MainActor
@@ -143,7 +138,7 @@ final class SettingsPresentationTests: XCTestCase {
     @MainActor
     func testDictationChoiceDescriptionsWrapAtCompactWidthAndLargerText() {
         let choices = DictationStyle.allCases.map { ($0.label, $0.settingsDescription) }
-            + DictationLanguage.allCases.map { ($0.label, $0.settingsDescription) }
+
         for (title, detail) in choices {
             func size(_ type: DynamicTypeSize, selected: Bool) -> CGSize {
                 let host = UIHostingController(rootView:
@@ -159,6 +154,20 @@ final class SettingsPresentationTests: XCTestCase {
             XCTAssertLessThanOrEqual(accessible.width, 280.5, title)
             XCTAssertLessThan(accessible.height, 10_000, title)
             XCTAssertEqual(size(.large, selected: false).height, regular.height, accuracy: 0.5, title)
+        }
+    }
+
+    @MainActor
+    func testLanguageChoicesUseSingleLineRowsWithoutDescriptions() {
+        for language in DictationLanguage.allCases {
+            for selected in [true, false] {
+                let row = SettingsChoiceRow(title: language.label, isSelected: selected, onSelect: {})
+                XCTAssertNil(row.detail)
+                let host = UIHostingController(rootView: row.dynamicTypeSize(.large))
+                let size = host.sizeThatFits(in: CGSize(width: 280, height: 10_000))
+                XCTAssertEqual(size.height, 64, accuracy: 0.5, language.rawValue)
+                XCTAssertLessThanOrEqual(size.width, 280.5, language.rawValue)
+            }
         }
     }
 

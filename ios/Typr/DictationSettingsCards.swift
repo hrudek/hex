@@ -11,29 +11,21 @@ extension DictationStyle {
     }
 }
 
-extension DictationLanguage {
-    var settingsDescription: String {
-        switch self {
-        case .automatic: "Apple Speech follows your iPhone’s preferred supported language. Whisper detects the spoken language. Parakeet V2 is English only."
-        case .german: "German recognition with Apple Speech or Whisper. AI cleanup writes German and keeps spoken English terms."
-        case .english: "English recognition with Apple Speech, Whisper or Parakeet V2. AI cleanup writes English."
-        }
-    }
-}
-
 /// A full-row selection target with enough room for decision copy and larger text.
 struct SettingsChoiceRow: View {
     let title: String
-    let detail: String
+    var detail: String? = nil
     let isSelected: Bool
     let onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: detail == nil ? .center : .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title).font(.body.weight(.medium)).foregroundStyle(TyprTheme.textBase)
-                    Text(detail).font(.subheadline).foregroundStyle(TyprTheme.textMuted)
+                    if let detail {
+                        Text(detail).font(.subheadline).foregroundStyle(TyprTheme.textMuted)
+                    }
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,7 +77,7 @@ struct DictationLanguageSettingsCard: View {
             SettingsSection {
                 ForEach(DictationLanguage.allCases, id: \.self) { language in
                     if language != DictationLanguage.allCases.first { SettingsDivider() }
-                    SettingsChoiceRow(title: language.label, detail: language.settingsDescription,
+                    SettingsChoiceRow(title: language.label,
                                       isSelected: dictation.dictationLanguage == language) {
                         dictation.setDictationLanguage(language)
                     }
