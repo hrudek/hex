@@ -461,6 +461,26 @@ final class SpatialWordDecoderTests: XCTestCase {
         let result = try XCTUnwrap(conservative.decode(word, languages: [.english]))
         XCTAssertTrue(result.complete)
         XCTAssertTrue(result.candidates.isEmpty)
+        // Absent literal: the structural word is still offered, below the literal and
+        // only as a suggestion. It never feeds the automatic or geometry decisions.
+        XCTAssertEqual(result.editSuggestions.map(\.word), ["hello"])
+        XCTAssertEqual(result.suggestions.map(\.word), ["hello"])
+        XCTAssertLessThan(try XCTUnwrap(result.editSuggestions.first).score, result.literalScore)
+        XCTAssertNil(result.automaticCandidate)
+        XCTAssertFalse(result.geometryPrefersAlternative)
+        let staticResult = try XCTUnwrap(conservative.decode(word, languages: [.english], allowsEdits: false))
+        XCTAssertTrue(staticResult.editSuggestions.isEmpty)
+        let valid = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 10_000), ("helo", 1)])])
+        XCTAssertTrue(try XCTUnwrap(valid.decode(word, languages: [.english])).editSuggestions.isEmpty,
+                      "a corpus-valid literal gets no below-literal edit suggestions")
+        let several = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 10_000), ("helio", 5_000),
+                                                                       ("helot", 2_000), ("world", 1)])])
+        XCTAssertEqual(try XCTUnwrap(several.decode(word, languages: [.english])).editSuggestions.map(\.word),
+                       ["hello", "helio"], "at most editSuggestionLimit, best first")
+        // Window: more than one edit penalty below the literal (small German corpus sets the floor).
+        let distant = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 1), ("world", 1_000_000)]),
+                                                    .german: lexicon([("hallo", 10)])])
+        XCTAssertTrue(try XCTUnwrap(distant.decode(word, languages: [.english, .german])).editSuggestions.isEmpty)
         let stronger = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 1_000_000), ("world", 1)])])
         let suggested = try XCTUnwrap(stronger.decode(word, languages: [.english]))
         XCTAssertTrue(suggested.complete)
@@ -508,6 +528,11 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertEqual(refusal(result([candidate("hello", score: 4, spatial: 1.9)])), .belowMargin)
         XCTAssertEqual(refusal(result([strong, candidate("jello", score: 2.5, spatial: 3)])), .ambiguous)
         XCTAssertNil(refusal(result([strong, candidate("jello", score: 2.4, spatial: 3)])))
+        let suggestionOnly = Decoder.Result(candidates: [], literalScore: 0, literalSpatialScore: 0,
+                                            literalInLexicon: false, complete: true, visits: 1, generated: 1,
+                                            editSuggestions: [candidate("hello", score: -1, spatial: 0, edit: .missingLetter(at: 1))])
+        XCTAssertEqual(refusal(suggestionOnly), .noCandidate)
+        XCTAssertFalse(suggestionOnly.geometryPrefersAlternative)
         let edited = candidate("hello", score: 4, spatial: -1, edit: .transposition(at: 1))
         XCTAssertEqual(refusal(result([edited]), valid: true), .editNeedsInvalidLiteral)
         XCTAssertNil(refusal(result([edited])))
@@ -585,6 +610,7 @@ final class SpatialWordDecoderTests: XCTestCase {
                 let result = try XCTUnwrap(decoder.decode(word, languages: [.english, .german], allowsEdits: edits))
                 XCTAssertTrue(result.complete)
                 var expected: [String: Double] = [:]
+                var structural: [String: Double] = [:]
                 for (_, entries) in sources {
                     let total = Double(entries.reduce(UInt32(0)) { $0 + $1.1 })
                     for (spelling, count) in entries where spelling != typed {
@@ -614,14 +640,30 @@ final class SpatialWordDecoderTests: XCTestCase {
                                 }
                             }
                         }
-                        let score = max(dp[n][m][0], dp[n][m][1]) + 0.35 * log(Double(count) / total)
+                        let prior = 0.35 * log(Double(count) / total)
+                        let score = max(dp[n][m][0], dp[n][m][1]) + prior
                         if score > result.literalScore { expected[spelling] = max(expected[spelling] ?? -.infinity, score) }
+                        if dp[n][m][1].isFinite {
+                            structural[spelling] = max(structural[spelling] ?? -.infinity, dp[n][m][1] + prior)
+                        }
                     }
                 }
                 let ordered = expected.keys.sorted { expected[$0] == expected[$1] ? $0 < $1 : (expected[$0] ?? 0) > (expected[$1] ?? 0) }
                 XCTAssertEqual(result.candidates.map(\.word), Array(ordered.prefix(8)))
                 for candidate in result.candidates {
                     XCTAssertEqual(candidate.score, try XCTUnwrap(expected[candidate.word]), accuracy: 1e-10)
+                }
+                // Below-literal edit suggestions: best structural reading within one edit penalty.
+                let window = structural.filter { word, score in
+                    expected[word] == nil && score <= result.literalScore && score >= result.literalScore + log(0.01)
+                }
+                let below = window.keys.sorted { window[$0] == window[$1] ? $0 < $1 : (window[$0] ?? 0) > (window[$1] ?? 0) }
+                let suggestsEdits = edits && !result.literalInLexicon
+                XCTAssertEqual(result.editSuggestions.map(\.word),
+                               suggestsEdits ? Array(below.prefix(SpatialWordDecoder.editSuggestionLimit)) : [])
+                for candidate in result.editSuggestions {
+                    XCTAssertNotEqual(candidate.edit, SpatialWordDecoder.Edit.none)
+                    XCTAssertEqual(candidate.score, try XCTUnwrap(window[candidate.word]), accuracy: 1e-10)
                 }
             }
         }

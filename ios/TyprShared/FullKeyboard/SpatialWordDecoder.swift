@@ -127,6 +127,15 @@ final class SpatialWordDecoder {
         let complete: Bool
         let visits: Int
         let generated: Int
+        /// Suggestion-only structural alternatives scored BELOW the literal (at most
+        /// `editSuggestionLimit`, within one edit penalty of it), retrieved only when the
+        /// literal is absent from every selected corpus. Best effort from the remaining
+        /// budget: NOT covered by `complete`, never part of `candidates`, and never used
+        /// by `automaticDecision` or `geometryPrefersAlternative`.
+        var editSuggestions: [Candidate] = []
+
+        /// Display order: exact above-literal candidates, then best-effort edit suggestions.
+        var suggestions: [Candidate] { candidates + editSuggestions }
 
         var geometryPrefersAlternative: Bool {
             candidates.contains { candidate in
@@ -159,6 +168,7 @@ final class SpatialWordDecoder {
     nonisolated static let maxLetters = 32
     private static let priorWeight = 0.35
     private static let editPenalty = log(0.01)
+    nonisolated static let editSuggestionLimit = 2
     // Conservatively cover rounding from regrouping <= 32 finite density terms.
     private static let boundSlack = 1e-10
     private var lexicons: [Language: SpatialWordLexicon]
@@ -220,17 +230,19 @@ final class SpatialWordDecoder {
         func precedes(_ a: Int, _ b: Int) -> Bool {
             states[a].bound == states[b].bound ? a < b : states[a].bound > states[b].bound
         }
-        mutating func push(_ state: State, letters: [(Int, Int?)]) {
+        mutating func push(_ state: State, letters: [(Int, Int?)], essential: Bool = true) {
             // A trie node fixes the spelling; future scores depend only on the tap
             // position and edit-used flag. Max-path scoring can discard worse or
             // equal readings, retaining the first deterministic alignment on ties.
             let key = key(state)
             let score = state.spatial + state.penalty
             guard score > (best[key] ?? -.infinity) else { return }
-            // Cap both arenas. A transposition needs two spelling records.
-            guard states.count < SpatialWordDecoder.maxGenerated,
-                  trails.count + letters.count <= SpatialWordDecoder.maxGenerated else {
-                capped = true
+            // Cap both arenas. A transposition needs two spelling records. States below
+            // the exact-search threshold only serve best-effort edit suggestions: they may
+            // use at most half of each arena and their loss never voids `complete`.
+            let limit = essential ? SpatialWordDecoder.maxGenerated : SpatialWordDecoder.maxGenerated / 2
+            guard states.count < limit, trails.count + letters.count <= limit else {
+                if essential { capped = true }
                 return
             }
             best[key] = score
@@ -353,11 +365,11 @@ final class SpatialWordDecoder {
             likelihoods.append(scores)
         }
         let floorPrior = sources.map { log(1 / $0.1.total) }.max() ?? 0
+        let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
         let literalPrior = sources.map { _, source in
             source.logPrior(for: literal) ?? log(1 / source.total)
         }.max() ?? 0
         let literalScore = literalSpatial + Self.priorWeight * literalPrior + personal.bonus(for: literal)
-        let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
         // Stray density: the tap's best gated key density, without assigning a letter.
         // Thus an extra tap contributes bestScores[i] to spatialScore, plus log(.01)
         // to total score. It is deliberately not a free deletion.
@@ -365,8 +377,28 @@ final class SpatialWordDecoder {
         for index in (0..<count).reversed() { suffix[index] = suffix[index + 1] + bestScores[index] }
         var found: [String: Candidate] = [:]
         var threshold = literalScore
+        // Suggestion-only structural retrieval below an absent literal, down to one edit
+        // penalty under it: "would beat the literal if the edit were free". Explored only
+        // after the exact above-literal search is proven, from the same pop budget.
+        let suggestsEdits = allowsEdits && !literalInLexicon
+        var below: [String: Candidate] = [:]
+        var belowThreshold = suggestsEdits ? literalScore + Self.editPenalty : Double.infinity
+        func retainBelow(_ candidate: Candidate) {
+            guard suggestsEdits, candidate.edit != .none, candidate.score >= belowThreshold,
+                  found[candidate.word] == nil else { return }
+            if let previous = below[candidate.word], !Self.precedes(candidate, previous) { return }
+            below[candidate.word] = candidate
+            if below.count > Self.editSuggestionLimit, let worst = below.values.sorted(by: Self.precedes).last {
+                below.removeValue(forKey: worst.word)
+            }
+            if below.count == Self.editSuggestionLimit {
+                belowThreshold = max(belowThreshold, below.values.map(\.score).min() ?? belowThreshold)
+            }
+        }
         func retain(_ candidate: Candidate) {
-            guard candidate.word != literal, candidate.score > literalScore else { return }
+            guard candidate.word != literal else { return }
+            guard candidate.score > literalScore else { retainBelow(candidate); return }
+            below.removeValue(forKey: candidate.word)
             if let previous = found[candidate.word], !Self.precedes(candidate, previous) { return }
             found[candidate.word] = candidate
             if found.count > 8, let worst = found.values.sorted(by: Self.precedes).last {
@@ -402,19 +434,26 @@ final class SpatialWordDecoder {
         // stray taps and may be POSITIVE; future edit penalties are nonpositive.
         let maxBonus = personal.counts.keys.map { personal.bonus(for: $0) }.max() ?? 0
         for source in sources.indices {
+            let bound = suffix[0] + Self.priorWeight * sources[source].1.bestLogPrior(at: 0) + maxBonus + Self.boundSlack
             frontier.push(State(source: source, node: 0, tap: 0, depth: 0, trail: -1,
-                                spatial: 0, penalty: 0, edit: .none,
-                                bound: suffix[0] + Self.priorWeight * sources[source].1.bestLogPrior(at: 0)
-                                    + maxBonus + Self.boundSlack), letters: [])
+                                spatial: 0, penalty: 0, edit: .none, bound: bound),
+                          letters: [], essential: bound >= threshold)
         }
         var visits = 0
         var proven = false
         while let first = frontier.heap.first {
-            if frontier.states[first].bound < threshold { proven = true; break }
+            // Bounds never increase along a path, so once the best frontier bound drops
+            // below `threshold` the above-literal top eight are final (proof); the loop
+            // only continues for best-effort below-literal edit suggestions.
+            let top = frontier.states[first].bound
+            if top < threshold { proven = true }
+            if top < min(threshold, belowThreshold) { break }
             guard visits < max(0, min(budget, Self.searchBudget)), !frontier.capped else { break }
             guard let state = frontier.pop() else { break }
             visits += 1
             if frontier.isDominated(state) { continue }
+            // After the proof only edit suggestions remain; an unedited path must still pay one penalty.
+            if proven, state.edit == .none, state.bound + Self.editPenalty < belowThreshold { continue }
             let (language, source) = sources[state.source]
             guard let node = source.node(state.node) else { return .unavailable(.resource) }
             if state.tap == count, node.count > 0 {
@@ -431,10 +470,11 @@ final class SpatialWordDecoder {
                 let penalty = edit == .none ? 0 : Self.editPenalty
                 let bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
                     + maxBonus + Self.boundSlack
-                guard bound >= threshold else { return }
+                let essential = bound >= threshold
+                guard essential || bound + (edit == .none ? Self.editPenalty : 0) >= belowThreshold else { return }
                 frontier.push(State(source: state.source, node: node, tap: tap, depth: depth,
                                     trail: state.trail, spatial: spatial, penalty: penalty,
-                                    edit: edit, bound: bound), letters: letters)
+                                    edit: edit, bound: bound), letters: letters, essential: essential)
             }
             if canEdit, state.tap < count {
                 enqueue(node: state.node, tap: state.tap + 1, letters: [],
@@ -473,11 +513,12 @@ final class SpatialWordDecoder {
         }
         // Exact top-eight DISTINCT spellings above literal under frozen max-path scoring
         // when complete: all eligible personal words scanned and frontier exhausted/bounded.
-        // Any arena truncation conservatively makes the proof incomplete, even if later pruned.
+        // Any essential arena truncation conservatively makes the proof incomplete.
         return .result(Result(candidates: found.values.sorted(by: Self.precedes), literalScore: literalScore,
                               literalSpatialScore: literalSpatial, literalInLexicon: literalInLexicon,
                               complete: personalComplete && !frontier.capped && (proven || frontier.heap.isEmpty),
-                              visits: visits, generated: frontier.states.count))
+                              visits: visits, generated: frontier.states.count,
+                              editSuggestions: below.values.filter { found[$0.word] == nil }.sorted(by: Self.precedes)))
     }
 
     nonisolated private struct Reading {

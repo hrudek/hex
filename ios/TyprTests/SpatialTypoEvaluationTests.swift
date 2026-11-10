@@ -122,22 +122,25 @@ final class SpatialTypoEvaluationTests: XCTestCase {
         metrics.visits.append(Double(result.visits))
         metrics.generated.append(Double(result.generated))
         if !result.complete { metrics.incomplete += 1 }
-        if result.candidates.prefix(3).contains(where: { $0.word == intended.lowercased() }) { metrics.recalled += 1 }
+        // Display list: exact above-literal candidates, then best-effort edit suggestions.
+        if result.suggestions.prefix(3).contains(where: { $0.word == intended.lowercased() }) { metrics.recalled += 1 }
         // Deterministic proxy only: corpus membership, NOT UITextChecker/system validity.
         if case .replace(let candidate) = result.automaticDecision(literalIsValid: result.literalInLexicon) {
             if candidate.word == intended.lowercased() { metrics.correctAuto += 1 } else { metrics.wrongAuto += 1 }
         }
     }
 
+    /// TUNE half: even fixture indices. Structural calibration was selected on this half only.
     func testFixedGermanEnglishEvaluation() throws {
-        try evaluate(seed: 0x545950525f503031, sigma: 0.18)
+        try evaluate(seed: 0x545950525f503031, sigma: 0.18, half: 0)
     }
 
+    /// HOLDOUT half: odd fixture indices with a different seed and sigma; never used for tuning.
     func testHeldOutNoiseEvaluation() throws {
-        try evaluate(seed: 0x545950525f503032, sigma: 0.22)
+        try evaluate(seed: 0x545950525f503032, sigma: 0.22, half: 1)
     }
 
-    private func evaluate(seed: UInt64, sigma: Double) throws {
+    private func evaluate(seed: UInt64, sigma: Double, half: Int) throws {
         var sources: [Decoder.Language: SpatialWordLexicon] = [:]
         for language in Decoder.Language.allCases {
             let url = try XCTUnwrap(Bundle.main.url(forResource: "keyboard-\(language.rawValue)",
@@ -147,7 +150,7 @@ final class SpatialTypoEvaluationTests: XCTestCase {
         let decoder = Decoder(lexicons: sources)
         let groups: [(Decoder.Language, [String])] = [(.german, SpatialTypoEvaluationFixtures.german),
                                                       (.english, SpatialTypoEvaluationFixtures.english)]
-        var lines = ["TYPR-EVAL seed=0x\(String(seed, radix: 16)) sigma=\(sigma) pitch; portrait=393; personal=off",
+        var lines = ["TYPR-EVAL seed=0x\(String(seed, radix: 16)) sigma=\(sigma) pitch; portrait=393; personal=off; typos=\(half == 0 ? "tune (even" : "holdout (odd") fixture indices); controls=all",
                      "TYPR-EVAL A=static same-length; B=edits; both languages interleaved; validity=corpus membership (not system checker)",
                      "TYPR-EVAL times=simulator timing, not iPhone; controls wrongAuto=unwanted auto replacements"]
         var controls: [String] = []
@@ -162,9 +165,11 @@ final class SpatialTypoEvaluationTests: XCTestCase {
             var structuralRecalled = 0, structuralCount = 0
             for error in ErrorClass.allCases {
                 var a = Metrics(), b = Metrics()
-                for word in words {
+                for (position, word) in words.enumerated() {
+                    // Ordinals run over the full list, so each half keeps its words' samples.
+                    defer { ordinal += 1 }
+                    guard position % 2 == half else { continue }
                     let samples = try evidence(word, error: error, ordinal: ordinal, seed: seed, sigma: sigma)
-                    ordinal += 1
                     observe(samples, intended: word, decoder: decoder, edits: false, metrics: &a)
                     observe(samples, intended: word, decoder: decoder, edits: true, metrics: &b)
                 }
@@ -175,28 +180,38 @@ final class SpatialTypoEvaluationTests: XCTestCase {
                 if [.missing, .extra, .transposition].contains(error) {
                     structuralRecalled += b.recalled
                     structuralCount += b.count
+                    // Measured on Linux: 53-100% per class/half (P1c); floor keeps a wide margin.
+                    XCTAssertGreaterThanOrEqual(Double(b.recalled) / Double(max(1, b.count)), 0.40,
+                                                "structural recall@3 floor: \(language.rawValue) \(error.rawValue)")
                 } else {
                     XCTAssertGreaterThanOrEqual(Double(b.recalled) / Double(max(1, b.count)), 0.95,
                                                 "neighbour recall@3 floor: \(language.rawValue) \(error.rawValue)")
                 }
             }
-            // Candidates must beat the separately scored literal. For centred structural
-            // typos log(.01) usually costs more than the 0.35-weighted prior can recover.
-            // Measured Linux recall is only 2–5% pooled, NOT the unverified 50% floor
-            // originally written here. Keep a conservative regression floor, not an
-            // accuracy claim; the independent DP unit oracle tests search exactness.
-            XCTAssertGreaterThanOrEqual(Double(structuralRecalled) / Double(max(1, structuralCount)), 0.01,
+            // Centred structural typos rarely beat the literal under log(.01) and the 0.35
+            // prior weight, so recall comes from the best-effort below-literal edit
+            // suggestions (absent literals only). Measured Linux pooled recall: 82-90%
+            // per language and half (P1c), versus 2-5% above-literal only. This is a
+            // regression floor, not an accuracy claim; structural auto stays ~0 by design.
+            XCTAssertGreaterThanOrEqual(Double(structuralRecalled) / Double(max(1, structuralCount)), 0.70,
                                         "pooled structural recall@3 floor: \(language.rawValue)")
         }
         controls += SpatialTypoEvaluationFixtures.germanNouns.map { $0.lowercased() }
         controls += SpatialTypoEvaluationFixtures.short
         controls += SpatialTypoEvaluationFixtures.novel
-        let outside = SpatialTypoEvaluationFixtures.novel.filter { word in
+        // Appended after the original controls, so their ordinals and samples are unchanged.
+        controls += SpatialTypoEvaluationFixtures.absent
+        controls += SpatialTypoEvaluationFixtures.rare
+        let outside = (SpatialTypoEvaluationFixtures.novel + SpatialTypoEvaluationFixtures.absent).filter { word in
             sources.values.allSatisfy { $0.logPrior(for: word.lowercased()) == nil }
         }
-        XCTAssertGreaterThanOrEqual(outside.count, 30, "at least 30 genuinely out-of-lexicon controls")
-        lines.append("TYPR-EVAL controls=\(controls.count) novelOutside=\(outside.count); nouns typed lowercase; mixed EN/DE; short words; invented names/technical/acronym-like strings")
-        XCTAssertGreaterThanOrEqual(controls.count, 150)
+        let rare = SpatialTypoEvaluationFixtures.rare.filter { word in
+            sources.values.contains { $0.logPrior(for: word) != nil }
+        }
+        XCTAssertGreaterThanOrEqual(outside.count, 200, "at least 200 genuinely out-of-lexicon controls")
+        XCTAssertGreaterThanOrEqual(rare.count, 100, "at least 100 rare in-lexicon controls")
+        lines.append("TYPR-EVAL controls=\(controls.count) outside=\(outside.count) rarePresent=\(rare.count); nouns typed lowercase; mixed EN/DE; short words; names/technical/product/abbreviation/compound/unusual-spelling strings")
+        XCTAssertGreaterThanOrEqual(controls.count, 600)
         for edits in [false, true] {
             var known = Metrics(), unknown = Metrics()
             for (index, word) in controls.enumerated() {

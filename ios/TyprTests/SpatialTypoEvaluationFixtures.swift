@@ -39,4 +39,81 @@ nonisolated enum SpatialTypoEvaluationFixtures {
                         "Linquvo", "Falzumi", "Juvqora", "Xelvani", "Wunqero", "Cavzuli", "Qorvexa", "Zyvqeno",
                         "Vexqari", "Molvuzo", "Pinqeva", "Ruzqilo", "Telvuxa", "Yunqavi", "Zulqero", "Benqavi",
                         "Kubernetes", "OpenTelemetry", "ProtoBuf", "WASM", "QEMU", "GraphQL", "NVMe", "gRPC"]
+    // P1c negative controls, all ASCII a-z (typable on the visible layout). Each was verified
+    // offline as absent from BOTH keyboard-de.words and keyboard-en.words; the test re-checks
+    // absence and does not count accidental corpus entries as outside controls.
+    static let absent: [String] = [
+        // Invented or common public person/place names.
+        "Brennholm", "Kesterwald", "Ondravik", "Maltesund", "Vireloh", "Jastrowin", "Eldmarsk", "Trevanholt",
+        "Quinsbrook", "Halvardin", "Orsenfeld", "Lidmarra", "Corvenhal", "Ysterbeck", "Margolin", "Dravenna",
+        "Thessaly", "Wendmoor", "Faelwick", "Gostrava", "Ulvenrath", "Brisolde", "Okonkwo", "Nakashima",
+        "Ravindran", "Szymanski", "Vasquezo", "Thorvaldsen", "Lindqvist", "Oyelaran", "Przybylski", "Wojcik",
+        "Nguyenova", "Altenbruch", "Kleinwiesbach", "Oberstrelitz", "Hohenwartha", "Niederfelsing",
+        "Brakelmund", "Ostervelde",
+        // Public technical terms, tools and frameworks.
+        "kubectl", "kustomize", "terraform", "ansible", "nginx", "postgres", "redis", "webpack", "pytest",
+        "numpy", "laravel", "symfony", "svelte", "nextjs", "tailwind", "golang", "rustc", "pnpm", "homebrew",
+        "systemd", "journalctl", "hyprland", "wayland", "xcodegen", "swiftui", "uikit", "grafana", "rabbitmq",
+        "elasticsearch", "kibana", "gitlab", "github", "bitbucket", "dockerfile", "kubelet", "etcd", "istio",
+        "argocd", "openssl", "sqlite", "mongodb", "mysql", "jsonl", "yaml", "toml", "llvm", "rustup", "venv",
+        "pipx", "uvicorn", "fastapi", "pydantic", "typescript", "javascript", "nodejs", "deno", "esbuild",
+        "eslint", "vitest", "xcode", "testflight", "actionlint", "shellcheck", "neovim", "tmux", "ripgrep",
+        "vscode", "firebase", "supabase", "vercel", "netlify", "heroku", "cloudflare", "huggingface", "pytorch",
+        "tensorflow", "jupyter", "matplotlib", "scipy", "sklearn", "kotlin", "swiftlint", "cocoapods", "gradle",
+        "webhook", "localhost", "devops",
+        // Invented or public product-like names, some with deliberate vowel drops (Flickr).
+        "Zentrix", "Klyvo", "Brivana", "Quanteo", "Lumora", "Novexa", "Spotlio", "Fresqo", "Velocta", "Moxidan",
+        "Trivago", "Zalando", "Lieferando", "Flickr", "Tumblr", "Lyft", "Fiverr", "Etsy", "Shopify", "Figma",
+        "Trello", "Asana", "Canva", "Strava", "Komoot", "Duolingo", "Spotify", "Dropbox", "Airbnb", "Deliveroo",
+        "Doordash", "Klarna", "Revolut", "Wolt", "Flixbus", "Rewe", "Edeka", "Rossmann",
+        // Abbreviations and chat shorthand.
+        "bzw", "usw", "evtl", "ggf", "inkl", "zzgl", "vllt", "imho", "afaik", "tbh", "idk", "omw", "brb",
+        "lgtm", "wip", "mfg", "nvm", "smh", "irl", "pls", "kthx", "approx", "mgmt", "qty", "vgl", "bspw", "ugs",
+        "lmk", "rofl",
+        // German closed compounds of two lexicon nouns, absent as a whole.
+        "hausfenster", "tischbuch", "fensterlampe", "kinderstuhl", "autobrief", "buchgarten", "zimmerlampe",
+        "stadtwald", "nachtlampe", "morgenkaffee", "vaterbrief", "mutterstuhl", "freundbrief", "handlampe",
+        "briefgeld", "zeitbahn", "tagwald", "bahnfeld", "wegstein", "waldweg", "feldblume", "baumstuhl",
+        "steintisch", "brotglas", "milchglas", "kaffeeglas", "teeglas", "glastisch", "lichtfenster",
+        "stuhlbein", "bettlampe", "hundebett", "katzenstuhl", "fischglas", "hausbuch", "tischlampe",
+        "fensterbank", "wassertisch", "schulbuch", "autotisch", "buchtisch", "zimmertisch", "stadtgarten",
+        "nachtzug", "morgenlicht", "sonnenhaus", "gartenstuhl", "gartenlampe", "waldhaus", "bergbahn",
+        "feldweg", "steinhaus", "brottisch", "teetisch", "glasvogel", "lichttisch", "bettbuch", "katzenhaus",
+        "vogelglas", "fischhaus", "geldtisch", "zeittisch", "tagzimmer", "kopfbuch", "hauskatze", "tischvogel",
+        "fensterhund", "wasserhund", "schulhund", "autostein", "waldbrot", "feldtisch", "steinbrot",
+        "kinderlampe", "zimmerbaum", "nachtvogel", "sonnenstuhl", "bergwald", "milchtisch",
+        // English closed compounds absent as a whole.
+        "doorframe", "keyring", "hairclip", "toolshed", "rainjacket", "sunhat", "dogbowl", "cupholder",
+        "bikelock", "shoerack", "mailslot", "carkeys", "desklamp", "phonecase", "wallclock", "teaspoonful",
+        "bookstand", "windowbox", "gardenhose", "coffeemug", "drawerknob", "raincover", "catflap", "birdbath",
+        "handrail",
+        // Intentional unusual spellings.
+        "kewl", "gud", "tonite", "yesss", "rly", "srsly", "pleeease", "hiii", "okk", "yeeah", "Jaxon", "Mykel",
+        "Jaxsen", "Brookelyn"
+    ]
+    // P1c rare-but-valid controls: lower-frequency public words present in the bundled corpus
+    // (DE count 60-200, EN count 150-450 at selection; re-checked in the test).
+    static let rare: [String] = [
+        // German.
+        "lehrten", "problemchen", "unterstand", "diskutiere", "gesalzen", "bodens", "vertrat", "kojote",
+        "masseur", "rekordzeit", "liedern", "gruseliger", "halbgott", "verputzt", "direktem", "stromquelle",
+        "kampfbereit", "montiert", "verliebter", "vergab", "fungieren", "fruchtbaren", "stadthalle", "rasante",
+        "gierige", "weinprobe", "erhitzt", "eingehend", "saxophon", "bezahlter", "permanente", "wettbewerbe",
+        "sprecherin", "humanoide", "amtierender", "knallharte", "virtuellen", "abzahlen", "hergeflogen",
+        "fischchen", "zwanghaft", "benannte", "quacksalber", "ankommst", "echsen", "demzufolge", "vasen",
+        "gebeugt", "gesamtsumme", "maiskolben", "detonieren", "tanzstunden", "yachthafen", "gerichten",
+        "liedchen", "pavian", "freispruch", "schneiderin", "kostenloses", "zwirn", "plantagen", "urkomisch",
+        "ferse", "wechselkurs", "reiseroute", "torten", "merkmal", "luchs",
+        // English.
+        "payoffs", "distillery", "worshippers", "eloquence", "marketed", "resonates", "shoplifter", "footstep",
+        "clothesline", "dodgeball", "competency", "bunks", "whittling", "twiddle", "flyover", "thwart",
+        "depositing", "rummage", "criticised", "shelved", "cuttlefish", "eased", "blighted", "showgirl",
+        "electrics", "cobblers", "template", "progeny", "astonish", "tilting", "transistor", "countryman",
+        "papyrus", "scholastic", "aspired", "propellant", "sweltering", "underlings", "rewinding", "trickling",
+        "tubing", "frosted", "poplar", "lineman", "blare", "overshot", "coriander", "drunker", "monastic",
+        "combatant", "fusing", "dislodge", "daffodil", "congenial", "struts", "twisty", "quarts", "restricting",
+        "decoding", "membranes", "quieten", "entrenched", "rewrites", "omnipresent", "pickers", "marinated",
+        "thunderous", "oodles", "beckons", "cashews", "latched", "jostle", "glacial", "playpen", "blogging",
+        "contesting", "emanating"
+    ]
 }
