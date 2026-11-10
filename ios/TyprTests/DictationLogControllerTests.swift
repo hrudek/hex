@@ -134,6 +134,8 @@ final class DictationLogControllerTests: XCTestCase {
     func testCleanupProducesOneFinishedEntryWithTextsOutcomesAndTimings() async throws {
         let f = LogControllerFixture()
         try await f.start()
+        // Recording state precedes the first meter tick; this test also asserts its -24 dB sample.
+        try await f.waitUntil("Expected the injected audio meter sample") { f.controller.loudnessDB == -24 }
         f.controller.finishRecording(); try await f.waitUntilFinished()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(f.env.store.entries.count, 1)
