@@ -131,14 +131,10 @@ and loads Whisper. The first load in an environment lets Core ML specialize
 reuse the system's cache. The path cannot reach the network:
 
 1. Exact files and marker, else "not downloaded" (no download).
-2. `AutoTokenizerWrapper.from(modelFolder:)` parses the three tokenizer files
-   locally; `TyprWhisperTokenizer` resolves every special token by exact
-   round trip (a damaged tokenizer is a local error instead of upstream's
-   pre-V3 default IDs).
-3. Storage guard (`WhisperPreparationPlan`): Core ML offers no API to ask
-   whether its specialization cache will be hit, so Typr keeps
-   `typr-whisper-preparation.json` next to the marker: the environment (OS
-   version and build, Typr version and build, model revision) of the last
+2. Storage guard, before any model work (`WhisperPreparationPlan`): Core ML
+   offers no API to ask whether its specialization cache will be hit, so Typr
+   keeps `typr-whisper-preparation.json` next to the marker: the environment
+   (OS version and build, Typr version and build, model revision) of the last
    complete load, and whether a preparation was still running when Typr last
    stopped. Same environment and no interrupted preparation → **Loading
    Whisper**. Otherwise specialization is expected → **Optimizing Whisper for
@@ -147,12 +143,18 @@ reuse the system's cache. The path cannot reach the network:
    `volumeAvailableCapacityForImportantUsage`); with less, preparation stops
    before any model work: "Whisper must be optimized for this iPhone first,
    which needs about 4.5 GB of free storage (… is free). Free up storage, then
-   prepare Whisper again." Unknown free space does not block. The record is
-   not part of the install and never changes "installed".
+   prepare Whisper again." (logged as `modelNotReady`). Unknown free space
+   does not block. The record is not part of the install and never changes
+   "installed".
+3. `AutoTokenizerWrapper.from(modelFolder:)` parses the three tokenizer files
+   locally; `TyprWhisperTokenizer` resolves every special token by exact
+   round trip (a damaged tokenizer is a local error instead of upstream's
+   pre-V3 default IDs).
 4. `WhisperKit(WhisperKitConfig(modelFolder:, tokenizerFolder:, computeOptions:,
    prewarm: false, load: false, download: false))`, then `kit.tokenizer = …`
    **before** loading, so WhisperKit's tokenizer loader (and its Hub fallback)
-   never runs. Then `prewarmModels()` specializes the three models one at a
+   never runs. Then `prewarmModels()` (public in 1.1.1; its prewarm pass
+   returns before the tokenizer loader) specializes the three models one at a
    time and releases each, and `loadModels()` loads them from the cache: peak
    memory during specialization stays at one model instead of all weights plus
    the compiler's working memory (WhisperKit's documented trade-off: a cached

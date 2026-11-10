@@ -241,7 +241,8 @@ final class WhisperTranscriberTests: XCTestCase {
         // Exact sizes and marker, but the sparse tokenizer files are zeros: parsing fails locally.
         try WhisperTestFiles.populate(store, marker: true)
         XCTAssertTrue(store.isInstalled)
-        let transcriber = WhisperTranscriber(store: store, language: .english)
+        // Unknown free space: the storage guard never blocks, whatever the test host has free.
+        let transcriber = WhisperTranscriber(store: store, language: .english, availableCapacity: { nil })
         do {
             try await transcriber.prepare { _ in }
             XCTFail("a zero-filled tokenizer must not load")
@@ -282,6 +283,8 @@ final class WhisperTranscriberTests: XCTestCase {
         XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.silentAudio), .noSpeech)
         XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.emptyTranscript), .other)
         XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.corruptModel("x")), .other)
+        XCTAssertEqual(DictationLogASRFailure.classify(WhisperTranscriber.TranscriberError.insufficientStorage(1)),
+                       .modelNotReady)
         XCTAssertEqual(DictationLogASRFailure.classify(SpeechEngineError.notReady), .modelNotReady)
         XCTAssertEqual(DictationLogASRFailure.classify(SpeechEngineError.notInstalled(.whisperLargeV3Turbo)), .modelNotReady)
         XCTAssertEqual(DictationLogASRFailure.classify(SpeechEngineError.requiresNewerOS(.appleSpeech)), .other)
@@ -410,6 +413,50 @@ final class WhisperTranscriberTests: XCTestCase {
         XCTAssertEqual(store.preparationRecord, WhisperPreparationRecord())
         // The record is not part of the install: it never changes "installed".
         XCTAssertNotEqual(WhisperModelStore.preparationFileName, WhisperModelStore.markerFileName)
+    }
+
+    func testPrepareStopsBeforeAnyModelWorkWhenOptimizationLacksStorage() async throws {
+        try WhisperTestFiles.populate(store, marker: true)
+        let progress = ProgressLog()
+        let free = Self.tooLittle
+        let transcriber = WhisperTranscriber(store: store, language: .german,
+                                             availableCapacity: { free }, environment: Self.env)
+        do {
+            try await transcriber.prepare { progress.append($0.detail) }
+            XCTFail("specialization without enough storage must not start")
+        } catch let error as WhisperTranscriber.TranscriberError {
+            XCTAssertEqual(error, .insufficientStorage(Self.tooLittle))
+        }
+        XCTAssertTrue(progress.values.isEmpty, "no tokenizer read or model load started: \(progress.values)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.preparationURL.path))
+        XCTAssertTrue(store.isInstalled, "a storage stop never invalidates the install")
+
+        // An interrupted earlier preparation in the same environment is stopped the same way.
+        store.writePreparationRecord(WhisperPreparationRecord(loadedEnvironment: Self.env, inProgress: true))
+        do {
+            try await transcriber.prepare { progress.append($0.detail) }
+            XCTFail("an interrupted specialization must check storage again")
+        } catch let error as WhisperTranscriber.TranscriberError {
+            XCTAssertEqual(error, .insufficientStorage(Self.tooLittle))
+        }
+        XCTAssertEqual(store.preparationRecord, WhisperPreparationRecord(loadedEnvironment: Self.env, inProgress: true))
+    }
+
+    func testPrepareWithAnExpectedCachePassesTheGuardDespiteLittleStorage() async throws {
+        try WhisperTestFiles.populate(store, marker: true)
+        let loaded = WhisperPreparationRecord(loadedEnvironment: Self.env, inProgress: false)
+        store.writePreparationRecord(loaded)
+        let free = Self.tooLittle
+        let transcriber = WhisperTranscriber(store: store, language: .german,
+                                             availableCapacity: { free }, environment: Self.env)
+        do {
+            try await transcriber.prepare { _ in }
+            XCTFail("the zero-filled tokenizer must still stop preparation")
+        } catch let error as WhisperTranscriber.TranscriberError {
+            // Past the guard: the (sparse) tokenizer is what fails, not storage.
+            guard case .corruptModel = error else { return XCTFail("expected corruptModel, got \(error)") }
+        }
+        XCTAssertEqual(store.preparationRecord, loaded, "no model load started, so the record is unchanged")
     }
 
     func testCurrentEnvironmentNamesOSTyprAndModelRevision() {

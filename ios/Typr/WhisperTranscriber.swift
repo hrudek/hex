@@ -160,6 +160,14 @@ actor WhisperTranscriber: LocalTranscribing {
         guard kit == nil else { return }
         // Exact files and marker, or stop: preparation never downloads.
         guard store.isInstalled else { throw TranscriberError.notInstalled }
+        // Before any model work (including the tokenizer): stop if specialization is expected
+        // and the storage it needs is not free.
+        let record = store.preparationRecord
+        let plan = WhisperPreparationPlan.decide(record: record, environment: environment,
+                                                 availableBytes: availableCapacity())
+        if case .insufficientStorage(let available) = plan {
+            throw TranscriberError.insufficientStorage(available)
+        }
 
         progressHandler(ModelPreparationProgress(fractionCompleted: 0.05, detail: "Reading the Whisper tokenizer"))
         let tokenizer: TyprWhisperTokenizer
@@ -171,12 +179,6 @@ actor WhisperTranscriber: LocalTranscribing {
         }
         try Task.checkCancellation()
 
-        let record = store.preparationRecord
-        let plan = WhisperPreparationPlan.decide(record: record, environment: environment,
-                                                 availableBytes: availableCapacity())
-        if case .insufficientStorage(let available) = plan {
-            throw TranscriberError.insufficientStorage(available)
-        }
         progressHandler(ModelPreparationProgress(
             fractionCompleted: 0.15,
             detail: plan == .optimize ? Self.optimizingDetail : Self.loadingDetail
