@@ -59,35 +59,44 @@ final class KeyboardLayoutTests: XCTestCase {
     }
 
     @MainActor
-    func testJoinedTyprRegionFitsFullWordmarkWithoutChangingKeycap() {
+    func testJoinedTyprRegionFollowsReferenceSeamAndFitsWordmark() {
         for layout in everyLayout() where layout.field == .text {
             let cap = layout.key(.typr)!.frame
-            let region = JoinedSpaceKeycap.typrRegion(cap: cap, radius: layout.metrics.cornerRadius)
-            XCTAssertEqual(region.bounds.minX, cap.minX, accuracy: 0.001)
-            XCTAssertEqual(region.bounds.width, cap.width, accuracy: 0.001,
-                           "The visual Typr segment must keep its original width")
-            XCTAssertEqual(region.bounds.height, cap.height, accuracy: 0.001)
-            let seam = JoinedSpaceKeycap.seam(cap: cap, radius: layout.metrics.cornerRadius)
-            XCTAssertEqual(seam.bounds.maxX, cap.minX + layout.metrics.cornerRadius, accuracy: 0.001)
-            // The unchanged wordmark square (including its blank margins) must
-            // sit wholly to the right of the seam in every layout fixture.
-            let mark = TyprMarkPath.frame(in: cap)
-            for x in [mark.minX, mark.midX, mark.maxX] {
-                for y in [mark.minY, mark.midY, mark.maxY] {
-                    XCTAssertTrue(region.contains(CGPoint(x: x, y: y)))
-                }
-            }
+            let space = layout.key(.space)!.frame
+            let radius = layout.metrics.cornerRadius
+            let region = JoinedSpaceKeycap.typrRegion(cap: cap, radius: radius)
+            // The seam leaves the top edge just inside the Typr key and slopes
+            // into the space bar, landing on the bottom edge 0.545 key heights left.
+            let seam = JoinedSpaceKeycap.seam(cap: cap, radius: radius)
+            XCTAssertEqual(seam.bounds.maxX, cap.minX + 0.05 * cap.height, accuracy: 0.001)
+            XCTAssertEqual(seam.bounds.minX, cap.minX - 0.545 * cap.height, accuracy: 0.001)
+            XCTAssertGreaterThan(seam.bounds.minX, space.minX + radius, "The seam stays inside the space bar")
+            XCTAssertEqual(region.bounds.minX, cap.minX - 0.545 * cap.height, accuracy: 0.001)
             XCTAssertEqual(region.bounds.maxX, cap.maxX, accuracy: 0.001)
             XCTAssertEqual(region.bounds.minY, cap.minY, accuracy: 0.001)
             XCTAssertEqual(region.bounds.maxY, cap.maxY, accuracy: 0.001)
-            XCTAssertTrue(region.contains(CGPoint(x: cap.maxX - layout.metrics.cornerRadius, y: cap.midY)))
+            XCTAssertFalse(region.contains(CGPoint(x: cap.minX - 0.3 * cap.height, y: cap.minY + 2)))
+            XCTAssertTrue(region.contains(CGPoint(x: cap.minX - 0.3 * cap.height, y: cap.maxY - 2)))
+            // The full wordmark and the ↗ hint sit inside the Typr segment.
+            let mark = TyprMarkPath.frame(in: cap)
+            let arrow = TyprMarkPath.arrowFrame(in: cap)
+            XCTAssertEqual(mark.width / mark.height, TyprMarkPath.aspect, accuracy: 0.001)
+            XCTAssertFalse(mark.intersects(arrow))
+            for box in [mark, arrow] {
+                for x in [box.minX, box.midX, box.maxX] {
+                    for y in [box.minY, box.midY, box.maxY] {
+                        XCTAssertTrue(region.contains(CGPoint(x: x, y: y)))
+                        XCTAssertTrue(cap.contains(CGPoint(x: x, y: y)))
+                    }
+                }
+            }
         }
     }
 
     @MainActor
-    func testTyprKeyAndWordmarkMatchPreStyle393PointReference() {
-        // Captured from layout/artwork formulas at 055ccefc, before #108/#109.
-        // The owner's 1179 px reference is a 393 pt keyboard at 3x.
+    func testTyprKeyAndWordmarkMatch393PointReference() {
+        // The original 393 pt keycap is unchanged; the wordmark and arrow follow
+        // the owner's 2026-11-11 reference keyboard.
         let layout = KeyboardLayout(width: 393, showsStrip: true)
         let cap = layout.key(.typr)!.frame
         XCTAssertEqual(cap.minX, 252.576, accuracy: 0.001)
@@ -95,12 +104,28 @@ final class KeyboardLayoutTests: XCTestCase {
         XCTAssertEqual(cap.width, 43.684, accuracy: 0.001)
         XCTAssertEqual(cap.height, 45, accuracy: 0.001)
         let mark = TyprMarkPath.frame(in: cap)
-        XCTAssertEqual(mark.minX, 256.576, accuracy: 0.001)
-        XCTAssertEqual(mark.minY, 207.658, accuracy: 0.001)
-        XCTAssertEqual(mark.width, 35.684, accuracy: 0.001)
-        XCTAssertEqual(mark.height, 35.684, accuracy: 0.001)
-        XCTAssertEqual(mark.midX, cap.midX, accuracy: 0.001)
-        XCTAssertEqual(mark.midY, cap.midY, accuracy: 0.001)
+        XCTAssertEqual(mark.width, 27.958, accuracy: 0.001)
+        XCTAssertEqual(mark.height, 11.782, accuracy: 0.001)
+        XCTAssertEqual(mark.midX, cap.minX + 18.784, accuracy: 0.001)
+        XCTAssertEqual(mark.midY, cap.minY + 24.3, accuracy: 0.001)
+        let arrow = TyprMarkPath.arrowFrame(in: cap)
+        XCTAssertEqual(arrow.maxX, cap.maxX - 6.4, accuracy: 0.001)
+        XCTAssertEqual(arrow.minY, cap.minY + 7.2, accuracy: 0.001)
+        XCTAssertEqual(arrow.width, 5.8, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testDarkPaletteMatchesReferenceColors() {
+        let dark = FullKeyboardPalette(isDark: true)
+        func hex(_ color: UIColor) -> String {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return String(format: "%02lX%02lX%02lX@%.2f", Int(round(r * 255)), Int(round(g * 255)), Int(round(b * 255)), a)
+        }
+        XCTAssertEqual(hex(dark.keyFill), "2D2D2D@1.00")
+        XCTAssertEqual(hex(dark.backdrop), "171717@1.00")
+        XCTAssertEqual(hex(dark.joinedOutline), "767676@1.00")
+        XCTAssertEqual(hex(dark.textBase), "FFFFFF@1.00")
     }
 
     @MainActor

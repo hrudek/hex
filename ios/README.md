@@ -99,9 +99,12 @@ owner-approved privacy, retention and reset contract.
     of the field's text before the cursor to the app as cleanup context (never
     logged); see [AI_CLEANUP.md](AI_CLEANUP.md#language-context-and-hyphens).
   - **Full keyboard Typr key (Settings › Keyboard › Full keyboard):** Adjacent space
-    and Typr keys share an outlined keycap with a curved decorative seam. The seam
-    flows within the original small Typr key's left padding: keycap size, wordmark
-    size and centered artwork remain exactly as before the joined style. Their
+    and Typr keys share an outlined keycap with a sloping S-shaped decorative seam,
+    matching the owner's 2026-11-11 reference: it leaves the top edge just inside
+    the Typr key and meets the bottom edge inside the space bar. The Typr key
+    shows a smaller wordmark slightly left of centre and a thin ↗ in the top-right
+    corner when cold (white in dark, faded in light). Dark keycaps are opaque
+    `#2D2D2D` with a `#767676` joined outline over the dark platter. Their
     touch targets and gesture thresholds are unchanged; URL/email fields keep
     separate keycaps because punctuation sits between them. A quick tap
     types a space, exactly like the space bar (autocorrect, double-space
