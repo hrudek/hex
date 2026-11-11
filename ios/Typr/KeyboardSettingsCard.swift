@@ -38,16 +38,6 @@ struct KeyboardSettingsCard: View {
                         .onChange(of: autocorrect) { _, enabled in
                             FullKeyboardSettings().autocorrect = enabled
                         }
-                    SettingsDivider()
-                    SettingsToggle(title: "Learn from my typing", detail: "Adapts to where you tap and to words you keep. Stays on this iPhone.", isOn: $personalLearning)
-                        .onChange(of: personalLearning) { _, enabled in
-                            TyprSettings().personalLearning = enabled
-                        }
-                    SettingsDivider()
-                    NavigationLink(value: SettingsDestination.keyboardDiagnostics) {
-                        SettingsLink(title: "Typing diagnostics", detail: "Saved statistics, touch learning and reset controls")
-                    }
-                    .buttonStyle(.plain)
                     if autocorrect {
                         SettingsDivider()
                         VStack(alignment: .leading, spacing: 16) {
@@ -64,6 +54,21 @@ struct KeyboardSettingsCard: View {
                         .tint(TyprTheme.success)
                         .padding(16)
                     }
+                    SettingsDivider()
+                    SettingsToggle(title: "Learn from my typing", detail: "Adapts to where you tap and to words you keep. Stays on this iPhone.", isOn: $personalLearning)
+                        .onChange(of: personalLearning) { _, enabled in
+                            TyprSettings().personalLearning = enabled
+                        }
+                    SettingsDivider()
+                    NavigationLink(value: SettingsDestination.keyboardDiagnostics) {
+                        SettingsLink(title: "Typing diagnostics", detail: "Saved statistics, touch learning and reset controls")
+                    }
+                    .buttonStyle(.plain)
+                    SettingsDivider()
+                    NavigationLink(value: SettingsDestination.keyboardLearnedWords) {
+                        SettingsLink(title: "Manage learned words", detail: "Find and delete saved words and corrections")
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {

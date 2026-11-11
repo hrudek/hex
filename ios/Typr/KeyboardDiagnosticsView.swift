@@ -180,8 +180,12 @@ struct KeyboardDiagnosticsView: View {
                 Text(problem).font(.subheadline).foregroundStyle(TyprTheme.warmMic)
             }
             Button("Reset learning", role: .destructive) { confirmLearningReset = true }
+                .foregroundStyle(.red)
+                .tint(.red)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             Button("Reset statistics", role: .destructive) { confirmStatisticsReset = true }
+                .foregroundStyle(.red)
+                .tint(.red)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
     }

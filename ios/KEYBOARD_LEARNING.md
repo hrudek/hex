@@ -176,10 +176,17 @@ the shortcut for this session only; it does not persist a rejected pair or keep.
 Both protections work while learning is off, without teaching labels/counts.
 The dictation-log archive and its separate retention/reset rules are unchanged.
 
+Reset learning and Reset statistics have red labels as well as destructive confirmation
+dialogs; their independent reset behavior is unchanged.
+
 ## Manage learned words
 
-**Typing diagnostics → Manage learned words** loads saved kept words, rejected
-`typed → replacement` pairs and frequent-word counts only after an explicit tap.
+**Keyboard → Manage learned words**, directly below Typing diagnostics and also linked
+inside diagnostics, loads saved kept words, rejected `typed → replacement` pairs and
+frequent-word counts only after an explicit tap. The search field filters all three
+categories by partial word, ignoring case and diacritics, and searches both sides of
+rejected corrections. An empty search shows everything; no matches get an explicit
+message. Deletion while searching targets only the selected visible entry.
 Swipe or Edit deletes one entry; keeps and counts are separate entries even when
 they share a word. No context, typed history, raw taps or per-word dates are shown.
 The dashboard and exports do not include this list. Without saved data the page

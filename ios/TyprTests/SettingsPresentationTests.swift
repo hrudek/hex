@@ -27,6 +27,54 @@ final class SettingsPresentationTests: XCTestCase {
             ["Typr", "--snap-state", "settings-keyboard-learned-words"]), .keyboardLearnedWords)
     }
 
+    @MainActor
+    func testLearnedWordsSearchFiltersEveryCategoryAndBothSidesOfCorrections() {
+        var state = KeyboardLearnedWordsView.fixtureState()
+        state.kept["München"] = KeyboardDiagnosticsFixture.now
+        state.kept["hello"] = KeyboardDiagnosticsFixture.now
+        state.counts["other"] = .init(count: 3, lastUpdated: KeyboardDiagnosticsFixture.now)
+        typealias Results = KeyboardLearnedWordsView.SearchResults
+
+        let all = Results(state: state, query: "  \n ")
+        XCTAssertEqual(all.kept, state.kept.keys.sorted())
+        XCTAssertEqual(all.pairs, state.rejected)
+        XCTAssertEqual(all.counts, ["hello", "other"])
+
+        let partial = Results(state: state, query: "  ELL  ")
+        XCTAssertEqual(partial.kept, ["hello"])
+        XCTAssertEqual(partial.counts, ["hello"])
+        XCTAssertTrue(partial.pairs.isEmpty)
+        XCTAssertEqual(Results(state: state, query: "munchen").kept, ["München"])
+        XCTAssertEqual(Results(state: state, query: "TEH").pairs, state.rejected)
+        XCTAssertEqual(Results(state: state, query: "THE").pairs, state.rejected)
+
+        let none = Results(state: state, query: "not-saved")
+        XCTAssertTrue(none.kept.isEmpty)
+        XCTAssertTrue(none.pairs.isEmpty)
+        XCTAssertTrue(none.counts.isEmpty)
+        XCTAssertEqual(state.counts["hello"]?.count, 12)
+        XCTAssertEqual(state.kept.count, 4)
+    }
+
+    @MainActor
+    func testLearnedWordsFilteredDeletionTargetsVisibleEntriesOnly() {
+        var state = KeyboardLearnedWordsView.fixtureState()
+        state.kept["zebra"] = KeyboardDiagnosticsFixture.now
+        state.counts["zebra"] = .init(count: 1, lastUpdated: KeyboardDiagnosticsFixture.now)
+        state.rejected.append(.init(typed: "adn", replacement: "and"))
+        let visible = KeyboardLearnedWordsView.SearchResults(state: state, query: "t")
+        XCTAssertEqual(visible.kept, ["swift", "typr"])
+        XCTAssertEqual(visible.pairs, [.init(typed: "teh", replacement: "the")])
+        XCTAssertTrue(visible.counts.isEmpty)
+
+        state.kept.removeValue(forKey: visible.kept[0])
+        state.rejected.removeAll { $0 == visible.pairs[0] }
+        XCTAssertNotNil(state.kept["zebra"])
+        XCTAssertNotNil(state.kept["typr"])
+        XCTAssertNil(state.kept["swift"])
+        XCTAssertEqual(state.rejected, [.init(typed: "adn", replacement: "and")])
+    }
+
     func testTypingDiagnosticsRouteAndTitle() {
         XCTAssertEqual(SettingsDestination.snapshotDestination(arguments: ["Typr", "--snap-state", "settings-keyboard-diagnostics"]), .keyboardDiagnostics)
         XCTAssertEqual(SettingsDestination.keyboardDiagnostics.title, "Typing diagnostics")

@@ -6,6 +6,7 @@ struct KeyboardLearnedWordsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var state: PersonalTypingModel.State?
     @State private var error: String?
+    @State private var searchText = ""
     @State private var observer: KeyboardLearningObserver?
     private let fixture: Bool
 
@@ -35,9 +36,10 @@ struct KeyboardLearnedWordsView: View {
                 if let error { Text(error).foregroundStyle(.red) }
             }
             if let state {
-                let kept = state.kept.keys.sorted()
-                let pairs = state.rejected.sorted { ($0.typed, $0.replacement) < ($1.typed, $1.replacement) }
-                let counts = state.counts.keys.sorted()
+                let results = SearchResults(state: state, query: searchText)
+                let kept = results.kept
+                let pairs = results.pairs
+                let counts = results.counts
                 Section("Kept words") {
                     ForEach(kept, id: \.self) { Text($0) }
                         .onDelete { offsets in delete(offsets.map { .kept(kept[$0]) }) }
@@ -53,7 +55,10 @@ struct KeyboardLearnedWordsView: View {
                     .onDelete { offsets in delete(offsets.map { .count(counts[$0]) }) }
                 }
                 if kept.isEmpty && pairs.isEmpty && counts.isEmpty {
-                    Text("No saved words or corrections.").foregroundStyle(.secondary)
+                    Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                         ? "No saved words or corrections."
+                         : "No matching words or corrections.")
+                        .foregroundStyle(.secondary)
                 }
             } else {
                 Text("No saved learning available. Without Full Access, learning stays in the keyboard session and cannot be shown here. Full Access may be off, or nothing has been saved yet.")
@@ -62,6 +67,10 @@ struct KeyboardLearnedWordsView: View {
         }
         .navigationTitle("Manage learned words")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search words and corrections")
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
         .toolbar { EditButton() }
         .refreshable { reload() }
         .onAppear {
@@ -70,6 +79,24 @@ struct KeyboardLearnedWordsView: View {
         }
         .onDisappear { observer?.invalidate(); observer = nil }
         .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
+    }
+
+    /// Filtering never changes saved learning; deletion uses these same visible arrays.
+    struct SearchResults {
+        let kept: [String]
+        let pairs: [RejectedCorrection]
+        let counts: [String]
+
+        init(state: PersonalTypingModel.State, query: String) {
+            let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            func matches(_ word: String) -> Bool {
+                query.isEmpty || word.localizedStandardContains(query)
+            }
+            kept = state.kept.keys.filter { matches($0) }.sorted()
+            pairs = state.rejected.filter { matches($0.typed) || matches($0.replacement) }
+                .sorted { ($0.typed, $0.replacement) < ($1.typed, $1.replacement) }
+            counts = state.counts.keys.filter { matches($0) }.sorted()
+        }
     }
 
     private func reload() {
