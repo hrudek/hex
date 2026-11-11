@@ -32,6 +32,16 @@ nonisolated struct SpatialTouchCalibration: Equatable, Sendable {
         let offsetY: Double
         let sigmaX: Double
         let sigmaY: Double
+        var covarianceXY: Double = 0
+
+        /// Normalized full-covariance Gaussian. Sanitized by the snapshot initializer.
+        func logDensity(x: Double, y: Double) -> Double {
+            let dx = x - offsetX, dy = y - offsetY
+            let xx = sigmaX * sigmaX, yy = sigmaY * sigmaY
+            let determinant = xx * yy - covarianceXY * covarianceXY
+            return -0.5 * max(0, (yy * dx * dx - 2 * covarianceXY * dx * dy + xx * dy * dy) / determinant)
+                - log(2 * Double.pi) - 0.5 * log(determinant)
+        }
     }
 
     let keys: [Character: Key]
@@ -44,12 +54,19 @@ nonisolated struct SpatialTouchCalibration: Equatable, Sendable {
             let (letter, key) = entry
             guard letter.isLetter, String(letter) == String(letter).lowercased(),
                   key.offsetX.isFinite, key.offsetY.isFinite,
-                  key.sigmaX.isFinite, key.sigmaY.isFinite else { return }
+                  key.sigmaX.isFinite, key.sigmaY.isFinite, key.covarianceXY.isFinite else { return }
+            let sx = max(Self.sigmaRange.lowerBound, min(Self.sigmaRange.upperBound, key.sigmaX))
+            let sy = max(Self.sigmaRange.lowerBound, min(Self.sigmaRange.upperBound, key.sigmaY))
+            // Both eigenvalues stay in [.22², .50²], hence det >= .22⁴.
+            let floor = Self.sigmaRange.lowerBound * Self.sigmaRange.lowerBound
+            let ceiling = Self.sigmaRange.upperBound * Self.sigmaRange.upperBound
+            let xyLimit = min(sqrt(max(0, (sx * sx - floor) * (sy * sy - floor))),
+                              sqrt(max(0, (ceiling - sx * sx) * (ceiling - sy * sy))))
             result[letter] = Key(
                 offsetX: max(-Self.maxOffset, min(Self.maxOffset, key.offsetX)),
                 offsetY: max(-Self.maxOffset, min(Self.maxOffset, key.offsetY)),
-                sigmaX: max(Self.sigmaRange.lowerBound, min(Self.sigmaRange.upperBound, key.sigmaX)),
-                sigmaY: max(Self.sigmaRange.lowerBound, min(Self.sigmaRange.upperBound, key.sigmaY))
+                sigmaX: sx, sigmaY: sy,
+                covarianceXY: max(-xyLimit, min(xyLimit, key.covarianceXY))
             )
         }
     }

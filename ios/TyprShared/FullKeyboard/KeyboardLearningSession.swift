@@ -75,6 +75,12 @@ final class KeyboardLearningSession {
     /// `nil` while learning is off (the model enforces it) or below the per-key threshold.
     func calibration(for layout: KeyboardLayout) -> SpatialTouchCalibration? { model.calibration(for: layout) }
 
+    /// Fast aim never crosses host/field/layout/lifecycle discontinuities. Slow state stays.
+    func resetFastAim() {
+        model.resetFastAim()
+        generation &+= 1
+    }
+
     /// Keyboard appearance and settings sync: switch value and app reset epochs.
     func refresh() {
         let enabled = TyprSettings(defaults: defaults).personalLearning

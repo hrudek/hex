@@ -55,10 +55,14 @@ learning is off; off supplies no labels/counts.
   current token and captured letter layout. The tracker itself retains at most
   64 samples. Apostrophes, popup accents, slides, missing document context and
   non-prose fields do not create substitute geometry.
-- Each tap uses a normalized diagonal Gaussian in key-pitch units: frame width
-  plus gap horizontally, frame height plus row gap vertically. Static sigma is
-  0.35; trusted personal calibration is optional. Density includes
-  `-log(2πσxσy)`, so different spreads remain comparable. The candidate gate is
+- Each tap uses a normalized full-covariance Gaussian in key-pitch units: frame
+  width plus gap horizontally, frame height plus row gap vertically. Static sigma
+  is 0.35 with xy=0; trusted personal calibration is optional. Density is
+  `−½ dᵀΣ⁻¹d − log(2π) − ½ log(det Σ)`, so different spreads remain comparable.
+  [Slow/fast aggregate aim](KEYBOARD_LEARNING.md#slow-covariance-and-fast-aim) supplies
+  pooled/shrunk xx/xy/yy and shared drift, with eigenvalues in [.22², .50²] and
+  each center component within ±.25 pitch. All tap/key densities are frozen before
+  search, so the unchanged max-path bounds and completeness proof still apply. The candidate gate is
   radius 1.6 pitches from the model center and within six log units of the best
   key for that tap. The literal is scored separately, without the relative gate.
 - Score = spatial log density + structural edit penalty +
@@ -147,7 +151,8 @@ Deleted/retyped words can retain decoding evidence but supply no labels or count
 [WordData/README.md](TyprShared/FullKeyboard/WordData/README.md) records unchanged
 TSW1 DE/EN data, revision, CC BY-SA 4.0 terms, hashes and offline reproduction.
 [PORTS.md](../PORTS.md) records the rewritten MIT iikb ideas at
-`08df5aa1e698d8587b6dcaef53f5e555ba1fac2a`. No iikb resources or dependencies
+`08df5aa1e698d8587b6dcaef53f5e555ba1fac2a`, plus aggregate covariance/aim
+at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`. No iikb resources or dependencies
 are bundled. Learning storage is owner-approved and bounded; raw current-word
 and pending-feedback taps remain RAM-only, not a persistent typing log.
 
@@ -267,6 +272,52 @@ timings. No real typing or personal-learning benefit is established. A later Lin
 Swift 6.2 optimized rerun on both seeds preserved every recorded non-timing
 metric (including pops/generated summaries) versus the prior Linux final runs.
 
+### Aggregate-aim synthetic ablation (P7)
+
+`PersonalTypingAimTests` checks independent covariance/pooling/weight references,
+Gaussian normalization, diagonal equivalence, eigenvalue/determinant floors,
+nonfinite/singular data, sparse/global transfer, shift-back, snapshot freezing,
+migration/repair and numeric/encoded memory bounds. The exhaustive frozen-score DP
+oracle additionally runs with nonzero xy covariance. Existing integration tests
+still protect independent labels, edits, undo, literal validity and boundaries.
+
+`PersonalTypingAimEvaluationTests` uses fixed public DE/EN/mixed groups of 20 words,
+seeded .22-pitch Gaussian noise, +6/+4 pt translation and a .055-radian linearized
+one-hand rotation. Decoding is observed at 0/3/12/30/60 new trusted labels in each
+phase; slow diagonal baseline and adaptive model receive identical labels and
+coordinates. Labels are synthetic known intentions, not auto-accepted output.
+It prints recall@1/@3, wrong **typo** automatic replacements and evidence refusals,
+plus wall-clock mean/p95/max (debug Linux, not iPhone). The diagonal ablation preserves
+the old 20-per-key threshold and ignores new xy/global/fast state.
+
+Observed Linux results are **mixed**, not a general accuracy claim: rotated DE/EN
+recall@1 improves by one word/20 by 12–30 labels, and mixed rotated recall reaches
+20/20 by 12 labels versus 18/20 slow-only. Translation-only EN is already 20/20;
+DE reaches 19/20 at 30 labels versus 18/20, but returns to 18/20 at 60 labels. Some
+mixed checkpoints lose one evidence sample; shift-back DE at 12 labels has one extra
+wrong typo auto and one fewer top-1 result than baseline, recovered at 30 labels.
+Regression bounds allow ≤2 fewer recall@1/20, ≥18 recall@3/20, ≤1 extra wrong typo
+auto/20 and ≤1 unavailable sample/20. These are small synthetic fixture bounds,
+not a validated release-quality rate. **Valid-control unwanted changes remain 0**
+on 14 words/names/compounds/identifiers ×3 decisions under 2,600 adversarial allowed
+labels, and scoring/boundaries produce no self-training updates.
+
+The existing total/spatial/runner-up thresholds are retained after these ablations,
+the full frozen-score oracle and existing learning-off fixed-seed evaluation, not
+merely because covariance compiles. They are not posterior probabilities. This
+small development set does not establish general grip-recovery superiority, a
+held-out human rate or safety on all words. Device acceptance must examine the
+shift-back transient and false changes separately from suggestion recall.
+
+Observed Swift 6.4.2 Linux x86_64 debug run: 2,400 timed decodes, mean **9.629 ms**,
+p95 **14.610 ms**, max **17.883 ms**; 200 snapshots averaged **.519 ms**, 200 trusted
+single-label updates **.028 ms**. Four populated layouts encoded to **20,363 bytes**;
+maximum numeric slow/fast payloads were **5,184 / 2,160 bytes**, excluding dictionary,
+string and allocator overhead. These are not extension RSS or device budgets.
+The full harness ran **256 cases: 246 passed, 9 skipped, 1 known Linux-only
+`isExcludedFromBackup` metadata failure**; no new failures. No harness adaptations
+were needed; Apple build, simulator and physical typing remain unverified.
+
 ## Required owner iPhone checks
 
 First compile app/keyboard/widgets and run the actual iOS test target in Apple
@@ -283,7 +334,8 @@ Then check on the owner's iPhone:
 3. First-word resource load, suggestion and Space latency distributions, extension
    high-water memory, repeated keyboard recreation and responsiveness during saves.
 4. Trusted learning association and outlier rejection; at least 20 labels before
-   per-key influence, separate layout models, no automatic-output self-training,
+   pooled influence (or 20 per key in a migrated legacy-only model), separate layout
+   models, shift/shift-back recovery, no automatic-output self-training,
    learning off/on, retained keep/rejected protection and independent resets.
 5. Full Access granted/revoked, RAM-only behavior, restart retention, file protection
    before first unlock and backup exclusion, lock contention, concurrent keyboard

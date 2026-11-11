@@ -170,8 +170,8 @@ final class FullKeyboardEngine {
     }
 
     /// Invalidates in-flight taps too: a late release must not recreate evidence after a cursor/field change.
-    func discardTouchEvidence() {
-        autocorrect.discardEvidence()
+    func discardTouchEvidence(resetFastAim: Bool = true) {
+        autocorrect.discardEvidence(resetFastAim: resetFastAim)
         for id in touchOrder {
             touches[id]?.hasUnambiguousPoint = false
         }
@@ -213,7 +213,9 @@ final class FullKeyboardEngine {
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
         }
-        discardTouchEvidence()
+        // Clearing the chosen word is not a physical/context discontinuity: retain
+        // the fast aggregate aim just learned from independent manual feedback.
+        discardTouchEvidence(resetFastAim: false)
         if let token {
             for _ in 0..<token.count {
                 target.deleteBackward()

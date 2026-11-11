@@ -806,7 +806,13 @@ final class SpatialWordDecoderTests: XCTestCase {
         let german: [(String, UInt32)] = [("hallo", 600_000), ("hello", 700_000), ("helgo", 10_000)]
         let sources = [(SpatialWordDecoder.Language.english, english), (.german, german)]
         let decoder = SpatialWordDecoder(lexicons: [.english: lexicon(english), .german: lexicon(german)])
-        for (typed, aimed) in [("gello", "hello"), ("helo", "helo"), ("heallo", "heallo"), ("hlelo", "hlelo")] {
+        let calibrations: [SpatialTouchCalibration?] = [nil,
+            SpatialTouchCalibration(keys: Dictionary(uniqueKeysWithValues: "abcdefghijklmnopqrstuvwxyz".map {
+                ($0, .init(offsetX: 0.08, offsetY: -0.04, sigmaX: 0.30, sigmaY: 0.40, covarianceXY: 0.035))
+            }))]
+        let pairs = [("gello", "hello"), ("helo", "helo"), ("heallo", "heallo"), ("hlelo", "hlelo")]
+        let scenarios = calibrations.flatMap { c in pairs.map { ($0.0, $0.1, c) } }
+        for (typed, aimed, calibration) in scenarios {
             let word = evidence(typed, aimedAt: aimed)
             let letters = Array("abcdefghijklmnopqrstuvwxyz")
             var scores: [[Character: Double]] = []
@@ -814,17 +820,22 @@ final class SpatialWordDecoderTests: XCTestCase {
                 var row: [Character: Double] = [:]
                 for letter in letters {
                     let frame = try XCTUnwrap(word.layout.key(.character(String(letter)))).frame
-                    let dx = Double(sample.point.x - frame.midX) / Double(frame.width + word.layout.metrics.gap)
-                    let dy = Double(sample.point.y - frame.midY) / Double(frame.height + word.layout.metrics.rowGap)
+                    let key = calibration?.keys[letter] ?? .init(offsetX: 0, offsetY: 0, sigmaX: 0.35, sigmaY: 0.35)
+                    let dx = Double(sample.point.x - frame.midX) / Double(frame.width + word.layout.metrics.gap) - key.offsetX
+                    let dy = Double(sample.point.y - frame.midY) / Double(frame.height + word.layout.metrics.rowGap) - key.offsetY
                     if dx * dx + dy * dy <= 1.6 * 1.6 {
-                        row[letter] = -(dx * dx + dy * dy) / (2 * 0.35 * 0.35) - log(2 * Double.pi * 0.35 * 0.35)
+                        // Independent inverse/determinant reference, not logDensity().
+                        let xx = key.sigmaX * key.sigmaX, yy = key.sigmaY * key.sigmaY, xy = key.covarianceXY
+                        let det = xx * yy - xy * xy
+                        row[letter] = -0.5 * (yy * dx * dx - 2 * xy * dx * dy + xx * dy * dy) / det
+                            - log(2 * Double.pi * sqrt(det))
                     }
                 }
                 let best = try XCTUnwrap(row.values.max())
                 scores.append(row.filter { $0.value >= best - 6 })
             }
             for edits in [false, true] {
-                let result = try XCTUnwrap(decoder.decode(word, languages: [.english, .german], allowsEdits: edits))
+                let result = try XCTUnwrap(decoder.decode(word, languages: [.english, .german], calibration: calibration, allowsEdits: edits))
                 XCTAssertTrue(result.complete)
                 var expected: [String: Double] = [:]
                 var structural: [String: Double] = [:]

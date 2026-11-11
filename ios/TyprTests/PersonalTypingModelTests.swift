@@ -57,12 +57,18 @@ final class PersonalTypingModelTests: XCTestCase {
         XCTAssertNil(model.calibration(for: layout))
         model.learn([try label(0.4)], layout: layout, source: .keep)
         var key = try XCTUnwrap(model.calibration(for: layout)?.keys["a"])
-        XCTAssertEqual(key.offsetX, 0.2, accuracy: 1e-12)
-        XCTAssertEqual(key.sigmaX, sqrt(0.35 * 0.35 / 2), accuracy: 1e-12)
+        // Slow sufficient statistics retain the original shrinkage reference;
+        // fast/pooled inference can already move further after sustained evidence.
+        XCTAssertEqual(try stats(model).calibration.offsetX, 0.2, accuracy: 1e-12)
+        XCTAssertGreaterThanOrEqual(key.offsetX, 0.2)
+        XCTAssertLessThanOrEqual(key.offsetX, 0.25)
+        XCTAssertTrue(SpatialTouchCalibration.sigmaRange.contains(key.sigmaX))
         model.learn(Array(repeating: try label(0.9), count: 300), layout: layout, source: .keep)
         key = try XCTUnwrap(model.calibration(for: layout)?.keys["a"])
         XCTAssertEqual(key.offsetX, 0.25)
-        XCTAssertEqual(key.sigmaX, 0.22)
+        XCTAssertTrue(SpatialTouchCalibration.sigmaRange.contains(key.sigmaX))
+        model.resetFastAim()
+        XCTAssertEqual(model.calibration(for: layout)?.keys["a"]?.sigmaX, 0.22)
         model.reset()
         for _ in 0..<150 {
             model.learn([try label(-0.9), try label(0.9)], layout: layout, source: .keep)
@@ -253,7 +259,7 @@ final class PersonalTypingModelTests: XCTestCase {
         XCTAssertNil(bad.validated())
         bad = original; bad.counts["hello"]?.count = -1
         XCTAssertNil(bad.validated())
-        bad = original; bad.schemaVersion = 2
+        bad = original; bad.schemaVersion = 99
         XCTAssertNil(bad.validated())
         bad = original; bad.kept["HELLO"] = Date()
         XCTAssertNil(bad.validated())

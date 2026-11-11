@@ -390,16 +390,14 @@ final class SpatialWordDecoder {
                 let height = Double(frame.height + word.layout.metrics.rowGap)
                 guard frame.width > 0, frame.height > 0, width.isFinite, height.isFinite,
                       width > 0, height > 0 else { return .unavailable(.evidence) }
-                let key = calibration?.keys[alphabet[index]]
-                let dx = Double(sample.point.x - frame.midX) / width - (key?.offsetX ?? 0)
-                let dy = Double(sample.point.y - frame.midY) / height - (key?.offsetY ?? 0)
-                let sx = key?.sigmaX ?? SpatialTouchCalibration.staticSigma
-                let sy = key?.sigmaY ?? SpatialTouchCalibration.staticSigma
-                // Density in pitch coordinates. The -log(2πσxσy) term is essential:
-                // omitting it would reward broader personal distributions unfairly.
-                if dx * dx + dy * dy <= 1.6 * 1.6 {
-                    scores[index] = -0.5 * (dx * dx / (sx * sx) + dy * dy / (sy * sy))
-                        - log(2 * Double.pi * sx * sy)
+                let key = calibration?.keys[alphabet[index]] ?? SpatialTouchCalibration.Key(
+                    offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma,
+                    sigmaY: SpatialTouchCalibration.staticSigma)
+                let x = Double(sample.point.x - frame.midX) / width
+                let y = Double(sample.point.y - frame.midY) / height
+                // The entire density is frozen before search, preserving max-path bounds.
+                if pow(x - key.offsetX, 2) + pow(y - key.offsetY, 2) <= 1.6 * 1.6 {
+                    scores[index] = key.logDensity(x: x, y: y)
                 }
             }
             guard scores[label].isFinite, let best = scores.max(), best.isFinite else {
