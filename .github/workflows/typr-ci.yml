@@ -1,9 +1,9 @@
 # Typr CI for the iPhone app.
-# Fast lane: PRs run Linux checks and compile only. Simulator tests run after
-# merging to main, beside the TestFlight build (no nightly run). Screenshots and
-# pre-merge tests are opt-in via the manual simulator distribution.
+# Fast lane: PRs run Linux checks only; Typr review is a separate required check.
+# Main app changes build an archive and run simulator tests in parallel.
+# Signing/upload never waits for tests. Manual simulator previews remain available.
 #   push main       → app changed? archive → TestFlight at once; tests in parallel
-#   pull_request        → feature/fix PRs: checks, scope, labels, archive (required); no simulator
+#   pull_request        → Linux checks, scope, labels; no macOS allocation
 #   workflow_dispatch   → simulator preview (tests + screenshots, no archive), or a device build
 name: Typr CI
 run-name: "Typr CI · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} · ${{ inputs.distribution || github.event.action || github.event_name }}"
@@ -15,16 +15,20 @@ on:
     branches: [main]
     # As OpenCode's checks: no label events, so a label never starts a macOS run. Adding
     # "infra" re-runs the failed jobs instead (typr-recheck.yml); Scope reads labels live.
-    # drafts get only the Linux checks until marked ready.
+    # All PRs, including drafts, get Linux checks only.
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       distribution:
-        description: simulator runs tests/screenshots only; unsigned builds; ad-hoc and testflight also sign
+        description: simulator previews; unsigned builds; ad-hoc/testflight sign; automatic checks main app changes
         type: choice
-        options: [unsigned, ad-hoc, testflight, simulator]
+        options: [unsigned, ad-hoc, testflight, simulator, automatic]
         default: unsigned
         required: true
+      base_sha:
+        description: "Automatic lane only: compare main against this merge parent (empty: main's first parent)"
+        type: string
+        default: ""
       only_testing:
         description: "Comma-separated -only-testing targets (empty: every test, none: skip tests)"
         type: string
@@ -38,7 +42,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: typr-ci-${{ github.event_name }}-${{ github.ref }}-${{ inputs.distribution || '' }}
+  # Main runs must not wait for an older run's simulator/signing jobs.
+  # Cancellable work is grouped per job below; signing is never auto-cancelled.
+  group: typr-ci-${{ github.event_name }}-${{ github.ref }}-${{ (github.event_name == 'push' || inputs.distribution == 'automatic') && github.run_id || inputs.distribution || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -104,6 +110,7 @@ jobs:
 
   decide:
     name: Decide
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -132,22 +139,23 @@ jobs:
           REF: ${{ github.ref }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           DISTRIBUTION: ${{ inputs.distribution }}
+          BASE_SHA: ${{ inputs.base_sha }}
           REPO: ${{ github.server_url }}/${{ github.repository }}
         run: |
           set -euo pipefail
           zero=0000000000000000000000000000000000000000
-          base='' head=$AFTER sign='' mode=pipeline
+          base='' head=$AFTER sign='' mode=app
           case "$EVENT" in
             push)
               [[ "$BEFORE" != "$zero" ]] && base=$BEFORE
               sign=testflight
-              mode=app ;;   # PR Linux checks validate pipeline changes; only app changes ship
-            pull_request) base=$PR_BASE head=$PR_HEAD ;;
+              ;;   # Linux checks validate pipeline changes; only app changes ship
             workflow_dispatch)
               case "$DISTRIBUTION" in
+                automatic) [[ "$REF" == refs/heads/main ]] \
+                             || { echo 'Automatic distribution only from main'; exit 1; }
+                           sign=testflight ;;
                 unsigned|simulator) ;;
                 ad-hoc) [[ "$REF" == refs/heads/main || "$REF" == refs/heads/feature/* ]] \
                           || { echo 'Ad-hoc signing only from main or feature/*'; exit 1; }
@@ -157,6 +165,18 @@ jobs:
               esac ;;
           esac
           run=true
+          # Bot merges explicitly dispatch this lane (GITHUB_TOKEN pushes do not
+          # trigger push workflows). Compare the dispatched main commit to its parent.
+          if [[ "$EVENT" == workflow_dispatch && "$DISTRIBUTION" == automatic ]]; then
+            if [[ -n "$BASE_SHA" ]]; then
+              [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid base SHA'; exit 1; }
+              base=$BASE_SHA
+            else
+              git init -q "$RUNNER_TEMP/parent"
+              git -C "$RUNNER_TEMP/parent" fetch -q --depth=2 --filter=blob:none "$REPO" "$head"
+              base=$(git -C "$RUNNER_TEMP/parent" rev-parse "$head^")
+            fi
+          fi
           if [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
             git init -q "$RUNNER_TEMP/fp"
             if git -C "$RUNNER_TEMP/fp" fetch -q --depth=1 --filter=blob:none "$REPO" "$base" "$head"; then
@@ -164,6 +184,9 @@ jobs:
               b=$(bash .github/typr/fingerprint.sh "$RUNNER_TEMP/fp" "$head" "$mode")
               diff <(echo "$a") <(echo "$b") || true
               [[ "$a" != "$b" ]] || run=false
+            else
+              echo 'Cannot compare app inputs; refusing an automatic build without a baseline.' >&2
+              exit 1
             fi
           fi
           [[ "$run" == true ]] || sign=''
@@ -183,6 +206,9 @@ jobs:
     needs: decide
     # No simulator allocation for PRs; manual branch runs remain available.
     if: github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.decide.outputs.run == 'true' && inputs.only_testing != 'none'
+    concurrency:
+      group: typr-ci-test-${{ (github.event_name == 'push' || inputs.distribution == 'automatic') && 'main-auto' || format('{0}-{1}', github.ref, inputs.distribution) }}
+      cancel-in-progress: ${{ github.event_name == 'push' || inputs.distribution == 'automatic' }}
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 60
     env:
@@ -261,7 +287,10 @@ jobs:
   build:
     name: Unsigned archive
     needs: decide
-    if: needs.decide.outputs.run == 'true' && !github.event.pull_request.draft && inputs.distribution != 'simulator'
+    if: github.event_name != 'pull_request' && needs.decide.outputs.run == 'true' && inputs.distribution != 'simulator'
+    concurrency:
+      group: typr-ci-build-${{ (github.event_name == 'push' || inputs.distribution == 'automatic') && 'main-auto' || format('{0}-{1}', github.ref, inputs.distribution) }}
+      cancel-in-progress: ${{ github.event_name == 'push' || inputs.distribution == 'automatic' }}
     runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 90
     env:
@@ -332,6 +361,9 @@ jobs:
     # locally afterwards through a normal PR (the status issue shows them).
     needs: [decide, build]
     if: needs.decide.outputs.sign != '' && needs.build.result == 'success'
+    concurrency:
+      group: typr-ci-sign-${{ needs.decide.outputs.sign }}
+      cancel-in-progress: false
     runs-on: ${{ vars.MACOS_BUILD_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 30
     environment: typr-${{ needs.decide.outputs.sign }}
@@ -411,7 +443,7 @@ jobs:
     needs: [linux, decide, test, build, sign]
     # The status issue reports main; red runs are fixed locally.
     if: >-
-      always() && !cancelled() && github.event_name == 'push'
+      always() && !cancelled() && (github.event_name == 'push' || inputs.distribution == 'automatic')
       && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5

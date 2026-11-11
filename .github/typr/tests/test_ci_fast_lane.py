@@ -1,4 +1,4 @@
-"""Workflow scheduling contracts: no macOS simulator in PRs, manual previews remain."""
+"""Scheduling contracts: Linux-only PRs, parallel latest-main work, protected signing."""
 import importlib.util
 from pathlib import Path
 import re
@@ -32,11 +32,11 @@ def condition(name, event, distribution='', changed='true', only_testing='', dra
 
 
 class FastLaneContracts(unittest.TestCase):
-    def test_prs_only_build_device_archive(self):
-        self.assertFalse(condition('test', 'pull_request'))
-        self.assertTrue(condition('build', 'pull_request'))
-        self.assertFalse(condition('build', 'pull_request', draft=True))
-        self.assertFalse(condition('build', 'pull_request', changed='false'))
+    def test_prs_never_allocate_macos_or_decide(self):
+        for draft in (False, True):
+            for name in ('test', 'build', 'decide'):
+                with self.subTest(draft=draft, job=name):
+                    self.assertFalse(condition(name, 'pull_request', draft=draft))
 
     def test_post_merge_keeps_tests_and_device_builds(self):
         self.assertTrue(condition('test', 'push'))
@@ -72,8 +72,30 @@ class FastLaneContracts(unittest.TestCase):
             names.add(expected)
         self.assertEqual(names, set(reuse.REQUIRED_JOBS))
         self.assertNotRegex(job('linux'), re.compile(r'^    if:', re.M))
-        self.assertNotRegex(job('decide'), re.compile(r'^    if:', re.M))
+        self.assertIn("if: github.event_name != 'pull_request'", job('decide'))
         self.assertIn('python3 -m unittest discover -s ios/tools/dictation_log/tests -v', job('linux'))
+
+    def test_main_runs_do_not_serialize_but_jobs_supersede_old_work(self):
+        workflow_concurrency = SOURCE.split('\nconcurrency:\n')[1].split('\njobs:')[0]
+        self.assertIn('github.run_id', workflow_concurrency)
+        for name in ('build', 'test'):
+            self.assertIn('concurrency:', job(name))
+            self.assertIn("&& 'main-auto'", job(name))
+            self.assertIn("cancel-in-progress: ${{ github.event_name == 'push' || inputs.distribution == 'automatic' }}", job(name))
+            self.assertIn('needs: decide', job(name))
+        self.assertIn('group: typr-ci-sign-${{ needs.decide.outputs.sign }}', job('sign'))
+        self.assertIn('cancel-in-progress: false', job('sign'))
+
+    def test_automatic_dispatch_checks_app_inputs_and_main_ref(self):
+        for name in ('test', 'build'):
+            self.assertTrue(condition(name, 'workflow_dispatch', 'automatic'))
+            self.assertFalse(condition(name, 'workflow_dispatch', 'automatic', changed='false'))
+        decide = job('decide')
+        self.assertIn('Automatic distribution only from main', decide)
+        self.assertIn('BASE_SHA: ${{ inputs.base_sha }}', decide)
+        self.assertIn('base=$BASE_SHA', decide)
+        self.assertIn('mode=app', decide)
+        self.assertIn('exit 1', decide.split('Cannot compare app inputs;', 1)[1])
 
     def test_manual_device_distributions_still_build(self):
         for distribution in ('unsigned', 'ad-hoc', 'testflight'):

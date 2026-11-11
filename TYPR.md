@@ -59,7 +59,8 @@ this file is the entry point for agents and the owner.
   (anything only a real iPhone proves). Carry relevant outcomes out of the Pi
   conversation into the PR or repository documentation; session logs alone are
   not the handover. Update the description when the agreed scope changes.
-- PRs allocate no simulator runner: no automatic simulator tests or screenshots.
+- PRs allocate no macOS runner: Linux checks and the current-commit AI review
+  are the merge gates; no automatic device archive, simulator tests or screenshots.
   For an optional visual/test check before merging, manually run Typr CI on the
   feature branch with distribution `simulator`. It runs tests, then captures the
   fixed `--snap-state` scenes (`ready`, `keyboard-warm`, `keyboard-recording`,
@@ -129,7 +130,8 @@ may be listed for a feature. Documentation-only process changes need no feature 
   the agreed behaviour, decisions and verification; lasting product or
   architecture rules belong in repository documentation. Existing CI, merge
   requirements and distribution rules still apply. To try a PR before it
-  merges, run **Typr PR to iPhone** with its number.
+  merges, manually build its branch with Typr CI (`distribution=unsigned`),
+  then run **Typr PR to iPhone** with its number to sign that archive.
 - **Review agent (automatic).** Every same-repository PR into `main`
   (`feature/*`, `fix/*`, `infra/*`, …)
   is reviewed by Claude (`typr-review.yml`, Opus, read-only) when it is
@@ -143,25 +145,28 @@ may be listed for a feature. Documentation-only process changes need no feature 
   - `⚠️ NO RESULT`: the review could not finish (usage limit, timeout); re-run
     the failed job once; if it still has no result, inform the owner.
   Agents working on a PR: read the latest Typr review comment, fix every
-  numbered finding, push, and wait for the next verdict. The check is not a
-  required status check, so the owner can still merge deliberately.
+  numbered finding, push, and wait for the next verdict. **Typr review** is a
+  required status check, alongside **Linux checks**.
 - **Changes to a PR:** ask Pi here to continue on that branch; the push starts
   a new review.
-- **The loop, end to end** (nothing merges by itself; no repair agent runs in CI):
+- **The loop, end to end** (automatic squash merge; no repair agent runs in CI):
 
   ```ts
   Pi: develop on feature/<name> → commit → push → PR (label feature)
-  ├─ automatic: Typr review + PR CI (Linux checks, Decide, Unsigned archive)
+  ├─ automatic: Typr review + PR CI (Linux checks only)
   ├─ ❌ FIX → in the same Pi session (a new one if the context is long or stale):
   │          "read the Typr review comment and fix the findings" → commit → push → review again
-  ├─ ✅ PASS + checks green → owner: "merge" → squash merge
+  ├─ ✅ PASS + required checks green → automatic squash merge
   └─ main: archive → TestFlight at once; simulator tests in parallel
      └─ tests red → status issue + GitHub mail → Pi: "main CI is red, read
         `gh run view <id> --log-failed` and fix it" → branch fix/<name> → PR → same loop
   ```
 
   TestFlight deliberately does not wait for the tests: try the build on the
-  iPhone at once and fix in parallel.
+  iPhone at once and fix in parallel. Drafts and fork PRs never auto-merge.
+  Add `no-auto-merge` before the checks finish to opt out; after removing it,
+  rerun PR CI or review to reconsider the PR. All same-repository ready PRs
+  are otherwise eligible, including infrastructure PRs with the `infra` label.
 - **Removing a feature:**
   1. Not merged yet: close the PR.
   2. Merged, just not wanted right now: if it has a switch, turn it off in the app's Typr section.
@@ -176,7 +181,7 @@ may be listed for a feature. Documentation-only process changes need no feature 
 - **Automation changes** need the `infra` label. Adding it re-runs the PR's failed
   Typr CI jobs by itself (`typr-recheck.yml`; the scope check reads labels live).
   Other label events start no CI run (as in OpenCode).
-  Draft PRs get only the Linux checks until marked ready.
+  PR CI always runs Linux checks only; drafts cannot auto-merge.
 - **A merge conflict:** resolve a feature or fix PR locally with Pi. Fetch
   `origin` successfully, merge the freshly fetched `origin/main` into its
   branch, resolve, then push (the review runs again). Do not use a stale local
@@ -198,10 +203,10 @@ weekly on Monday at 06:17 UTC for renewal warnings, or manually. Under
 the last TestFlight upload, open PRs and upcoming renewals from `expiry.json`.
 
 ```ts
-Typr CI (fast lane: only Linux checks and compiling block; tests never hold anything up)
+Typr CI (fast lane: Linux checks + AI review gate merges; tests do not gate upload)
 ├─ Linux checks: CI helper + offline dictation-log tests, actionlint, shell syntax; scope on PRs
-├─ Decide: did the app change (pushes to main) / the app or Typr CI scripts (PRs)? no → stop
-├─ PRs: required archive, no simulator/screenshots
+├─ PRs: no Decide, archive, simulator or screenshots
+├─ Decide (main/manual only): did app inputs change? no → no macOS jobs
 ├─ Push to main with app changes: archive and simulator tests in parallel
 │  └─ Test failures → status issue → fix locally → fix/<name> PR → review → merge → tests again
 ├─ Manual simulator mode: tests + screenshot artifacts, no device archive/signing
@@ -214,7 +219,8 @@ Typr review (every same-repository PR, every new commit)
 └─ ✅ PASS (check green) | ❌ FIX + numbered findings (check red) | ⚠️ NO RESULT (re-run)
 
 Typr PR to iPhone (by hand, from main, enter an open feature PR number)
-├─ Verify current PR commit, successful Linux checks, Decide and unsigned archive
+├─ First manually run Typr CI on the PR branch with distribution=unsigned
+├─ Verify current PR commit and that manual run's Linux checks, Decide and archive
 ├─ No automatic PR simulator tests; optional manual checks do not block signing
 ├─ Your approval in typr-ad-hoc
 ├─ Revalidate PR, download existing archive, check GitHub SHA-256 and build provenance
@@ -222,10 +228,42 @@ Typr PR to iPhone (by hand, from main, enter an open feature PR number)
 ```
 
 `main` only moves forward: `git pull --ff-only` always works locally.
-Branch rules: changes reach `main` through PRs with green `Linux checks`,
-`Decide` and `Unsigned archive` (skipped counts as passed);
-no force pushes or deletion. Repository admins can bypass; the owner decides
-when to merge. Nothing merges by itself.
+Branch rules: changes reach `main` through PRs with green **Linux checks** and
+**Typr review**; no force pushes or deletion. Repository admins can bypass, but
+normal automation never does. `Decide` and `Unsigned archive` are not merge gates.
+
+### Auto-merge and main scheduling
+
+`Typr auto-merge` watches successful completed PR CI/review runs, from trusted
+`main` code only. It finds the current same-repository PR, checks all required
+statuses (explicitly requiring Linux and review success), excludes drafts and
+`no-auto-merge`, and squash-merges with a server-side expected-head SHA.
+An older run cannot authorize merging a newer PR commit. No PR code executes in
+the write-enabled controller; no signing secrets or additional PAT are used.
+
+A merge made with `GITHUB_TOKEN` does not trigger normal push CI. The controller
+therefore explicitly dispatches Typr CI with `distribution=automatic` after a bot
+merge. `workflow_dispatch` is an exception to GitHub's token event suppression.
+It supplies the merge's first parent as the comparison baseline, so later merges
+between merge and dispatch cannot hide an app change. A controller rerun can
+recover a failed dispatch; an already existing main run prevents duplicate
+dispatch for that merge. Human merges use the normal push trigger.
+
+Main workflows do not serialize behind older simulator jobs. Archive and
+simulator jobs have separate latest-main concurrency groups: a newer eligible
+app run cancels the older job in each group. Explicit manual previews/builds
+are isolated from automatic main work. Signing/upload has its own serialized
+group and is never automatically cancelled once running. GitHub retains at most
+one pending job in a concurrency group; a newer one replaces an older pending
+job. Runner availability and strict FIFO ordering are not guaranteed.
+
+Automatic builds compare iOS source, resources, project/test inputs and committed
+app identity. Pipeline-only edits, Markdown documentation (including `ios/README.md`)
+and offline `ios/tools/` edits do not request macOS jobs. Explicit manual device
+builds still work regardless of the diff. Comparison failures fail visibly rather
+than silently allocating a build. The capacity-retry workflow remains unchanged.
+These scheduling contracts have Linux regression tests; actual cancellation,
+bot merge/dispatch and signing behavior still require observed GitHub runs.
 
 ### Automatic runner-capacity retries
 
@@ -272,8 +310,9 @@ GitHub cannot copy the old environment's write-only secret.
 ## Owner commands
 
 ```sh
-# Fast path: sign the existing compiled feature PR archive (no rebuild, no test wait).
-# Run from main, enter the PR number, approve on the run page:
+# Optional PR archive: explicitly build the feature branch first (no automatic PR build).
+gh workflow run typr-ci.yml -R hrudek/typr --ref feature/NAME -f distribution=unsigned
+# Then sign the existing archive (no rebuild), approve on the run page:
 gh workflow run typr-ad-hoc.yml -R hrudek/typr --ref main -f pr=123
 
 # Optional pre-merge simulator tests + screenshots (no device archive/signing):
@@ -304,16 +343,16 @@ python3 -m unittest discover -s ios/tools/dictation_log/tests
 ```
 
 The fast path accepts only open, non-draft `feature/*` PRs from this repository
-into `main`. It requires the latest PR CI run for the current head commit,
+into `main`. It requires the latest manually dispatched Typr CI run on that PR branch for the current head commit,
 with `Linux checks`, `Decide` and `Unsigned archive` successful (none may be
 skipped). PRs do not automatically run simulator tests or screenshots. Optional
 manual simulator checks do not gate archive reuse. Automated simulator tests run
 on `main` after app changes.
 A cancelled or not-yet-started CI run is refused. It checks again after approval;
 if the PR changed, rerun once the new commit's required jobs pass.
-Artifacts expire after seven days: rerun PR CI if the archive is missing or
-expired, or use the fresh-build fallback. A changed Typr identity also requires
-a new PR build. Signing uses only control scripts from `main`, never scripts
+Artifacts expire after seven days: rerun the manual unsigned build if the archive
+is missing or expired, or use the fresh-build fallback. A changed Typr identity
+also requires a new manual build. Signing uses only control scripts from `main`, never scripts
 from the PR; no signing secrets reach the PR build. The reused IPA keeps the
 original archive's build number and `build.json`. Merging still creates a fresh
 TestFlight build as before. Archive selection, provenance, digest and ZIP checks
