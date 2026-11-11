@@ -161,22 +161,22 @@ compiler and committed resources. Test presence is not a passing iOS run.
 
 ### Observed Linux x86 synthetic evaluation
 
-These are P1b/P1c standalone Swift 6.2 `-O` runner results on Linux x86_64
-(AMD Ryzen 5 PRO 5675U), using the real bundled data and repository fixture
-logic. **Not iPhone, not simulator, not real typing, not accuracy.** The validity
+These are standalone Swift 6.2 `-O` runner results before and after adding
+suggestion-only retrieval on Linux x86_64 (AMD Ryzen 5 PRO 5675U), using the real
+bundled data and repository fixture logic. **Not iPhone, not simulator, not real typing, not accuracy.** The validity
 proxy is selected-corpus membership, **not UITextChecker** or German casing.
 Personal learning was off. Synthetic neighboring-key symbols can differ from the
 key center the generated tap aims at; this does not validate physical hit-testing.
 
-P1b's full 256-public-word, five-error-class run found structural display recall
-only 21/768 (seed 1, σ .18) and 29/768 (seed 2, σ .22), with zero structural
+The initial full 256-public-word, five-error-class run found structural display
+recall only 21/768 (seed 1, σ .18) and 29/768 (seed 2, σ .22), with zero structural
 would-auto replacements. The `log(.01)` penalty suppresses many otherwise
 plausible edits below literal score. Subtree indexing/dominance preserved all
 non-timing results while reducing mean edit-search pops from 860.2 to 232.0
 (seed 1) and 886.5 to 236.9 (seed 2). This is a search-work measurement only.
 
-P1c kept scoring, penalties, margins and caps unchanged and added suggestion-only
-retrieval. The final tests use even-index fixture words for tune (seed
+The addition of suggestion-only retrieval kept scoring, penalties, margins and
+caps unchanged. The final tests use even-index fixture words for tune (seed
 `0x545950525f503031`, σ .18), odd-index words for holdout (seed
 `0x545950525f503032`, σ .22). Both are halves of the same public word set, not
 an independent lexical corpus. Each half has 384 structural and 256 neighbor
@@ -199,22 +199,24 @@ decoder display list, not final strip placement or user choice. Zero unwanted
 autos on these controls is not a false-positive guarantee. Structural autos
 remain **zero**; no real typing quality improvement has been demonstrated.
 
-P1c final B prefix mean/p95 was .43/1.39 ms tune and .45/1.47 ms holdout;
-maximum observed work was 3,046 pops / 4,113 generated states. Fresh-process
+With suggestion-only retrieval, B prefix mean/p95 was .43/1.39 ms tune and
+.45/1.47 ms holdout; maximum observed work was 3,046 pops / 4,113 generated states. Fresh-process
 read/validation/index cost was about 60–62 ms, excluded from decode timings;
 filesystem caches may be warm. The derived index alone is 981,112 bytes
 (~958 KiB); whole runner peak RSS was about 26 MiB, **not extension memory**.
-P3c's integrated Linux rerun matched all P1c non-timing results. These historical
-runs are not checks performed by the documentation task and establish no Apple
+An integrated Linux rerun matched all non-timing results after suggestion-only
+retrieval. These historical runs are not checks performed by the documentation
+task and establish no Apple
 SDK build, system-checker behavior, iPhone latency or learning benefit.
 
 ### Observed Linux personal-snapshot change latency
 
-P11 measured Swift 6.2 `-O` on the same Linux x86_64 Ryzen host, bundled DE+EN,
-393 pt, synthetic `keyboar` taps offset +3/−2 pt, and 2,000 public dictionary words
+The corpus-memo evaluation used Swift 6.2 `-O` on the same Linux x86_64 Ryzen host,
+bundled DE+EN, 393 pt, synthetic `keyboar` taps offset +3/−2 pt, and 2,000 public dictionary words
 each initially counted twice. After an initial decode populates the corpus cache,
 each of **40 count changes** increments one existing word, builds a new snapshot,
-decodes once, then decodes again. Medians from the same probe before/after P11:
+decodes once, then decodes again. Medians from the same probe before/after the
+corpus memo and snapshot-construction changes:
 
 | Step | Before | After |
 | --- | ---: | ---: |
@@ -226,7 +228,7 @@ These are separate operations, not end-to-end keystroke measurements. The initia
 corpus-cache-populating decode still took **31.12 ms before / 30.54 ms after**, with
 snapshot construction and resource read/validation/indexing excluded. Capacity
 clears and previously unseen language sets/words can incur fresh corpus lookups.
-The earlier P9 warm-only timings excluded snapshot construction and first-cache
+The earlier warm-only timings excluded snapshot construction and first-cache
 work, so did not establish responsiveness after a word count changed. This probe
 covers that gap; it is **Linux-only, not iPhone or simulator latency**. Both fixed
 evaluation seeds retain all non-timing metrics (including search work); no typing
@@ -234,12 +236,10 @@ quality improvement or extension-memory measurement is claimed.
 
 ### Observed iOS simulator synthetic evaluation
 
-GitHub run **42954810678**, `sim1.log` `TYPR-EVAL` output:
-**iOS simulator on GitHub macOS runner, synthetic taps, not iPhone**.
-The Apple SDK build succeeded; the full run executed 560 tests with three failed
-assertions in two decoder tests (deterministic ties and undo boundary labels).
-The evaluation tests themselves passed. Both causes were fixed; the final
-simulator run 42967899400 at `1c191b5a` executed 580 tests with 0 failures.
+Final GitHub run **42967899400** at `1c191b5a`, `TYPR-EVAL` output:
+**Debug iOS simulator on GitHub macOS runner, synthetic taps, not iPhone**.
+The Apple SDK build succeeded; the full run executed **580 tests with 0 failures**,
+including the evaluation tests.
 
 The same tune/holdout seeds, noise, corpus-membership validity proxy, learning-off
 setting, 384 structural + 256 neighbor samples, 789 controls and 830 prefixes per
@@ -249,20 +249,21 @@ seed were used. A is same-length; B includes edits/display-only retrieval.
 | --- | ---: | ---: |
 | B structural display recall@3 | 318 / 384 | 341 / 384 |
 | B neighbor display recall@3 | 256 / 256 | 255 / 256 |
-| Neighbor correct would-auto, A / B | 243 / 243 | 228 / 227 |
+| Neighbor correct would-auto, A / B | 244 / 244 | 228 / 227 |
 | Structural correct would-auto, B | 0 | 0 |
 | Wrong typo autos / unwanted control autos, A and B | 0 / 0 | 0 / 0 |
 | Incomplete searches, A and B | 0 | 0 |
 | Unavailable samples per variant (EN neighbor evidence-distance failure) | 0 | 1 |
-| B prefix mean / p95, ms | 2.77 / 9.08 | 2.88 / 9.62 |
-| B DE two-neighbor mean / p95, ms | 23.51 / 32.67 | 22.57 / 30.88 |
-| B EN two-neighbor mean / p95, ms | 19.36 / 29.53 | 21.01 / 32.61 |
+| B prefix mean / p95, ms | 4.07 / 13.72 | 3.68 / 12.79 |
+| B DE two-neighbor mean / p95, ms | 27.84 / 40.54 | 27.15 / 42.52 |
+| B EN two-neighbor mean / p95, ms | 20.60 / 31.72 | 27.44 / 45.19 |
 | Maximum pops / generated states, all groups | 2,419 / 3,113 | 2,990 / 4,113 |
 
-All controls/prefixes were available. Aggregate recall/automatic outcomes match
-the Linux summary; simulator timing and search work are separate observations,
-not iPhone performance. Resource preparation is excluded from these decode
-timings. No real typing or personal-learning benefit is established. P7's Linux
+All controls/prefixes were available. Aggregate recall and holdout automatic
+outcomes match the Linux summary; tune neighbor correct would-auto totals are
+244 per variant here versus 243 in the historical Linux run. Simulator timing
+and search work are separate observations, not iPhone performance. Resource preparation is excluded from these decode
+timings. No real typing or personal-learning benefit is established. A later Linux
 Swift 6.2 optimized rerun on both seeds preserved every recorded non-timing
 metric (including pops/generated summaries) versus the prior Linux final runs.
 

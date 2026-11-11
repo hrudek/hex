@@ -180,7 +180,7 @@ final class SpatialTypoEvaluationTests: XCTestCase {
                 if [.missing, .extra, .transposition].contains(error) {
                     structuralRecalled += b.recalled
                     structuralCount += b.count
-                    // Measured on Linux: 53-100% per class/half (P1c); floor keeps a wide margin.
+                    // Linux display-only retrieval: 53-100% per class/half; floor keeps a wide margin.
                     XCTAssertGreaterThanOrEqual(Double(b.recalled) / Double(max(1, b.count)), 0.40,
                                                 "structural recall@3 floor: \(language.rawValue) \(error.rawValue)")
                 } else {
@@ -191,8 +191,8 @@ final class SpatialTypoEvaluationTests: XCTestCase {
             // Centred structural typos rarely beat the literal under log(.01) and the 0.35
             // prior weight, so recall comes from the best-effort below-literal edit
             // suggestions (absent literals only). Measured Linux pooled recall: 82-90%
-            // per language and half (P1c), versus 2-5% above-literal only. This is a
-            // regression floor, not an accuracy claim; structural auto stays ~0 by design.
+            // per language and half with display-only retrieval, versus 2-5% above-literal only.
+            // This is a regression floor, not an accuracy claim; structural auto stays ~0 by design.
             XCTAssertGreaterThanOrEqual(Double(structuralRecalled) / Double(max(1, structuralCount)), 0.70,
                                         "pooled structural recall@3 floor: \(language.rawValue)")
         }

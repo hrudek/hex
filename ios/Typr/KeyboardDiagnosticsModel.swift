@@ -169,7 +169,7 @@ nonisolated enum KeyboardDiagnosticsPresentation {
     }
 }
 
-/// Reconstruct bucket geometry, not hit targets. Offsets and sigma are already shrunk by P2.
+/// Reconstruct bucket geometry, not hit targets. The personal model already shrinks offsets and sigma.
 nonisolated enum KeyboardTouchGeometry {
     static func layout(for signature: KeyboardLayoutSignature) -> KeyboardLayout {
         KeyboardLayout(width: CGFloat(signature.widthBucket),

@@ -41,7 +41,7 @@ nonisolated enum SpatialTypoEvaluationFixtures {
                         "Linquvo", "Falzumi", "Juvqora", "Xelvani", "Wunqero", "Cavzuli", "Qorvexa", "Zyvqeno",
                         "Vexqari", "Molvuzo", "Pinqeva", "Ruzqilo", "Telvuxa", "Yunqavi", "Zulqero", "Benqavi",
                         "Kubernetes", "OpenTelemetry", "ProtoBuf", "WASM", "QEMU", "GraphQL", "NVMe", "gRPC"]
-    // P1c negative controls, all ASCII a-z (typable on the visible layout). Each was verified
+    // Negative controls, all ASCII a-z (typable on the visible layout). Each was verified
     // offline as absent from BOTH keyboard-de.words and keyboard-en.words; the test re-checks
     // absence and does not count accidental corpus entries as outside controls.
     static let absent: [String] = [
@@ -93,7 +93,7 @@ nonisolated enum SpatialTypoEvaluationFixtures {
         "kewl", "gud", "tonite", "yesss", "rly", "srsly", "pleeease", "hiii", "okk", "yeeah", "Jaxon", "Mykel",
         "Jaxsen", "Brookelyn"
     ]
-    // P1c rare-but-valid controls: lower-frequency public words present in the bundled corpus
+    // Rare-but-valid controls: lower-frequency public words present in the bundled corpus
     // (DE count 60-200, EN count 150-450 at selection; re-checked in the test).
     static let rare: [String] = [
         // German.
