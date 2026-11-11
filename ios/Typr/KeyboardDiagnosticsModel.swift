@@ -69,7 +69,7 @@ nonisolated enum KeyboardDiagnosticsPresentation {
     static let decisions: [Counter] = [.autoSpatialSameLength, .autoSpatialEdit, .autoSpellingFallback, .autoRule, .unchanged]
     static let refusals: [Counter] = [.refusedLiteralValid, .refusedProtected, .refusedAmbiguous,
         .refusedIncompleteSearch, .refusedMissingResource, .refusedValidation, .refusedBelowMargin,
-        .refusedEditNeedsInvalidLiteral]
+        .resourceLoading]
     static let feedback: [Counter] = [.undoSpatial, .undoSpelling, .undoRule, .keepChip,
         .manualAlternativePick, .manualCompletionPick]
 
@@ -112,7 +112,7 @@ nonisolated enum KeyboardDiagnosticsPresentation {
         case .refusedMissingResource: "Dictionary resource unavailable"
         case .refusedValidation: "Dictionary did not confirm the replacement"
         case .refusedBelowMargin: "Not enough evidence to replace"
-        case .refusedEditNeedsInvalidLiteral: "Letter edit requires an invalid typed word"
+        case .resourceLoading: "Word data still loading"
         case .undoSpatial: "Undid spatial replacement"
         case .undoSpelling: "Undid spelling replacement"
         case .undoRule: "Undid rule or text replacement"

@@ -31,6 +31,8 @@ final class KeyboardDiagnosticsTests: XCTestCase {
     func testCodableRoundTripAndUnknownCountersIgnored() throws {
         var original = KeyboardDiagnostics(now: Date(timeIntervalSince1970: 1))
         original.increment(.autoRule)
+        original.recordLabels(.init(accepted: 5, rejected: [.outlier: 2]), source: .keep)
+        original.recordRejection(.learningOff, count: 3)
         original.recordLatency(0.004, kind: .suggestion)
         let data = try JSONEncoder().encode(original)
         XCTAssertEqual(try JSONDecoder().decode(KeyboardDiagnostics.self, from: data), original)
@@ -47,6 +49,8 @@ final class KeyboardDiagnosticsTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let invalid: [(String, Any)] = [
             ("schemaVersion", 2), ("counters", ["boundaries": -1]),
+            ("acceptedBySource", ["keep": -1]), ("acceptedBySource", ["unknown": 1]),
+            ("rejectedByReason", ["outlier": Int.max]), ("rejectedByReason", ["unknown": 1]),
             ("counters", ["boundaries": Int.max]), ("boundaryMs", [0, 0]),
             ("suggestionMs", [-1, 0, 0, 0, 0, 0, 0]), ("updatedAt", -Double.greatestFiniteMagnitude),
         ]

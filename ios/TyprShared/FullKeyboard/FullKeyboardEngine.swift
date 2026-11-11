@@ -382,8 +382,8 @@ final class FullKeyboardEngine {
                 break
             }
             autocorrect.clearPendingUndo()
-            // Return never autocorrects; like any boundary it settles an intact previous word.
-            autocorrect.settleFeedback(beforeInput: target.documentContextBeforeInput)
+            // Return never autocorrects or settles learning.
+            autocorrect.discardFeedback()
             insert("\n")
         case .layerSwitch:
             // Hold 123, slide to a key, let go: type it and go back.
@@ -457,6 +457,7 @@ final class FullKeyboardEngine {
             target.insertText(undo.original)
             autocorrect.touchInput.clear()
             autocorrect.recordUndo(undo)
+            autocorrect.touchInput.deletedBackward(before: nil, after: target.documentContextBeforeInput)
             lastSpaceAt = nil
             didEdit()
             return
@@ -490,6 +491,7 @@ final class FullKeyboardEngine {
         for _ in 0..<max(1, count) {
             target.deleteBackward()
         }
+        autocorrect.touchInput.deletedBackward(before: nil, after: target.documentContextBeforeInput)
         lastSpaceAt = nil
         didEdit()
     }
@@ -530,8 +532,8 @@ final class FullKeyboardEngine {
         // Keep evidence through replacementOnSpace, then discard the completed word.
         _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         defer { autocorrect.touchInput.clear() }
-        // A second boundary right after an intact word also settles that word's feedback.
-        autocorrect.settleFeedback(beforeInput: target.documentContextBeforeInput)
+        // A second separator (including double-space-period) is not trusted feedback.
+        autocorrect.discardFeedback()
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
             autocorrect.clearPendingUndo()
@@ -568,12 +570,13 @@ final class FullKeyboardEngine {
     /// `keepsFeedback`: the boundary's own separator, which opened the pending word feedback.
     private func insert(_ text: String, sample: KeyboardTouchWord.Sample? = nil, keepsFeedback: Bool = false) {
         let before = target.documentContextBeforeInput
-        if text.count == 1, text.first?.isLetter == true {
-            autocorrect.settleFeedback(beforeInput: before)
+        target.insertText(text)
+        if sample != nil, text.count == 1, text.first?.isLetter == true {
+            autocorrect.settleFeedback(beforeInput: before, insertedLetter: text,
+                                      afterInput: target.documentContextBeforeInput)
         } else if !keepsFeedback {
             autocorrect.discardFeedback()
         }
-        target.insertText(text)
         if let sample {
             autocorrect.touchInput.append(text: text, point: sample.point, key: sample.key,
                                          layout: layout, before: before, after: target.documentContextBeforeInput)

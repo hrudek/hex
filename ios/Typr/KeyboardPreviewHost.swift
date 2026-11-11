@@ -30,21 +30,21 @@ enum KeyboardDiagnosticsFixture {
         state.kept = ["hello": now, "world": now]
         state.counts = ["hello": .init(count: 12, lastUpdated: now), "world": .init(count: 8, lastUpdated: now)]
         state.rejected = [.init(typed: "cat", replacement: "car")]
-        state.acceptedBySource = ["literalValid": 960, "keep": 80, "undo": 24, "manualPick": 100]
-        state.rejectedByReason = ["outlier": 18, "ambiguousAlignment": 6, "layoutMismatch": 2]
         let counters: [(KeyboardDiagnostics.Counter, Int)] = [
             (.boundaries, 1000), (.evidenceComplete, 820), (.evidenceMissing, 120),
             (.evidenceLengthOutOfRange, 40), (.evidenceUnsupported, 20),
             (.autoSpatialSameLength, 110), (.autoSpatialEdit, 25), (.autoSpellingFallback, 35),
             (.autoRule, 80), (.unchanged, 750), (.refusedLiteralValid, 510), (.refusedProtected, 90),
             (.refusedAmbiguous, 40), (.refusedIncompleteSearch, 5), (.refusedMissingResource, 2),
-            (.refusedValidation, 18), (.refusedBelowMargin, 45), (.refusedEditNeedsInvalidLiteral, 4),
+            (.refusedValidation, 18), (.refusedBelowMargin, 45), (.resourceLoading, 4),
             (.undoSpatial, 6), (.undoSpelling, 2), (.undoRule, 1), (.keepChip, 16),
             (.manualAlternativePick, 28), (.manualCompletionPick, 42), (.suggestionDecodes, 3200),
             (.wordsCounted, 750), (.wordsKept, 16), (.correctionsRejected, 9)]
         // Decode the same public schema to keep even updatedAt deterministic; normal counter
         // recording deliberately uses the wall clock. No fixture file is read or written.
         let payload: [String: Any] = ["schemaVersion": 1,
+            "acceptedBySource": ["literalValid": 960, "keep": 80, "undo": 24, "manualPick": 100],
+            "rejectedByReason": ["outlier": 18, "ambiguousAlignment": 6, "layoutMismatch": 2],
             "since": now.addingTimeInterval(-7 * 24 * 60 * 60).timeIntervalSinceReferenceDate,
             "updatedAt": now.addingTimeInterval(-120).timeIntervalSinceReferenceDate,
             "counters": Dictionary(uniqueKeysWithValues: counters.map { ($0.0.rawValue, $0.1) }),

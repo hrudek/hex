@@ -253,12 +253,14 @@ final class AutocorrectEngine {
 
     // MARK: - Feedback transaction
 
-    /// The next word's first letter (or another boundary) arrives: trust the previous word only
+    /// The next word's first letter arrives: trust the previous word only
     /// if it is still intact right before the cursor.
-    func settleFeedback(beforeInput: String?) {
+    func settleFeedback(beforeInput: String?, insertedLetter: String, afterInput: String?) {
         guard let pending = pendingFeedback else { return }
         pendingFeedback = nil
         guard pending.learnable, pending.epoch == learning.feedbackEpoch,
+              insertedLetter.count == 1, insertedLetter.first?.isLetter == true,
+              afterInput?.hasSuffix(pending.suffix + insertedLetter) == true,
               let evidence = pending.evidence, let beforeInput, beforeInput.hasSuffix(pending.suffix),
               beforeInput.dropLast(pending.suffix.count).last?.isLetter != true else { return }
         learnIdentity(evidence, literal: pending.literal, source: .literalValid)
@@ -278,7 +280,7 @@ final class AutocorrectEngine {
            pending.epoch == learning.feedbackEpoch, let evidence = pending.evidence {
             learnIdentity(evidence, literal: undo.original, source: .undo)
         }
-        suppressAndKeep(undo.original)
+        suppressedInSession.insert(undo.original.lowercased())
         let replacement = undo.insertedText.hasSuffix(" ") ? String(undo.insertedText.dropLast()) : undo.insertedText
         learning.rejectCorrection(typed: undo.original, replacement: replacement)
     }
@@ -288,25 +290,26 @@ final class AutocorrectEngine {
                                   evidence: KeyboardTouchWord?) {
         pendingFeedback = nil
         let evidence = evidence?.text == literal ? evidence : nil
+        let mayLearn = touchInput.isLearningIntact && evidence?.learningIntact != false
         // The center slot repeats the typed word when nothing else applies: not an alternative.
         guard suggestion.kind == .keepLiteral || suggestion.replacement != literal else { return }
         if suggestion.kind == .keepLiteral {
             learning.increment(.keepChip)
             if let evidence { learnIdentity(evidence, literal: literal, source: .keep) }
             suppressAndKeep(literal)
-            learning.recordWord(literal)
-        } else if suggestion.isCompletion {
+            if mayLearn { learning.recordWord(literal) }
+        } else if suggestion.isCompletion || Self.isPrefixExtension(suggestion.replacement, of: literal) {
             learning.increment(.manualCompletionPick)
-            learning.recordWord(suggestion.replacement)
+            if mayLearn { learning.recordWord(suggestion.replacement) }
         } else {
             learning.increment(.manualAlternativePick)
-            if let evidence { learnAligned(evidence, word: suggestion.replacement) }
-            learning.recordWord(suggestion.replacement)
+            if let evidence, evidence.learningIntact { learnAligned(evidence, word: suggestion.replacement) }
+            if mayLearn { learning.recordWord(suggestion.replacement) }
         }
     }
 
     private func learnIdentity(_ evidence: KeyboardTouchWord, literal: String, source: TouchLabelSource) {
-        guard evidence.text == literal, evidence.samples.count == literal.count else { return }
+        guard evidence.learningIntact, evidence.text == literal, evidence.samples.count == literal.count else { return }
         let labels = evidence.samples.compactMap { sample in
             sample.text.lowercased().first.map { TouchLabel(point: sample.point, letter: $0) }
         }
@@ -359,6 +362,11 @@ final class AutocorrectEngine {
         let token = String(beforeInput[start..<end])
         guard token.first?.isLetter == true else { return nil }
         return token
+    }
+
+    private static func isPrefixExtension(_ word: String, of literal: String) -> Bool {
+        let word = word.lowercased(), literal = literal.lowercased()
+        return word.count > literal.count && word.hasPrefix(literal)
     }
 
     // MARK: - Suggestions & Replace-on-Space
@@ -447,14 +455,14 @@ final class AutocorrectEngine {
                 displayText: first,
                 replacement: first,
                 kind: .primary(autoReplace: autoFix != nil),
-                isCompletion: completions.contains(first)
+                isCompletion: completions.contains(first) || Self.isPrefixExtension(first, of: token)
             )
         } else {
             KeyboardSuggestion(displayText: token, replacement: token, kind: .primary(autoReplace: false))
         }
         let secondary: KeyboardSuggestion? = if pool.count >= 2 {
             KeyboardSuggestion(displayText: pool[1], replacement: pool[1], kind: .secondary,
-                               isCompletion: completions.contains(pool[1]))
+                               isCompletion: completions.contains(pool[1]) || Self.isPrefixExtension(pool[1], of: token))
         } else {
             nil
         }
@@ -474,23 +482,19 @@ final class AutocorrectEngine {
         guard let token = Self.currentToken(in: beforeInput) else { return nil }
         let started = DispatchTime.now().uptimeNanoseconds
         let decision = decide(token, evidence: evidence, forSuggestions: false)
-        let learnable = decision.text == nil && evidence != nil && learning.isLearningEnabled
+        let learnable = decision.text == nil && evidence?.learningIntact == true && learning.isLearningEnabled
             && literalIsValid(token)
         pendingFeedback = PendingFeedback(evidence: evidence, literal: token, finalText: decision.text ?? token,
                                           kind: decision.kind, alignment: decision.alignment,
                                           learnable: learnable, epoch: learning.feedbackEpoch)
         learning.increment(.boundaries)
-        if evidence != nil {
-            learning.increment(.evidenceComplete)
+        // Complete means usable by the decoder, not merely observed by the tracker.
+        if !(3...SpatialWordDecoder.maxLetters).contains(token.count) {
+            learning.increment(.evidenceLengthOutOfRange)
+        } else if !token.lowercased().allSatisfy({ ("a"..."z").contains($0) }) {
+            learning.increment(.evidenceUnsupported)
         } else {
-            // Mutually exclusive reasons, matching the dashboard's missing-evidence breakdown.
-            if !(3...SpatialWordDecoder.maxLetters).contains(token.count) {
-                learning.increment(.evidenceLengthOutOfRange)
-            } else if !token.lowercased().allSatisfy({ ("a"..."z").contains($0) }) {
-                learning.increment(.evidenceUnsupported)
-            } else {
-                learning.increment(.evidenceMissing)
-            }
+            learning.increment(evidence != nil ? .evidenceComplete : .evidenceMissing)
         }
         learning.increment(decision.counter)
         if let refusal = decision.refusal { learning.increment(refusal) }
@@ -564,7 +568,8 @@ final class AutocorrectEngine {
         } else {
             outcome = .unavailable(.resource)
         }
-        decodeCache = DecodeCache(evidence: evidence, languages: languages, generation: generation, outcome: outcome)
+        decodeCache = spatialDecoder?.isResourceLoading == true ? nil
+            : DecodeCache(evidence: evidence, languages: languages, generation: generation, outcome: outcome)
         return outcome
     }
 
@@ -651,7 +656,7 @@ final class AutocorrectEngine {
         case nil, .unavailable(.evidence)?:
             break
         case .unavailable(.resource)?:
-            refusal = .refusedMissingResource
+            refusal = spatialDecoder?.isResourceLoading == true ? .resourceLoading : .refusedMissingResource
         case .result(let result)?:
             switch result.automaticDecision(literalIsValid: false) {
             case .replace(let best):
@@ -669,7 +674,7 @@ final class AutocorrectEngine {
                 refusal = switch reason {
                 case .incompleteSearch: .refusedIncompleteSearch
                 case .ambiguous: .refusedAmbiguous
-                case .editNeedsInvalidLiteral: .refusedEditNeedsInvalidLiteral
+                case .editNeedsInvalidLiteral: .refusedLiteralValid // Defensive: valid literals are guarded above.
                 case .noCandidate, .belowMargin: .refusedBelowMargin
                 }
             }

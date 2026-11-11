@@ -40,17 +40,14 @@ final class PersonalTypingModelTests: XCTestCase {
         XCTAssertEqual(value.meanX, 0.01, accuracy: 1e-12)
         XCTAssertEqual(value.varianceX, 0.0063, accuracy: 1e-12)
         XCTAssertEqual(value.meanY, 0)
-        XCTAssertEqual(model.summary.acceptedBySource[TouchLabelSource.keep.rawValue], 64)
-        XCTAssertEqual(model.summary.acceptedBySource[TouchLabelSource.manualPick.rawValue], 1)
     }
 
-    func testEffectiveCountCapDoesNotStopUpdatesOrSourceCounters() throws {
+    func testEffectiveCountCapDoesNotStopUpdates() throws {
         let model = PersonalTypingModel()
         model.learn(Array(repeating: try label(), count: 300), layout: layout, source: .undo)
         XCTAssertEqual(try stats(model).n, 256)
         model.learn([try label(0.64)], layout: layout, source: .undo)
         XCTAssertEqual(try stats(model).meanX, 0.01, accuracy: 1e-12)
-        XCTAssertEqual(model.summary.acceptedLabels, 301)
         XCTAssertEqual(model.summary.effectiveTouchCount, 256)
     }
 
@@ -84,12 +81,22 @@ final class PersonalTypingModelTests: XCTestCase {
         ], layout: layout, source: .literalValid)
         XCTAssertEqual(outcome.accepted, 1)
         XCTAssertEqual(outcome.rejected, [.outlier: 2, .nonFinite: 2, .unknownKey: 2])
-        XCTAssertEqual(model.summary.rejectedLabels, 6)
         for invalid in [KeyboardLayout(width: 393, layer: .numbers), KeyboardLayout(width: 393, field: .email)] {
             XCTAssertEqual(model.learn([try label()], layout: invalid, source: .keep).rejected, [.layoutMismatch: 1])
             XCTAssertNil(model.calibration(for: invalid))
         }
-        XCTAssertEqual(model.summary.rejectedByReason[TouchLabelRejection.layoutMismatch.rawValue], 2)
+    }
+
+    func testOnePitchLearningBoundaryIsInclusiveAcrossWidths() throws {
+        for width: CGFloat in [320, 375, 393, 402, 430, 440] {
+            let grid = KeyboardLayout(width: width)
+            let model = PersonalTypingModel()
+            let accepted = model.learn([try label(1, letter: "g", layout: grid)], layout: grid, source: .undo)
+            XCTAssertEqual(accepted.accepted, 1)
+            XCTAssertTrue(accepted.rejected.isEmpty)
+            let rejected = model.learn([try label(1.01, letter: "g", layout: grid)], layout: grid, source: .undo)
+            XCTAssertEqual(rejected.rejected[.outlier], 1)
+        }
     }
 
     func testLayoutsAreSeparatedAndEvictedByLastUpdate() throws {
@@ -119,7 +126,6 @@ final class PersonalTypingModelTests: XCTestCase {
         let before = model.state
         XCTAssertEqual(model.learn([try label()], layout: layout, source: .keep).rejected, [.learningOff: 1])
         XCTAssertFalse(model.recordWord("other"))
-        model.recordRejection(.ambiguousAlignment)
         XCTAssertEqual(model.state, before)
         XCTAssertNil(model.calibration(for: layout))
         XCTAssertTrue(model.lexicon.counts.isEmpty)
@@ -167,6 +173,26 @@ final class PersonalTypingModelTests: XCTestCase {
         XCTAssertEqual(model.state.counts[word(0)]?.count, 10_000)
     }
 
+    func testDisjointKeepsAndCountsShareOneBudgetWithKeepPriority() {
+        let model = PersonalTypingModel()
+        for index in 0..<1000 { model.keep(word(index)) }
+        for index in 1000..<2000 { model.recordWord(word(index)) }
+        XCTAssertEqual(Set(model.state.kept.keys).union(model.state.counts.keys).count, 2000)
+        model.keep(word(2000))
+        XCTAssertEqual(model.state.kept.count, 1001)
+        XCTAssertEqual(model.state.counts.count, 999)
+        XCTAssertTrue((0..<1000).allSatisfy { model.lexicon.isKept(word($0)) })
+        XCTAssertNotNil(model.state.validated())
+        var invalid = model.state
+        invalid.counts[word(2001)] = .init(count: 2, lastUpdated: Date())
+        XCTAssertNil(invalid.validated(), "Individually legal populations must not exceed the union bound")
+        for index in 2001..<3000 { model.keep(word(index)) }
+        model.recordWord("hello")
+        XCTAssertEqual(model.state.kept.count, 2000)
+        XCTAssertNil(model.state.counts["hello"], "Counts cannot evict a keep")
+        XCTAssertNotNil(model.state.validated())
+    }
+
     func testRejectedPairsFIFOAndDeduplication() {
         let model = PersonalTypingModel()
         for index in 0..<513 { model.rejectCorrection(typed: word(index), replacement: "hello") }
@@ -195,10 +221,6 @@ final class PersonalTypingModelTests: XCTestCase {
         XCTAssertNil(bad.validated())
         bad = original; bad.counts["hello"]?.count = -1
         XCTAssertNil(bad.validated())
-        bad = original; bad.acceptedBySource[TouchLabelSource.keep.rawValue] = -1
-        XCTAssertNil(bad.validated())
-        bad = original; bad.rejectedByReason["unknown"] = 1
-        XCTAssertNil(bad.validated())
         bad = original; bad.schemaVersion = 2
         XCTAssertNil(bad.validated())
         bad = original; bad.kept["HELLO"] = Date()
@@ -226,19 +248,18 @@ final class PersonalTypingModelTests: XCTestCase {
     }
 
     func testLearningCountersAndAlignmentRejectionsSaturate() throws {
-        var state = PersonalTypingModel.State()
-        state.acceptedBySource[TouchLabelSource.keep.rawValue] = Int(Int32.max)
-        let model = PersonalTypingModel(state: state)
-        model.learn([try label()], layout: layout, source: .keep)
-        XCTAssertEqual(model.summary.acceptedBySource[TouchLabelSource.keep.rawValue], Int(Int32.max))
-        model.recordRejection(.ambiguousAlignment, count: Int.max)
-        model.recordRejection(.ambiguousAlignment)
-        model.recordRejection(.layoutMismatch, count: -1)
-        XCTAssertEqual(model.summary.rejectedByReason[TouchLabelRejection.ambiguousAlignment.rawValue], Int(Int32.max))
-        XCTAssertNil(model.summary.rejectedByReason[TouchLabelRejection.layoutMismatch.rawValue])
+        var diagnostics = KeyboardDiagnostics()
+        diagnostics.recordLabels(.init(accepted: Int.max), source: .keep)
+        diagnostics.recordLabels(.init(accepted: 1), source: .keep)
+        XCTAssertEqual(diagnostics.acceptedBySource["keep"], Int(Int32.max))
+        diagnostics.recordRejection(.ambiguousAlignment, count: Int.max)
+        diagnostics.recordRejection(.ambiguousAlignment, count: 1)
+        diagnostics.recordRejection(.layoutMismatch, count: -1)
+        XCTAssertEqual(diagnostics.rejectedByReason["ambiguousAlignment"], Int(Int32.max))
+        XCTAssertNil(diagnostics.rejectedByReason["layoutMismatch"])
     }
 
-    func testResetClearsAggregatesProtectionsAndCounters() throws {
+    func testResetClearsAggregatesAndProtections() throws {
         let model = PersonalTypingModel()
         model.keep("hello"); model.recordWord("hello")
         model.rejectCorrection(typed: "hello", replacement: "help")
@@ -247,6 +268,5 @@ final class PersonalTypingModelTests: XCTestCase {
         model.reset()
         XCTAssertEqual(model.lexicon, .empty)
         XCTAssertEqual(model.state, .init())
-        XCTAssertEqual(model.summary.acceptedLabels, 0)
     }
 }

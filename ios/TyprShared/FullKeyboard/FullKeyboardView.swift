@@ -156,6 +156,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private var cachedGerman: GermanAutocorrect? // Typr
 
     func warmUpTextCheckerAsync() {
+        if engine.autocorrect.isEnabled { engine.autocorrect.spatialDecoder?.prepareResources() }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.engine.autocorrect.german?.warmUp() // Typr
@@ -184,6 +185,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             engine.autocorrect.isEnabled = wantsAutocorrect
             engine.refreshSuggestions()
         }
+        if wantsAutocorrect { engine.autocorrect.spatialDecoder?.prepareResources() }
         let wantsEnglish = TyprSettings().autocorrectEnglish
         if engine.autocorrect.englishEnabled != wantsEnglish {
             engine.autocorrect.englishEnabled = wantsEnglish

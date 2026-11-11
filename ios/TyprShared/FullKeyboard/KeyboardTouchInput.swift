@@ -11,6 +11,8 @@ nonisolated struct KeyboardTouchWord: Equatable {
 
     let layout: KeyboardLayout
     var samples: [Sample]
+    /// Aligned edits may still decode, but deletion/retyping must never teach.
+    var learningIntact = true
     var text: String { samples.map(\.text).joined() }
 }
 
@@ -20,12 +22,15 @@ nonisolated struct KeyboardTouchWord: Equatable {
 final class KeyboardTouchInput {
     static let maxSamples = 64
     private var word: KeyboardTouchWord?
+    // Survives loss of all samples, so delete-all/retype cannot regain learning trust.
+    private var editedWord = false
+    var isLearningIntact: Bool { !editedWord }
 
-    func clear() { word = nil }
+    func clear() { word = nil; editedWord = false }
 
     func evidence(beforeInput: String?) -> KeyboardTouchWord? {
         guard let word, AutocorrectEngine.currentToken(in: beforeInput) == word.text else {
-            clear()
+            self.word = nil
             return nil
         }
         return word
@@ -37,27 +42,30 @@ final class KeyboardTouchInput {
               point.x.isFinite, point.y.isFinite, layout.layer == .letters,
               layout.field == .text, key.character?.lowercased() == text.lowercased(),
               AutocorrectEngine.currentToken(in: after) == (AutocorrectEngine.currentToken(in: before) ?? "") + text else {
-            clear()
+            word = nil
             return
         }
         if let token = AutocorrectEngine.currentToken(in: before) {
             guard let current = evidence(beforeInput: before), current.text == token,
                   current.layout == layout, current.samples.count < Self.maxSamples else {
-                clear()
+                word = nil
                 return
             }
         } else {
-            word = KeyboardTouchWord(layout: layout, samples: [])
+            word = KeyboardTouchWord(layout: layout, samples: [], learningIntact: !editedWord)
         }
         word?.samples.append(.init(text: text, point: point, key: key))
     }
 
     func deletedBackward(before: String?, after: String?) {
-        guard var current = evidence(beforeInput: before) else { return }
+        let evidence = evidence(beforeInput: before)
+        editedWord = true
+        guard var current = evidence else { return }
+        current.learningIntact = false
         current.samples.removeLast()
         guard !current.samples.isEmpty,
               AutocorrectEngine.currentToken(in: after) == current.text else {
-            clear()
+            word = nil
             return
         }
         word = current

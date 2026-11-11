@@ -34,7 +34,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         }
         let refusals: Set<KeyboardDiagnostics.Counter> = [.refusedLiteralValid, .refusedProtected,
             .refusedAmbiguous, .refusedIncompleteSearch, .refusedMissingResource, .refusedValidation,
-            .refusedBelowMargin, .refusedEditNeedsInvalidLiteral]
+            .refusedBelowMargin, .resourceLoading]
         XCTAssertEqual(Set(Presentation.refusals), refusals)
         XCTAssertTrue(Presentation.label(.refusedIncompleteSearch).contains("limit"))
         XCTAssertTrue(Presentation.label(.refusedProtected).contains("Protected"))

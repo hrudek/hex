@@ -58,12 +58,10 @@ final class PersonalTypingModel {
         var kept: [String: Date] = [:]
         var counts: [String: WordCount] = [:]
         var rejected: [RejectedCorrection] = []
-        var acceptedBySource: [String: Int] = [:]
-        var rejectedByReason: [String: Int] = [:]
 
         func validated() -> State? {
-            guard schemaVersion == 1, layouts.count <= 4, kept.count <= 2000,
-                  counts.count <= 2000, rejected.count <= 512,
+            guard schemaVersion == 1, layouts.count <= 4,
+                  Set(kept.keys).union(counts.keys).count <= 2000, rejected.count <= 512,
                   Set(rejected).count == rejected.count else { return nil }
             for (id, layout) in layouts {
                 let signature = layout.signature
@@ -79,9 +77,7 @@ final class PersonalTypingModel {
             guard kept.allSatisfy({ Self.validWord($0.key) && $0.value.timeIntervalSinceReferenceDate.isFinite }),
                   counts.allSatisfy({ Self.validWord($0.key) && (1...10_000).contains($0.value.count)
                       && $0.value.lastUpdated.timeIntervalSinceReferenceDate.isFinite }),
-                  rejected.allSatisfy({ Self.validWord($0.typed) && Self.validWord($0.replacement) }),
-                  Self.validCounters(acceptedBySource, allowed: TouchLabelSource.allCases.map(\.rawValue)),
-                  Self.validCounters(rejectedByReason, allowed: TouchLabelRejection.allCases.map(\.rawValue)) else { return nil }
+                  rejected.allSatisfy({ Self.validWord($0.typed) && Self.validWord($0.replacement) }) else { return nil }
             return self
         }
 
@@ -90,9 +86,22 @@ final class PersonalTypingModel {
                 && word.allSatisfy(\.isLetter) && word == PersonalLexiconSnapshot.normalize(word)
         }
 
-        private static func validCounters(_ counters: [String: Int], allowed: [String]) -> Bool {
-            counters.count <= allowed.count && counters.allSatisfy {
-                allowed.contains($0.key) && (0...Int(Int32.max)).contains($0.value)
+        /// One shared word budget. Evict unkept counts first, then the oldest keep
+        /// (including its count), so retained protection always has priority.
+        mutating func enforceWordLimit() {
+            while Set(kept.keys).union(counts.keys).count > 2000 {
+                if let victim = counts.filter({ kept[$0.key] == nil }).min(by: {
+                    if $0.value.count != $1.value.count { return $0.value.count < $1.value.count }
+                    return $0.value.lastUpdated == $1.value.lastUpdated ? $0.key < $1.key
+                        : $0.value.lastUpdated < $1.value.lastUpdated
+                })?.key {
+                    counts.removeValue(forKey: victim)
+                } else if let victim = kept.min(by: {
+                    $0.value == $1.value ? $0.key < $1.key : $0.value < $1.value
+                })?.key {
+                    kept.removeValue(forKey: victim)
+                    counts.removeValue(forKey: victim)
+                }
             }
         }
 
@@ -102,7 +111,11 @@ final class PersonalTypingModel {
             enum Entry { case kept(String), counted(String) }
             var entries: [(Date, String, Entry)] = kept.map { ($0.value, "k:" + $0.key, .kept($0.key)) }
             entries += counts.map { ($0.value.lastUpdated, "c:" + $0.key, .counted($0.key)) }
-            let oldest = entries.sorted { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }.prefix(limit)
+            let oldest = entries.sorted {
+                let aKept = $0.1.hasPrefix("k:"), bKept = $1.1.hasPrefix("k:")
+                if aKept != bKept { return !aKept }
+                return $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0
+            }.prefix(limit)
             for entry in oldest {
                 switch entry.2 {
                 case .kept(let word): kept.removeValue(forKey: word)
@@ -142,10 +155,6 @@ final class PersonalTypingModel {
         let countedWords: Int
         let wordCountTotal: Int
         let rejectedCorrections: Int
-        let acceptedBySource: [String: Int]
-        let rejectedByReason: [String: Int]
-        var acceptedLabels: Int { acceptedBySource.values.reduce(0, +) }
-        var rejectedLabels: Int { rejectedByReason.values.reduce(0, +) }
         var effectiveTouchCount: Int { layouts.flatMap(\.keys).reduce(0) { $0 + $1.n } }
     }
 
@@ -181,7 +190,8 @@ final class PersonalTypingModel {
                 let x = Double((label.point.x - key.frame.midX) / pitchX)
                 let y = Double((label.point.y - key.frame.midY) / pitchY)
                 if !x.isFinite || !y.isFinite || pitchX <= 0 || pitchY <= 0 { rejection = .nonFinite }
-                else if hypot(x, y) > 1 { rejection = .outlier }
+                // The inclusive one-pitch boundary needs only a rounding tolerance.
+                else if hypot(x, y) > 1 + 1e-12 { rejection = .outlier }
                 else {
                     let signature = KeyboardLayoutSignature(layout)
                     if state.layouts[signature.id] == nil, state.layouts.count >= 4,
@@ -197,8 +207,6 @@ final class PersonalTypingModel {
             } else { rejection = .unknownKey }
             if let rejection { outcome.rejected[rejection, default: 0] += 1 }
         }
-        Self.add(outcome.accepted, to: &state.acceptedBySource, key: source.rawValue)
-        for (reason, count) in outcome.rejected { Self.add(count, to: &state.rejectedByReason, key: reason.rawValue) }
         return outcome
     }
 
@@ -219,9 +227,7 @@ final class PersonalTypingModel {
         let word = PersonalLexiconSnapshot.normalize(word)
         guard State.validWord(word) else { return false }
         state.kept[word] = now()
-        if state.kept.count > 2000, let oldest = state.kept.min(by: {
-            $0.value == $1.value ? $0.key < $1.key : $0.value < $1.value
-        })?.key { state.kept.removeValue(forKey: oldest) }
+        state.enforceWordLimit()
         cachedLexicon = nil
         return true
     }
@@ -232,10 +238,7 @@ final class PersonalTypingModel {
         guard isLearningEnabled, State.validWord(word) else { return false }
         let count = min(10_000, (state.counts[word]?.count ?? 0) + 1)
         state.counts[word] = WordCount(count: count, lastUpdated: now())
-        if state.counts.count > 2000, let victim = state.counts.min(by: {
-            if $0.value.count != $1.value.count { return $0.value.count < $1.value.count }
-            return $0.value.lastUpdated == $1.value.lastUpdated ? $0.key < $1.key : $0.value.lastUpdated < $1.value.lastUpdated
-        })?.key { state.counts.removeValue(forKey: victim) }
+        state.enforceWordLimit()
         cachedLexicon = nil
         return true
     }
@@ -277,21 +280,8 @@ final class PersonalTypingModel {
                 })
         }
         return Summary(layouts: layouts, keptWords: state.kept.count, countedWords: state.counts.count,
-            wordCountTotal: state.counts.values.reduce(0) { $0 + $1.count }, rejectedCorrections: state.rejected.count,
-            acceptedBySource: state.acceptedBySource, rejectedByReason: state.rejectedByReason)
+            wordCountTotal: state.counts.values.reduce(0) { $0 + $1.count }, rejectedCorrections: state.rejected.count)
     }
 
     func reset() { state = State(); cachedLexicon = nil }
-
-    /// The aligner can count ambiguous or signature-mismatched labels without submitting raw taps.
-    func recordRejection(_ reason: TouchLabelRejection, count: Int = 1) {
-        guard isLearningEnabled else { return }
-        Self.add(count, to: &state.rejectedByReason, key: reason.rawValue)
-    }
-
-    private static func add(_ amount: Int, to counters: inout [String: Int], key: String) {
-        guard amount > 0 else { return }
-        let current = counters[key, default: 0]
-        counters[key] = current + min(amount, Int(Int32.max) - current)
-    }
 }

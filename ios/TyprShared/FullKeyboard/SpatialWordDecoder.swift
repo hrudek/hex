@@ -3,7 +3,7 @@ import CoreGraphics
 
 /// Static, bundled word counts. The TSW1 format is Typr's own, not iikb's ASCII HXL1 format.
 /// See WordData/README.md and THIRD_PARTY_NOTICES.md for the separately licensed word data.
-nonisolated struct SpatialWordLexicon {
+nonisolated struct SpatialWordLexicon: Sendable {
     static let alphabet = Array("abcdefghijklmnopqrstuvwxyzäöüß")
     static let maxBytes = 5_000_000
     let data: Data
@@ -100,7 +100,7 @@ nonisolated struct SpatialWordLexicon {
 // revision 08df5aa1e698d8587b6dcaef53f5e555ba1fac2a. TSW1 and policy are Typr's.
 @MainActor
 final class SpatialWordDecoder {
-    enum Language: String, CaseIterable { case german = "de", english = "en" }
+    nonisolated enum Language: String, CaseIterable, Sendable { case german = "de", english = "en" }
     enum Edit: Equatable {
         case none, missingLetter(at: Int), extraTap(at: Int), transposition(at: Int)
     }
@@ -172,28 +172,46 @@ final class SpatialWordDecoder {
     // Conservatively cover rounding from regrouping <= 32 finite density terms.
     private static let boundSlack = 1e-10
     private var lexicons: [Language: SpatialWordLexicon]
-    private var attempted: Set<Language> = []
     private let bundle: Bundle?
+    private var loadTask: Task<Void, Never>?
+    private(set) var isResourceLoading = false
 
     init(lexicons: [Language: SpatialWordLexicon]) {
         self.lexicons = lexicons
         self.bundle = nil
     }
 
-    private init(bundle: Bundle) {
+    init(bundle: Bundle) {
         self.bundle = bundle
         self.lexicons = [:]
+        isResourceLoading = true
     }
 
-    private func lexicon(_ language: Language) -> SpatialWordLexicon? {
-        if let existing = lexicons[language] { return existing }
-        guard let bundle, attempted.insert(language).inserted,
-              let url = bundle.url(forResource: "keyboard-\(language.rawValue)", withExtension: "words", subdirectory: "WordData"),
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-              let loaded = SpatialWordLexicon(data: data) else { return nil }
-        lexicons[language] = loaded
-        return loaded
+    /// Start at keyboard appearance, never on the first typing/decode path. Mapping,
+    /// validation and subtree-index construction all happen off the main actor.
+    func prepareResources() {
+        guard isResourceLoading, loadTask == nil, let bundle else { return }
+        let urls = Language.allCases.compactMap { language -> (Language, URL)? in
+            bundle.url(forResource: "keyboard-\(language.rawValue)", withExtension: "words",
+                       subdirectory: "WordData").map { (language, $0) }
+        }
+        loadTask = Task { [weak self] in
+            let loaded = await Task.detached(priority: .userInitiated) {
+                var lexicons: [Language: SpatialWordLexicon] = [:]
+                for (language, url) in urls {
+                    if let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                       let lexicon = SpatialWordLexicon(data: data) { lexicons[language] = lexicon }
+                }
+                return lexicons
+            }.value
+            guard let self else { return }
+            self.lexicons = loaded
+            self.isResourceLoading = false
+            self.loadTask = nil
+        }
     }
+
+    private func lexicon(_ language: Language) -> SpatialWordLexicon? { lexicons[language] }
 
     nonisolated private struct Trail {
         let parent: Int
@@ -392,7 +410,7 @@ final class SpatialWordDecoder {
                 below.removeValue(forKey: worst.word)
             }
             if below.count == Self.editSuggestionLimit {
-                belowThreshold = max(belowThreshold, below.values.map(\.score).min() ?? belowThreshold)
+                belowThreshold = max(belowThreshold, (below.values.map(\.score).min() ?? belowThreshold) - Self.scoreQuantum)
             }
         }
         func retain(_ candidate: Candidate) {
@@ -404,7 +422,7 @@ final class SpatialWordDecoder {
             if found.count > 8, let worst = found.values.sorted(by: Self.precedes).last {
                 found.removeValue(forKey: worst.word)
             }
-            if found.count == 8 { threshold = found.values.map(\.score).min() ?? literalScore }
+            if found.count == 8 { threshold = (found.values.map(\.score).min() ?? literalScore) - Self.scoreQuantum }
         }
         // Personal scan is bounded independently of trie states; only normalized alphabet words
         // absent from ALL selected corpora participate. A one-edit fixed-word DP scores them.
@@ -607,8 +625,13 @@ final class SpatialWordDecoder {
         return result
     }
 
+    // Integer-sized score buckets give a transitive ordering (unlike pairwise epsilon
+    // comparisons). Sub-nanolog rounding from key centres/libm/sum regrouping is a tie.
+    private static let scoreQuantum = 1e-9
     private static func precedes(_ a: Candidate, _ b: Candidate) -> Bool {
-        if a.score != b.score { return a.score > b.score }
+        let aScore = (a.score / scoreQuantum).rounded()
+        let bScore = (b.score / scoreQuantum).rounded()
+        if aScore != bScore { return aScore > bScore }
         if a.word != b.word { return a.word < b.word }
         return (a.language?.rawValue ?? "") < (b.language?.rawValue ?? "")
     }

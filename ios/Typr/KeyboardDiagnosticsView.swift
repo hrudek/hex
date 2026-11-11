@@ -84,9 +84,9 @@ struct KeyboardDiagnosticsView: View {
         section("Decisions") {
             note("Automatic replacements by path, and words left unchanged.")
             counterBars(Presentation.decisions)
-            DisclosureGroup("Why Typr did not replace") {
+            DisclosureGroup("Paths that declined to replace") {
                 counterBars(Presentation.refusals)
-                note("Refusal reasons explain decisions; they are not additional word boundaries.")
+                note("A later path may still have replaced the word. These are not additional word boundaries.")
             }
         }
     }
@@ -107,7 +107,7 @@ struct KeyboardDiagnosticsView: View {
             Text("Suggestions").font(.subheadline.weight(.medium))
             histogram(diagnostics.suggestionMs)
             metric("Suggestion searches", diagnostics[.suggestionDecodes].formatted())
-            note("Measured in the keyboard on this device. First-use cold loads are included. Bars show the number of measurements in each latency bucket, not words per minute.")
+            note("Measured in the keyboard on this device. Background word-data preparation is excluded. Bars show the number of measurements in each latency bucket, not words per minute.")
         }
     }
 
@@ -121,13 +121,13 @@ struct KeyboardDiagnosticsView: View {
             note("Saved on this iPhone when the keyboard has Full Access. Shared storage availability in the app does not prove keyboard access.")
             DisclosureGroup("Trusted touch labels by source") {
                 ForEach(TouchLabelSource.allCases, id: \.rawValue) { source in
-                    metric(Presentation.sourceLabel(source), (snapshot.model.acceptedBySource[source.rawValue] ?? 0).formatted())
+                    metric(Presentation.sourceLabel(source), (snapshot.diagnostics.acceptedBySource[source.rawValue] ?? 0).formatted())
                 }
                 note("Automatic replacements alone never teach touch labels or word counts.")
             }
             DisclosureGroup("Rejected touch labels") {
                 ForEach(TouchLabelRejection.allCases, id: \.rawValue) { reason in
-                    metric(Presentation.rejectionLabel(reason), (snapshot.model.rejectedByReason[reason.rawValue] ?? 0).formatted())
+                    metric(Presentation.rejectionLabel(reason), (snapshot.diagnostics.rejectedByReason[reason.rawValue] ?? 0).formatted())
                 }
             }
             counterRows([.wordsCounted, .wordsKept, .correctionsRejected])

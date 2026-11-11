@@ -156,14 +156,15 @@ final class KeyboardLearningSession {
     }
 
     func learn(_ labels: [TouchLabel], layout: KeyboardLayout, source: TouchLabelSource) {
-        guard model.isLearningEnabled, !labels.isEmpty else { return }
-        model.learn(labels, layout: layout, source: source)
-        modelChanged()
+        guard !labels.isEmpty else { return }
+        let outcome = model.learn(labels, layout: layout, source: source)
+        diagnostics.recordLabels(outcome, source: source)
+        if outcome.accepted > 0 { modelChanged() } else { markChanged() }
     }
 
     func recordRejection(_ reason: TouchLabelRejection, count: Int) {
-        guard model.isLearningEnabled, count > 0 else { return }
-        model.recordRejection(reason, count: count)
+        guard count > 0 else { return }
+        diagnostics.recordRejection(reason, count: count)
         markChanged()
     }
 
