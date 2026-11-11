@@ -10,7 +10,11 @@ FluidAudio Parakeet V2 (iOS 18+) or Whisper Large V3 Turbo (WhisperKit, download
 only on request); see [SPEECH_ENGINES.md](SPEECH_ENGINES.md). It removes each capture's file after
 inference, cancellation, or failure. The keyboard extension sends commands and
 inserts completed text over the shared App Group (`group.dev.rudek.typr`);
-it never accesses the microphone, speech model, or network.
+it never accesses the microphone, speech model, or network. Manual typing can
+persist bounded local personal word collections, aggregated per-key statistics
+and text-free diagnostics with Full Access; current-word/pending-feedback raw taps
+remain RAM-only. See [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md) for the
+owner-approved privacy, retention and reset contract.
 
 ## Capabilities
 
@@ -110,12 +114,24 @@ it never accesses the microphone, speech model, or network.
     and typo fixes. Turning autocorrect off keeps the language choices for later.
     iOS Text Replacement and contact suggestions remain language-independent.
     Retired German-autocorrect and keyboard-switch experiment values are ignored.
-  - **[Spatial word recognition](KEYBOARD_SPATIAL_DECODER.md):** the full keyboard uses
+  - **[Keyboard correction path](KEYBOARD_SPATIAL_DECODER.md):** the full keyboard uses
     [current-word touch evidence](KEYBOARD_TOUCH_INPUT.md) and bundled, separately licensed
-    German/English frequency data to rank same-length words and cautiously correct on Space.
-    Fixed geometry model, no personal learning, context model or persistent typing log;
-    missing/ambiguous evidence falls back. Dictation, visible keys and gestures are unchanged.
-    Real-iPhone evidence coverage, accuracy, latency and memory remain unverified.
+    German/English frequency data for bounded spatial substitution and at most one
+    missing/extra/swapped-letter edit. Existing rules and protections retain precedence;
+    automatic replacement requires complete search, margins and system validation.
+    Below-literal edit candidates are manual suggestions only. Missing evidence/resources
+    permit cautious spelling fallback; incomplete search never authorizes inferred replacement.
+    Dictation, visible keys, gestures and static hit-testing are unchanged.
+  - **[Personal typing learning and diagnostics](KEYBOARD_LEARNING.md):** default-on
+    **Learn from my typing** uses trusted unchanged literals and explicit feedback, never
+    automatic output alone. Full Access allows bounded protected local snapshots of per-key
+    statistics, kept words, counts, rejected pairs and text-free counters/histograms; otherwise
+    session RAM only. No raw tap archive, ordered typed-text/context history, backup or network.
+    Off stops new touch/count learning and personal scoring, retains saved data and explicit
+    keep/rejection protection; statistics are independent. **Typing diagnostics** shows saved
+    summaries and separate learning/statistics resets, not accuracy. Synthetic Linux decoder
+    evaluation is not real typing; iPhone quality, evidence coverage, latency and memory remain
+    unverified.
   - **AI cleanup (Settings › AI & vocabulary, iOS 26+):** On by default. Typr's on-device
     Apple Intelligence rewrite runs before formatting in every style but `Verbatim`,
     with plain-transcript fallback. The inherited cleanup experiment has been removed;
@@ -174,7 +190,7 @@ titles, consistent disclosure chevrons and semantic, aligned status/retention fo
 Purpose-based detail pages replace the old Typr/Experiments split:
 
 - **Keyboard:** full keyboard, suggestion bar, conditional autocorrect/languages,
-  and the link to iOS keyboard settings.
+  Learn from my typing, Typing diagnostics and the link to iOS keyboard settings.
 - **AI & vocabulary:** on-device AI cleanup with availability, an editable cleanup
   prompt (Default/Custom, explicit Save and conditional Reset to default), and editable
   vocabulary/sounds-like forms. No last-result summary or What changes disclosure.
@@ -193,10 +209,12 @@ Purpose-based detail pages replace the old Typr/Experiments split:
 - **History & feedback:** collection, archive/export/delete and keyboard ratings.
   Feedback URLs still open the requested archive entry from any settings page.
 
-Settings keys, defaults, full-keyboard/autocorrect dependencies, archive retention
-and privacy behavior are unchanged. **Keyboard → Full keyboard** reveals
+Existing dictation settings, archive retention and privacy rules are unchanged.
+Manual keyboard learning adds `keyboard.personalLearning` (default on) and the
+bounded local storage contract above. **Keyboard → Full keyboard** reveals
 **Typing assistance → Autocorrect**; enabling Autocorrect reveals the independent
-Deutsch/English switches. When Full keyboard is off, a footer explains this path.
+Deutsch/English switches. Learn from my typing and Typing diagnostics remain
+reachable with Autocorrect off. When Full keyboard is off, a footer explains this path.
 `SettingsComponents.swift` provides shared
 surfaces, scalable text and navigation routes; keyboard colors remain untouched.
 Menu entry points use 50 pt single-line rows with standalone symbols, trailing
@@ -216,6 +234,8 @@ The existing `settings-writing` scene name now opens **AI & vocabulary**.
 `settings-keyboard-typing` explicitly enables Full keyboard and Autocorrect in the
 snapshot fixture, with Deutsch and English enabled, to capture both correction-language
 controls on the Keyboard page; ordinary launches never set these preferences.
+`settings-keyboard-diagnostics` renders a deterministic in-memory synthetic dashboard,
+without reading/writing/resetting personal snapshots or seeding preferences.
 The existing Keyboard setup checklist retains its selective visibility: it appears
 for incomplete keyboard/Full Access, microphone or model setup, or an explicit
 setup request. Once complete it is absent on ordinary launches. Each explicit
@@ -264,6 +284,11 @@ xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>
   `AVAudioRecorder.isRecording` changes during warm handoff or Bluetooth route
   changes have not been reproduced on hardware; the meter recovery tests inject
   that condition through `ActiveAudioCapture`.
+- **Manual keyboard correction/learning:** Implemented tests and Linux synthetic
+  decoder runs are described in [KEYBOARD_SPATIAL_DECODER.md](KEYBOARD_SPATIAL_DECODER.md).
+  They are not an observed iOS build/test pass or real typing evaluation. Owner
+  iPhone checks still include host-callback evidence coverage, quality/latency/memory,
+  Full Access, protected storage, resets and cross-process refresh; see its checklist.
 - **Apple Speech hint:** Custom vocabulary is covered by unit tests only.
   Its contextual strings are best effort and unverified on a physical iPhone.
   Apple documents contextual strings only for `DictationTranscriber`, Typr sets
