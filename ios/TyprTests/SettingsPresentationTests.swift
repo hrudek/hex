@@ -13,7 +13,7 @@ final class SettingsPresentationTests: XCTestCase {
             )
         }
         XCTAssertEqual(Set(SettingsDestination.allCases.map(\.title)),
-                       ["Keyboard", "Typing diagnostics", "Manage learned words", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
+                       ["Keyboard", "Autocorrect languages", "Typing diagnostics", "Manage learned words", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
     }
 
     @MainActor
@@ -73,6 +73,14 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertNotNil(state.kept["typr"])
         XCTAssertNil(state.kept["swift"])
         XCTAssertEqual(state.rejected, [.init(typed: "adn", replacement: "and")])
+    }
+
+    @MainActor
+    func testAutocorrectLanguageSummaryCoversAllSelections() {
+        XCTAssertEqual(AutocorrectLanguageSettingsCard.summary(german: true, english: false), "DE")
+        XCTAssertEqual(AutocorrectLanguageSettingsCard.summary(german: false, english: true), "EN")
+        XCTAssertEqual(AutocorrectLanguageSettingsCard.summary(german: true, english: true), "DE, EN")
+        XCTAssertEqual(AutocorrectLanguageSettingsCard.summary(german: false, english: false), "None")
     }
 
     func testTypingDiagnosticsRouteAndTitle() {

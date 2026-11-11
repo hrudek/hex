@@ -156,6 +156,7 @@ struct ContentView: View {
                         SettingsPage(title: destination.title, subtitle: destination.subtitle) {
                             switch destination {
                             case .keyboard: KeyboardSettingsCard()
+                            case .autocorrectLanguages: AutocorrectLanguageSettingsCard()
                             case .keyboardDiagnostics, .keyboardLearnedWords: EmptyView() // Handled above.
                             case .textProcessing: TextProcessingSettingsCard()
                             case .cleanupPrompt: CleanupPromptEditor()
