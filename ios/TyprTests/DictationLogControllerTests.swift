@@ -88,7 +88,9 @@ private final class LogControllerFixture {
     }
     func waitUntil(_ description: String, file: StaticString = #filePath, line: UInt = #line,
                    _ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        // These are state/serialization tests, not latency tests. A cold CI simulator can
+        // spend several seconds in framework initialization before the injected model runs.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while !condition(), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -111,8 +113,11 @@ private final class LogControllerFixture {
         _ = try XCTUnwrap(waiting ? true : nil, "Expected suspended ASR", file: file, line: line)
     }
     func start() async throws {
-        controller.prepareModel(); try await settle()
-        controller.startRecording(keyboardJobID: "a"); try await settle()
+        try await waitUntil("Expected the isolated log archive to finish loading") { !env.store.isLoading }
+        controller.prepareModel()
+        try await waitUntil("Expected the injected transcriber to be ready") { controller.phase == .ready }
+        controller.startRecording(keyboardJobID: "a")
+        try await waitUntil("Expected recording to start") { controller.phase == .recording }
     }
     func dispose() async throws {
         controller.cancelCurrentJob()
@@ -129,7 +134,9 @@ final class DictationLogControllerTests: XCTestCase {
     func testCleanupProducesOneFinishedEntryWithTextsOutcomesAndTimings() async throws {
         let f = LogControllerFixture()
         try await f.start()
-        f.controller.finishRecording(); try await f.settle()
+        // Recording state precedes the first meter tick; this test also asserts its -24 dB sample.
+        try await f.waitUntil("Expected the injected audio meter sample") { f.controller.loudnessDB == -24 }
+        f.controller.finishRecording(); try await f.waitUntilFinished()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(f.env.store.entries.count, 1)
         XCTAssertEqual(entry.status, .finished)
@@ -169,7 +176,7 @@ final class DictationLogControllerTests: XCTestCase {
         vocabulary.isEnabled = false
         vocabulary.terms = []
         f.env.defaults.set(false, forKey: "experiments.appleIntelligenceCleanup")
-        f.controller.finishRecording(); try await f.settle()
+        f.controller.finishRecording(); try await f.waitUntilFinished()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.vocabularyEnabled, true)
         XCTAssertEqual(entry.context.upstreamCleanupEnabled, false)
@@ -193,7 +200,7 @@ final class DictationLogControllerTests: XCTestCase {
         f.model.result = "Öffne eine herdr pane"
         try await f.start()
         vocabulary.terms = []
-        f.controller.finishRecording(); try await f.settle()
+        f.controller.finishRecording(); try await f.waitUntilFinished()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.context.vocabularyEnabled, false)
         XCTAssertEqual(entry.context.vocabularyCount, 0)
@@ -234,7 +241,7 @@ final class DictationLogControllerTests: XCTestCase {
         await f.asr.setOutput("my iphone works")
         f.model.result = "my iPhone works"
         try await f.start()
-        f.controller.finishRecording(); try await f.settle()
+        f.controller.finishRecording(); try await f.waitUntilFinished()
         let entry = try XCTUnwrap(f.env.store.entries.first)
         XCTAssertEqual(entry.firstSpellingPass?.totalChanges, 1)
         XCTAssertEqual(entry.secondSpellingPass?.totalChanges, 1)
