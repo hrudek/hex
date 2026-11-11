@@ -238,6 +238,8 @@ normal automation never does. `Decide` and `Unsigned archive` are not merge gate
 `main` code only. It finds the current same-repository PR, checks all required
 statuses (explicitly requiring Linux and review success), excludes drafts and
 `no-auto-merge`, and squash-merges with a server-side expected-head SHA.
+For target-event reviews, the controller reads the PR number and reviewed SHA
+from main's trusted review run-name, not the event's branch metadata.
 An older run cannot authorize merging a newer PR commit. No PR code executes in
 the write-enabled controller; no signing secrets or additional PAT are used.
 
@@ -259,8 +261,10 @@ job. Runner availability and strict FIFO ordering are not guaranteed.
 
 Automatic builds compare iOS source, resources, project/test inputs and committed
 app identity. Pipeline-only edits, Markdown documentation (including `ios/README.md`)
-and offline `ios/tools/` edits do not request macOS jobs. Explicit manual device
-builds still work regardless of the diff. Comparison failures fail visibly rather
+and offline `ios/tools/` edits do not request macOS jobs. This deliberately includes
+build/packaging/signing helper edits: validate them on Linux and, when necessary,
+request an explicit manual build; otherwise they take effect on the next app change.
+Explicit manual device builds still work regardless of the diff. Comparison failures fail visibly rather
 than silently allocating a build. The capacity-retry workflow remains unchanged.
 These scheduling contracts have Linux regression tests; actual cancellation,
 bot merge/dispatch and signing behavior still require observed GitHub runs.

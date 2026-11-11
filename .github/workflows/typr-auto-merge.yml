@@ -35,6 +35,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+      SOURCE_TITLE: ${{ github.event.workflow_run.display_title }}
       SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
       SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:

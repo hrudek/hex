@@ -66,6 +66,27 @@ class AutoMergeTests(unittest.TestCase):
         self.assertIn(f'base_sha={PARENT}', command)
         self.assertTrue(run.call_args.kwargs['check'])
 
+    def test_target_review_uses_trusted_run_name_not_base_head_metadata(self):
+        self.env.update(SOURCE_EVENT='pull_request_target', SOURCE_BRANCH='main',
+                        SOURCE_SHA='d' * 40,
+                        SOURCE_TITLE=f'Typr review · PR #7 · {SHA}')
+        api, run = self.run_main([self.pr, self.pr, {'merged': True}, self.merged,
+                                 {'workflow_runs': []}, {'parents': [{'sha': PARENT}]}])
+        self.assertEqual(api.call_args_list[0].args, ('pulls/7',))
+        self.assertEqual(api.call_args_list[2].kwargs['sha'], SHA)
+        run.assert_called_once()
+        moved = copy.deepcopy(self.pr)
+        moved['head']['sha'] = 'e' * 40
+        api, run = self.run_main([moved])
+        self.assertEqual(api.call_count, 1)
+        run.assert_not_called()
+
+    def test_target_review_rejects_missing_or_malformed_run_name(self):
+        for title in ('', f'Untrusted PR #7 · {SHA}', 'Typr review · PR #7 · bad'):
+            self.env.update(SOURCE_EVENT='pull_request_target', SOURCE_TITLE=title)
+            with self.subTest(title=title), self.assertRaises(ValueError):
+                self.run_main([])
+
     def test_pending_checks_never_merge_or_dispatch(self):
         api, run = self.run_main([[self.pr], self.pr], green=False)
         self.assertEqual(api.call_count, 2)
@@ -102,6 +123,8 @@ class AutoMergeTests(unittest.TestCase):
         self.assertIn('ref: main', workflow)
         self.assertIn('persist-credentials: false', workflow)
         self.assertIn('head_repository.full_name == github.repository', workflow)
+        self.assertIn('SOURCE_EVENT: ${{ github.event.workflow_run.event }}', workflow)
+        self.assertIn('SOURCE_TITLE: ${{ github.event.workflow_run.display_title }}', workflow)
         self.assertIn("workflow_run.conclusion == 'success'", workflow)
         self.assertNotIn('--admin', workflow)
         self.assertNotIn('secrets.', workflow)

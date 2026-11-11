@@ -6,6 +6,7 @@ explicitly (an exception to that suppression), including on a controller retry.
 """
 import json
 import os
+import re
 import subprocess
 from urllib.parse import quote
 
@@ -56,10 +57,20 @@ def dispatch(pr):
 
 def main():
     repo, branch, sha = (os.environ[key] for key in ('GH_REPO', 'SOURCE_BRANCH', 'SOURCE_SHA'))
-    owner = repo.split('/')[0]
-    # At most one open PR can have this head/base pair. Include merged PRs so a
-    # rerun can recover a failed dispatch without trying to merge again.
-    prs = api(f'pulls?state=all&base=main&head={quote(owner + ":" + branch, safe="")}&per_page=100')
+    if os.environ.get('SOURCE_EVENT') == 'pull_request_target':
+        # Do not depend on target-event head metadata naming the PR branch.
+        # The reviewed PR/SHA are explicitly pinned in main's trusted run-name.
+        match = re.fullmatch(r'Typr review · PR #([1-9][0-9]*) · ([0-9a-f]{40})',
+                             os.environ.get('SOURCE_TITLE', ''))
+        if not match:
+            raise ValueError('Expected a trusted review run-name with PR number and reviewed SHA')
+        sha = match[2]
+        prs = [api(f'pulls/{match[1]}')]
+        branch = prs[0]['head']['ref']
+    else:
+        owner = repo.split('/')[0]
+        # Include merged PRs so a rerun can recover a failed dispatch.
+        prs = api(f'pulls?state=all&base=main&head={quote(owner + ":" + branch, safe="")}&per_page=100')
     for candidate in prs:
         if not eligible(candidate, repo, branch, sha):
             continue
