@@ -143,17 +143,25 @@ may be listed for a feature. Documentation-only process changes need no feature 
     the failed job once; if it still has no result, inform the owner.
   Agents working on a PR: read the latest Typr review comment, fix every
   numbered finding, push, and wait for the next verdict. The check is not a
-  required status check, so the owner can still merge deliberately.
+  required status check: it does not block auto-merge. Disable auto-merge on
+  the PR when a manual review or iPhone check must finish before merging.
 - **Changes to a PR:** ask Pi here to continue on that branch; the push starts
   a new review.
-- **The loop, end to end** (nothing merges by itself; no repair agent runs in CI):
+- **Default auto-merge.** Non-draft, same-repository PRs into `main` enable
+  squash auto-merge when opened, reopened or marked ready (`typr-auto-merge.yml`).
+  Required checks and branch rules still apply; no admin bypass is used.
+  Fork PRs and drafts are excluded. Disable auto-merge on an individual PR to
+  hold it for manual review; new commits do not automatically re-enable it.
+  The workflow never checks out or executes PR code. Existing PRs are not
+  retroactively enrolled.
+- **The loop, end to end** (no repair agent runs in CI):
 
   ```ts
   Pi: develop on feature/<name> → commit → push → PR (label feature)
   ├─ automatic: Typr review + PR CI (Linux checks, Decide, Unsigned archive)
   ├─ ❌ FIX → in the same Pi session (a new one if the context is long or stale):
   │          "read the Typr review comment and fix the findings" → commit → push → review again
-  ├─ ✅ PASS + checks green → owner: "merge" → squash merge
+  ├─ required checks green → automatic squash merge (review is advisory)
   └─ main: archive → TestFlight at once; simulator tests in parallel
      └─ tests red → status issue + GitHub mail → Pi: "main CI is red, read
         `gh run view <id> --log-failed` and fix it" → branch fix/<name> → PR → same loop
@@ -223,8 +231,9 @@ Typr PR to iPhone (by hand, from main, enter an open feature PR number)
 `main` only moves forward: `git pull --ff-only` always works locally.
 Branch rules: changes reach `main` through PRs with green `Linux checks`,
 `Decide` and `Unsigned archive` (skipped counts as passed);
-no force pushes or deletion. Repository admins can bypass; the owner decides
-when to merge. Nothing merges by itself.
+no force pushes or deletion. Repository admins can bypass manually, but the
+standard auto-merge workflow never requests a bypass. Eligible PRs squash-merge
+as soon as required checks pass; the advisory Typr review is not a merge gate.
 
 ### Automatic runner-capacity retries
 
