@@ -264,7 +264,9 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         }
         let diagnostics = engine.autocorrect.learning.diagnostics
         XCTAssertEqual(diagnostics[.boundaries], 3)
-        XCTAssertEqual(diagnostics[.evidenceMissing], 3)
+        XCTAssertEqual(diagnostics[.evidenceMissing], 1)
+        XCTAssertEqual(diagnostics[.evidenceComplete] + diagnostics[.evidenceMissing]
+            + diagnostics[.evidenceLengthOutOfRange] + diagnostics[.evidenceUnsupported], diagnostics[.boundaries])
         XCTAssertEqual(diagnostics[.evidenceLengthOutOfRange], 1)
         XCTAssertEqual(diagnostics[.evidenceUnsupported], 1)
         XCTAssertEqual(diagnostics[.unchanged], 3)
@@ -295,6 +297,51 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(loaded.diagnostics[.keepChip], 1)
     }
 
+    func testDashboardReadsSessionSavesAndIndependentResetsReachLiveKeyboard() throws {
+        let name = "KeyboardLearning-dashboard-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let session = KeyboardLearningSession(store: KeyboardLearningStore(directory: directory, defaults: defaults),
+                                              defaults: defaults)
+        let (engine, _) = keyboard(session: session)
+        type("hello", engine)
+        engine.acceptSuggestion(try XCTUnwrap(engine.suggestions.first))
+        session.flush()
+
+        let dashboard = KeyboardDiagnosticsModel(directory: directory, defaults: defaults)
+        XCTAssertEqual(dashboard.snapshot.model.keptWords, 1)
+        XCTAssertEqual(dashboard.snapshot.model.acceptedBySource["keep"], 5)
+        XCTAssertEqual(dashboard.snapshot.diagnostics[.keepChip], 1)
+        XCTAssertEqual(dashboard.snapshot.diagnostics[.wordsCounted], 1)
+        XCTAssertNotNil(dashboard.snapshot.learningFile.bytes)
+        XCTAssertNotNil(dashboard.snapshot.diagnosticsFile.bytes)
+
+        dashboard.resetStatistics()
+        XCTAssertNil(dashboard.resetProblem)
+        engine.autocorrect.syncLearning()
+        XCTAssertEqual(session.diagnostics[.keepChip], 0)
+        XCTAssertTrue(session.model.lexicon.isKept("hello"))
+        session.flush()
+        dashboard.refresh()
+        XCTAssertEqual(dashboard.snapshot.diagnostics[.keepChip], 0)
+        XCTAssertEqual(dashboard.snapshot.model.keptWords, 1)
+
+        type("world ", engine)
+        XCTAssertNotNil(engine.autocorrect.pendingFeedback)
+        dashboard.resetLearning()
+        XCTAssertNil(dashboard.resetProblem)
+        engine.autocorrect.syncLearning()
+        XCTAssertNil(engine.autocorrect.pendingFeedback)
+        XCTAssertTrue(session.model.lexicon.kept.isEmpty)
+        XCTAssertEqual(session.diagnostics[.boundaries], 1)
+        session.flush()
+        dashboard.refresh()
+        XCTAssertEqual(dashboard.snapshot.model.keptWords, 0)
+        XCTAssertEqual(dashboard.snapshot.diagnostics[.boundaries], 1)
+    }
+
     func testPermissionRevocationCancelsPersistenceButKeepsRAMProtection() throws {
         let name = "KeyboardLearning-permission-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
@@ -313,6 +360,25 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         defaults.set(1, forKey: KeyboardLearningStore.learningResetKey)
         session.refresh()
         XCTAssertFalse(session.model.lexicon.isKept("hello"), "RAM sessions also honor resets")
+    }
+
+    func testDiagnosticsResetDiscardsPendingFeedbackButPreservesLearning() throws {
+        let name = "KeyboardLearning-statistics-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = KeyboardLearningSession(defaults: defaults)
+        let store = KeyboardLearningStore(directory: nil, defaults: defaults)
+        let (engine, _) = keyboard(session: session)
+        session.keep("world")
+        type("hello ", engine)
+        XCTAssertNotNil(engine.autocorrect.pendingFeedback)
+        XCTAssertTrue(store.requestDiagnosticsReset())
+        engine.autocorrect.syncLearning()
+        XCTAssertNil(engine.autocorrect.pendingFeedback)
+        XCTAssertTrue(session.model.lexicon.isKept("world"))
+        type("w", engine)
+        XCTAssertEqual(session.model.summary.acceptedLabels, 0)
+        XCTAssertEqual(session.diagnostics[.boundaries], 0)
     }
 
     func testResetEpochIsCheckedBeforeSaveAndRefreshDiscardsPending() throws {

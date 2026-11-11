@@ -1,3 +1,5 @@
+@testable import Typr
+
 /// Fixed public/common words, not collected typing. Frozen for A/B comparisons.
 /// ASCII-only here because the current visible keyboard has no umlaut key centres.
 nonisolated enum SpatialTypoEvaluationFixtures {

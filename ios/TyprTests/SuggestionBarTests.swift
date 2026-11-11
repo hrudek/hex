@@ -8,15 +8,13 @@ final class SuggestionBarTests: XCTestCase {
     private var suite = ""
     private var defaults: UserDefaults!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
         suite = "SuggestionBarTests-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suite)
-        super.tearDown()
     }
 
     func testSettingDefaultsOnAndPersists() {

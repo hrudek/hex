@@ -315,6 +315,135 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 2)
     }
 
+    private func editSuggestionEngine(valid: Set<String> = ["hello"]) -> AutocorrectEngine {
+        // The large German corpus keeps the English absent-word floor as the literal's prior.
+        let source = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 10_000), ("world", 1)]),
+                                                   .german: lexicon([("morgen", 1_000_000)])])
+        return AutocorrectEngine(checker: SpatialChecker(valid: valid), spatialDecoder: source)
+    }
+
+    func testEditSuggestionsFillTheStripButNeverReplaceAutomatically() throws {
+        let ac = editSuggestionEngine()
+        let word = evidence("helo", aimedAt: "helo")
+        let result = try XCTUnwrap(ac.spatialDecoder?.decode(word, languages: [.english]))
+        XCTAssertTrue(result.candidates.isEmpty)
+        XCTAssertEqual(result.editSuggestions.map(\.word), ["hello"])
+        track(word, in: ac)
+        let slots = ac.suggestions(beforeInput: "helo", field: .text, autocorrectionType: .default)
+        XCTAssertEqual(slots.map(\.replacement), ["helo", "hello"])
+        XCTAssertFalse(slots[1].willAutoReplace)
+        XCTAssertFalse(slots[1].isCompletion)
+        XCTAssertNil(replacement(ac, "helo"), "edit suggestions are never automatic")
+        XCTAssertEqual(ac.learning.diagnostics[.refusedBelowMargin], 1)
+    }
+
+    func testEditSuggestionsAreSuppressedForTrustedLiterals() {
+        func secondSlot(_ ac: AutocorrectEngine) -> String? {
+            track(evidence("helo", aimedAt: "helo"), in: ac)
+            return ac.suggestions(beforeInput: "helo", field: .text, autocorrectionType: .default)
+                .dropFirst().first?.replacement
+        }
+        XCTAssertEqual(secondSlot(editSuggestionEngine()), "hello")
+        XCTAssertEqual(secondSlot(editSuggestionEngine(valid: ["hello", "helo"])), "helo", "system-valid literal")
+        let kept = editSuggestionEngine()
+        kept.suppressAndKeep("helo")
+        XCTAssertEqual(secondSlot(kept), "helo", "explicitly kept literal")
+        let retainedKeep = editSuggestionEngine()
+        retainedKeep.learning.keep("helo")
+        XCTAssertEqual(secondSlot(retainedKeep), "helo", "personal lexicon protection without session suppression")
+        let rejected = editSuggestionEngine()
+        rejected.learning.rejectCorrection(typed: "helo", replacement: "hello")
+        XCTAssertEqual(secondSlot(rejected), "helo", "rejected edit pair")
+        let contact = editSuggestionEngine()
+        contact.loadLexiconEntries([("Helo", "Helo")])
+        XCTAssertEqual(secondSlot(contact), "helo", "Contacts/lexicon term")
+        let bilingual = editSuggestionEngine()
+        bilingual.german = GermanAutocorrect(checker: SpatialChecker(valid: []))
+        XCTAssertEqual(secondSlot(bilingual), "hello", "both languages selected")
+        let noun = editSuggestionEngine()
+        noun.german = GermanAutocorrect(checker: SpatialChecker(valid: ["Helo"]))
+        XCTAssertEqual(secondSlot(noun), "helo", "lowercase-typed German noun")
+    }
+
+    func testProtectedEditSuggestionsLeaveRoomForNormalCompletions() {
+        let source = editSuggestionEngine().spatialDecoder
+        let checker = SpatialChecker(valid: ["helo", "hello"], completions: ["helos"])
+        let ac = AutocorrectEngine(checker: checker, spatialDecoder: source)
+        track(evidence("helo", aimedAt: "helo"), in: ac)
+        let slots = ac.suggestions(beforeInput: "helo", field: .text, autocorrectionType: .default)
+        XCTAssertEqual(slots.map(\.replacement), ["helo", "helos"])
+        XCTAssertTrue(slots[1].isCompletion)
+
+        // A disabled dictionary must not protect the literal in the enabled language.
+        let englishOff = editSuggestionEngine(valid: ["helo"])
+        englishOff.englishEnabled = false
+        englishOff.german = GermanAutocorrect(checker: SpatialChecker(valid: []))
+        XCTAssertFalse(englishOff.literalIsValid("helo"))
+    }
+
+    func testAboveLiteralStructuralCandidatesAlsoRespectProtections() throws {
+        let source = SpatialWordDecoder(lexicons: [.english: lexicon([("hello", 4_000_000_000), ("world", 1)])])
+        let word = evidence("helo", aimedAt: "helo")
+        let result = try XCTUnwrap(source.decode(word, languages: [.english]))
+        XCTAssertEqual(result.candidates.first?.word, "hello")
+        XCTAssertNotEqual(result.candidates.first?.edit, SpatialWordDecoder.Edit.none)
+        let ac = AutocorrectEngine(checker: SpatialChecker(valid: ["helo", "hello"], completions: ["helos"]),
+                                   spatialDecoder: source)
+        track(word, in: ac)
+        let slots = ac.suggestions(beforeInput: "helo", field: .text, autocorrectionType: .default)
+        XCTAssertEqual(slots.map(\.replacement), ["helo", "helos"])
+        XCTAssertTrue(slots[1].isCompletion)
+        XCTAssertNil(replacement(ac, "helo"))
+    }
+
+    func testLowercaseGermanNounIsProtectedWithoutSpatialResources() {
+        let ac = AutocorrectEngine(checker: SpatialChecker(valid: [], guesses: ["hello"]), spatialDecoder: nil)
+        ac.german = GermanAutocorrect(checker: SpatialChecker(valid: ["Helo"], guesses: ["Hello"]))
+        XCTAssertTrue(ac.literalIsValid("helo"))
+        XCTAssertNil(replacement(ac, "helo"))
+        XCTAssertEqual(ac.learning.diagnostics[.refusedLiteralValid], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.autoSpellingFallback], 0)
+    }
+
+    func testManualEditSuggestionPickLearnsOnlyAlignedLabels() throws {
+        let ac = editSuggestionEngine()
+        let target = FixtureTextTarget(text: "helo")
+        target.autocapitalizationType = UITextAutocapitalizationType.none
+        let keyboard = FullKeyboardEngine(target: target, autocorrect: ac)
+        keyboard.width = 393
+        keyboard.configureForField()
+        track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
+        keyboard.refreshSuggestions()
+        let suggestion = try XCTUnwrap(keyboard.suggestions.first { $0.replacement == "hello" })
+        keyboard.acceptSuggestion(suggestion)
+        XCTAssertEqual(target.text, "hello ")
+        XCTAssertEqual(ac.learning.diagnostics[.manualAlternativePick], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.manualCompletionPick], 0)
+        XCTAssertEqual(ac.learning.model.lexicon.counts["hello"], 1)
+        // `align` drops the ambiguous repeated `l`; h, e and o stay uniquely aligned.
+        XCTAssertEqual(ac.learning.model.summary.acceptedBySource["manualPick"], 3)
+        XCTAssertEqual(ac.learning.model.summary.rejectedByReason["ambiguousAlignment"], 1)
+        XCTAssertFalse(ac.learning.model.lexicon.isKept("helo"))
+    }
+
+    func testPickingTheRepeatedLiteralIsNotAnAlternativePick() throws {
+        let ac = editSuggestionEngine(valid: ["hello", "helo"])
+        let target = FixtureTextTarget(text: "helo")
+        target.autocapitalizationType = UITextAutocapitalizationType.none
+        let keyboard = FullKeyboardEngine(target: target, autocorrect: ac)
+        keyboard.width = 393
+        keyboard.configureForField()
+        track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
+        keyboard.refreshSuggestions()
+        let primary = try XCTUnwrap(keyboard.suggestions.dropFirst().first)
+        XCTAssertEqual(primary.replacement, "helo")
+        keyboard.acceptSuggestion(primary)
+        XCTAssertEqual(target.text, "helo ")
+        XCTAssertEqual(ac.learning.diagnostics[.manualAlternativePick], 0)
+        XCTAssertEqual(ac.learning.model.summary.acceptedLabels, 0)
+        XCTAssertTrue(ac.learning.model.lexicon.counts.isEmpty)
+    }
+
     func testProtectionAppliesBeforeSpatialAndSpelling() {
         for token in ["gello", "GELLO", "gEllo", "Gello"] {
             let ac = engine()
@@ -752,9 +881,14 @@ private extension SpatialWordDecoder.Result {
 private final class SpatialChecker: TextChecking {
     let valid: Set<String>
     let values: [String]
+    let prefixes: [String]
     private(set) var guessCalls = 0
-    init(valid: Set<String>, guesses: [String] = []) { self.valid = valid; self.values = guesses }
+    init(valid: Set<String>, guesses: [String] = [], completions: [String] = []) {
+        self.valid = valid
+        values = guesses
+        prefixes = completions
+    }
     func isWordValid(_ word: String) -> Bool { valid.contains(word) }
     func guesses(for word: String) -> [String] { guessCalls += 1; return values }
-    func completions(for prefix: String) -> [String] { [] }
+    func completions(for prefix: String) -> [String] { prefixes }
 }

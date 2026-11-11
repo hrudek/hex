@@ -77,6 +77,8 @@ final class KeyboardLearningSession {
         }
         let current = store.currentEpochs
         guard current != epochs else { return }
+        // Neither feedback nor undo attribution may cross either reset's counting period.
+        feedbackEpoch &+= 1
         var loaded: (PersonalTypingModel.State?, KeyboardDiagnostics)?
         if isPersistent {
             let result = store.load()
@@ -85,7 +87,6 @@ final class KeyboardLearningSession {
         if current.learning != epochs.learning {
             model = PersonalTypingModel(state: loaded?.0 ?? .init(), isLearningEnabled: enabled)
             generation &+= 1
-            feedbackEpoch &+= 1
             resets &+= 1
         }
         if current.diagnostics != epochs.diagnostics {

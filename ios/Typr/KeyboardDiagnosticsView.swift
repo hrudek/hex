@@ -30,7 +30,7 @@ struct KeyboardDiagnosticsView: View {
             learning
             storage
         }
-        .refreshable { model.refresh() }
+        .refreshable { @MainActor in model.refresh() }
         .onAppear { model.startObserving() }
         .onDisappear { model.stopObserving() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { model.refresh() } }

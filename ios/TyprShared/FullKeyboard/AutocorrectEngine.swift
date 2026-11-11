@@ -157,6 +157,7 @@ final class AutocorrectEngine {
     private(set) var lastCorrection: AppliedCorrection?
     private(set) var pendingFeedback: PendingFeedback?
     private var observedResets: Int
+    private var observedFeedbackEpoch: Int
     private var decodeCache: DecodeCache?
     private var spellingCache: SpellingCache?
 
@@ -170,6 +171,7 @@ final class AutocorrectEngine {
         let learning = learning ?? KeyboardLearningSession()
         self.learning = learning
         observedResets = learning.resets
+        observedFeedbackEpoch = learning.feedbackEpoch
     }
 
     func loadLexicon(_ lexicon: UILexicon) {
@@ -221,6 +223,11 @@ final class AutocorrectEngine {
     /// Settings poll and keyboard appearance: switch value, app resets and storage access.
     func syncLearning() {
         learning.refresh()
+        if observedFeedbackEpoch != learning.feedbackEpoch {
+            observedFeedbackEpoch = learning.feedbackEpoch
+            pendingFeedback = nil
+            lastCorrection = nil
+        }
         guard observedResets != learning.resets else { return }
         observedResets = learning.resets
         suppressedInSession = []
@@ -281,6 +288,8 @@ final class AutocorrectEngine {
                                   evidence: KeyboardTouchWord?) {
         pendingFeedback = nil
         let evidence = evidence?.text == literal ? evidence : nil
+        // The center slot repeats the typed word when nothing else applies: not an alternative.
+        guard suggestion.kind == .keepLiteral || suggestion.replacement != literal else { return }
         if suggestion.kind == .keepLiteral {
             learning.increment(.keepChip)
             if let evidence { learnIdentity(evidence, literal: literal, source: .keep) }
@@ -375,10 +384,16 @@ final class AutocorrectEngine {
             pool.append(Self.matchCase(of: token, onto: suggested))
         }
 
-        // Spatial words (including one-edit candidates) use the same slots, never changing typed characters.
-        for candidate in spatial?.candidates.prefix(4) ?? [] {
+        // Spatial words (including above-literal one-edit candidates) use the same slots, never changing
+        // typed characters. Display-only, below-literal structural edit suggestions follow, only for a
+        // literal nothing else trusts; automatic decisions read `candidates` alone.
+        let protectsLiteral = spatial?.suggestions.contains(where: { $0.edit != .none }) == true
+            && protectsFromEditSuggestions(token)
+        for candidate in spatial?.suggestions ?? [] {
             if pool.count >= 2 { break }
+            if candidate.edit != .none && protectsLiteral { continue }
             let text = spatialSpelling(candidate, token: token).text
+            if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text) { continue }
             if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { pool.append(text) }
         }
 
@@ -397,8 +412,7 @@ final class AutocorrectEngine {
         // Spelling guesses or prefix completions from `UITextChecker`.
         if pool.count < 2 && token.count >= 2 {
             // Typr: German-valid words count as valid; German guesses come first.
-            let valid = Self.shorthandAllowlist.contains(lower) || learning.protections.isKept(lower)
-                || (englishEnabled && checker.isWordValid(token)) || (german?.isValid(token) ?? false)
+            let valid = Self.shorthandAllowlist.contains(lower) || literalIsValid(token)
             if !valid {
                 for guess in germanGuesses(for: token) + (englishEnabled ? rankedGuesses(for: token) : []) {
                     let cased = Self.matchCase(of: token, onto: guess)
@@ -469,11 +483,13 @@ final class AutocorrectEngine {
         if evidence != nil {
             learning.increment(.evidenceComplete)
         } else {
-            learning.increment(.evidenceMissing)
+            // Mutually exclusive reasons, matching the dashboard's missing-evidence breakdown.
             if !(3...SpatialWordDecoder.maxLetters).contains(token.count) {
                 learning.increment(.evidenceLengthOutOfRange)
             } else if !token.lowercased().allSatisfy({ ("a"..."z").contains($0) }) {
                 learning.increment(.evidenceUnsupported)
+            } else {
+                learning.increment(.evidenceMissing)
             }
         }
         learning.increment(decision.counter)
@@ -482,12 +498,24 @@ final class AutocorrectEngine {
         return decision.text.map { (token, $0) }
     }
 
+    /// Suggestion-only edit words would displace the normal completions of a spelling Typr trusts:
+    /// valid in an enabled language (including a lowercase-typed German noun), kept or a contact.
+    private func protectsFromEditSuggestions(_ token: String) -> Bool {
+        let lower = token.lowercased()
+        return suppressedInSession.contains(lower) || lexiconTermKeys.contains(lower)
+            || literalIsValid(token)
+    }
+
     /// Valid in an enabled dictionary or explicitly kept (the only literals trusted by learning).
     func literalIsValid(_ token: String) -> Bool {
+        learning.protections.isKept(token) || dictionaryAcceptsLiteral(token)
+    }
+
+    private func dictionaryAcceptsLiteral(_ token: String) -> Bool {
         let lower = token.lowercased()
-        return learning.protections.isKept(token)
-            || (englishEnabled && (checker.isWordValid(token) || checker.isWordValid(lower)))
-            || (german.map { $0.isValid(token) || $0.isValid(lower) } ?? false)
+        let title = lower.prefix(1).uppercased() + lower.dropFirst()
+        return (englishEnabled && (checker.isWordValid(token) || checker.isWordValid(lower)))
+            || (german.map { $0.isValid(token) || $0.isValid(lower) || $0.isValid(title) } ?? false)
     }
 
     private static func seconds(since start: UInt64) -> Double {
@@ -614,9 +642,7 @@ final class AutocorrectEngine {
 
         // 4. Protections: Contacts/lexicon terms and words valid in an enabled dictionary.
         guard !lexiconTermKeys.contains(lower) else { return Decision(refusal: .refusedProtected) }
-        let englishValid = englishEnabled && (checker.isWordValid(token) || checker.isWordValid(lower))
-        let germanValid = german.map { $0.isValid(token) || $0.isValid(lower) } ?? false
-        guard !englishValid, !germanValid else { return Decision(refusal: .refusedLiteralValid) }
+        guard !dictionaryAcceptsLiteral(token) else { return Decision(refusal: .refusedLiteralValid) }
 
         // 5. Spatial decoder. Only a complete search may replace; a lowercase-typed German noun
         //    (`haus`, valid as `Haus`) is protected from becoming a different word.
@@ -627,30 +653,24 @@ final class AutocorrectEngine {
         case .unavailable(.resource)?:
             refusal = .refusedMissingResource
         case .result(let result)?:
-            let title = lower.prefix(1).uppercased() + lower.dropFirst()
-            if german?.isValid(title) == true {
-                refusal = .refusedLiteralValid
-            } else {
-                switch result.automaticDecision(literalIsValid: false) {
-                case .replace(let best):
-                    let spelling = spatialSpelling(best, token: token)
-                    if spelling.validated {
-                        let decision = automatic(spelling.text, token: token, kind: .autoSpatial,
-                                                 counter: best.edit == .none ? .autoSpatialSameLength : .autoSpatialEdit,
-                                                 alignment: best.alignment)
-                        if decision.text != nil { return decision }
-                        refusal = decision.refusal
-                    } else {
-                        refusal = .refusedValidation
-                    }
-                case .refuse(let reason):
-                    let mapped: KeyboardDiagnostics.Counter = switch reason {
-                    case .incompleteSearch: .refusedIncompleteSearch
-                    case .ambiguous: .refusedAmbiguous
-                    case .editNeedsInvalidLiteral: .refusedEditNeedsInvalidLiteral
-                    case .noCandidate, .belowMargin: .refusedBelowMargin
-                    }
-                    refusal = mapped
+            switch result.automaticDecision(literalIsValid: false) {
+            case .replace(let best):
+                let spelling = spatialSpelling(best, token: token)
+                if spelling.validated {
+                    let decision = automatic(spelling.text, token: token, kind: .autoSpatial,
+                                             counter: best.edit == .none ? .autoSpatialSameLength : .autoSpatialEdit,
+                                             alignment: best.alignment)
+                    if decision.text != nil { return decision }
+                    refusal = decision.refusal
+                } else {
+                    refusal = .refusedValidation
+                }
+            case .refuse(let reason):
+                refusal = switch reason {
+                case .incompleteSearch: .refusedIncompleteSearch
+                case .ambiguous: .refusedAmbiguous
+                case .editNeedsInvalidLiteral: .refusedEditNeedsInvalidLiteral
+                case .noCandidate, .belowMargin: .refusedBelowMargin
                 }
             }
             // #96: only geometry that genuinely points elsewhere vetoes the spelling fallback;
