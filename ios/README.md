@@ -214,7 +214,9 @@ Existing dictation settings, archive retention and privacy rules are unchanged.
 Manual keyboard learning adds `keyboard.personalLearning` (default on) and the
 bounded local storage contract above. **Keyboard → Full keyboard** reveals
 **Typing assistance → Autocorrect**; enabling Autocorrect reveals the independent
-Deutsch/English switches directly below it. Learn from my typing, Typing diagnostics
+Autocorrect languages link directly below it. Its summary shows ISO 639-1 codes
+(DE, EN, or both in code order; None when neither is selected). The destination uses
+independent Deutsch/English checkmark rows, matching the dictation language page. Learn from my typing, Typing diagnostics
 and the direct Manage learned words link below diagnostics remain reachable with Autocorrect off. When Full keyboard is off, a footer explains this path.
 `SettingsComponents.swift` provides shared
 surfaces, scalable text and navigation routes; keyboard colors remain untouched.
@@ -233,8 +235,9 @@ Manual simulator screenshots can request `settings-keyboard`, `settings-writing`
 plus `settings-overview`.
 The existing `settings-writing` scene name now opens **AI & vocabulary**.
 `settings-keyboard-typing` explicitly enables Full keyboard and Autocorrect in the
-snapshot fixture, with Deutsch and English enabled, to capture both correction-language
-controls on the Keyboard page; ordinary launches never set these preferences.
+snapshot fixture, with Deutsch and English enabled, to capture the correction-language
+summary on the Keyboard page; `settings-autocorrect-languages` opens the multi-select
+language page directly; ordinary launches never set these preferences.
 `settings-keyboard-diagnostics` renders a deterministic in-memory synthetic dashboard,
 without reading/writing/resetting personal snapshots or seeding preferences.
 **Keyboard → Manage learned words** (also linked from Typing diagnostics) explicitly opens

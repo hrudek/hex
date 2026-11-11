@@ -3,6 +3,7 @@ import SwiftUI
 /// Parsing snapshot routes is read-only. Dedicated simulator fixtures seed their own preferences.
 enum SettingsDestination: String, CaseIterable, Hashable {
     case keyboard
+    case autocorrectLanguages = "autocorrect-languages"
     case keyboardDiagnostics = "keyboard-diagnostics"
     case keyboardLearnedWords = "keyboard-learned-words"
     // Keep the existing simulator scene name; this is not a persisted user setting.
@@ -16,6 +17,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
     var title: String {
         switch self {
         case .keyboard: "Keyboard"
+        case .autocorrectLanguages: "Autocorrect languages"
         case .keyboardDiagnostics: "Typing diagnostics"
         case .keyboardLearnedWords: "Manage learned words"
         case .textProcessing: "AI & vocabulary"
@@ -32,6 +34,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         case .keyboard, .keyboardDiagnostics, .keyboardLearnedWords, .textProcessing, .history, .cleanupPrompt: ""
         case .speechEngine: "Automatic chooses an engine until you select one. Audio stays on this iPhone."
         case .style: "Choose how Typr formats your dictations. You can also change style from the keyboard."
+        case .autocorrectLanguages: "Choose one or more languages for autocorrect. These choices do not change your dictation language."
         case .language: "Choose the language you dictate in, not a translation language. Your speech engine stays selected."
         }
     }

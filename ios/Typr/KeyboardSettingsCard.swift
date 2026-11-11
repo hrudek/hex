@@ -40,22 +40,15 @@ struct KeyboardSettingsCard: View {
                         }
                     if autocorrect {
                         SettingsDivider()
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Autocorrect languages")
-                                .font(.subheadline).foregroundStyle(TyprTheme.textMuted)
-                            Toggle("Deutsch", isOn: $autocorrectGerman)
-                                .onChange(of: autocorrectGerman) { _, enabled in TyprSettings().autocorrectGerman = enabled }
-                            Divider().overlay(TyprTheme.borderWeak)
-                            Toggle("English", isOn: $autocorrectEnglish)
-                                .onChange(of: autocorrectEnglish) { _, enabled in TyprSettings().autocorrectEnglish = enabled }
+                        NavigationLink(value: SettingsDestination.autocorrectLanguages) {
+                            SettingsLink(title: "Autocorrect languages", detail: "Choose one or more languages",
+                                         value: AutocorrectLanguageSettingsCard.summary(
+                                            german: autocorrectGerman, english: autocorrectEnglish))
                         }
-                        .font(.body)
-                        .foregroundStyle(TyprTheme.textBase)
-                        .tint(TyprTheme.success)
-                        .padding(16)
+                        .buttonStyle(.plain)
                     }
                     SettingsDivider()
-                    SettingsToggle(title: "Learn from my typing", detail: "Adapts to where you tap and to words you keep. Stays on this iPhone.", isOn: $personalLearning)
+                    SettingsToggle(title: "Learn from my typing", detail: "Adapts to where you tap and to words you keep.", isOn: $personalLearning)
                         .onChange(of: personalLearning) { _, enabled in
                             TyprSettings().personalLearning = enabled
                         }
@@ -96,6 +89,40 @@ struct KeyboardSettingsCard: View {
         autocorrectGerman = TyprSettings().autocorrectGerman
         autocorrectEnglish = TyprSettings().autocorrectEnglish
         hideSuggestionBar = TyprSettings().hideSuggestionBar
+    }
+}
+
+/// Uses the same checkmark rows as dictation language, but each choice is independent.
+struct AutocorrectLanguageSettingsCard: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var german = TyprSettings().autocorrectGerman
+    @State private var english = TyprSettings().autocorrectEnglish
+
+    /// ISO 639-1 language codes, uppercased for display and sorted by code.
+    static func summary(german: Bool, english: Bool) -> String {
+        let codes = [(german, "DE"), (english, "EN")].compactMap { $0.0 ? $0.1 : nil }
+        return codes.isEmpty ? "None" : codes.joined(separator: ", ")
+    }
+
+    var body: some View {
+        SettingsSection {
+            SettingsChoiceRow(title: "Deutsch", isSelected: german) {
+                german.toggle()
+                TyprSettings().autocorrectGerman = german
+            }
+            SettingsDivider()
+            SettingsChoiceRow(title: "English", isSelected: english) {
+                english.toggle()
+                TyprSettings().autocorrectEnglish = english
+            }
+        }
+        .onAppear(perform: refresh)
+        .onChange(of: scenePhase) { _, phase in if phase == .active { refresh() } }
+    }
+
+    private func refresh() {
+        german = TyprSettings().autocorrectGerman
+        english = TyprSettings().autocorrectEnglish
     }
 }
 
