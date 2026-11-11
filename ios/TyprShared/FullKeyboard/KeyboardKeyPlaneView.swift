@@ -2,7 +2,7 @@ import UIKit
 
 /// Draws the keys and turns touches into `FullKeyboardEngine` calls. The Typr and globe
 /// keys are real controls laid over their slots by `FullKeyboardView`; this view only
-/// draws the globe's keycap and leaves the Typr slot empty.
+/// draws the globe's keycap and the shared space/Typr background.
 @MainActor
 final class KeyboardKeyPlaneView: UIView {
     let engine: FullKeyboardEngine
@@ -51,6 +51,9 @@ final class KeyboardKeyPlaneView: UIView {
         // Like Apple's spacebar trackpad, key glyphs blank out while sliding the cursor.
         let hideGlyphs = engine.isTrackpadActive
 
+        let joined = JoinedSpaceKeycap(layout: layout)
+        joined?.draw(in: context, palette: palette, spacePressed: pressed.contains(.space))
+
         for key in layout.keys {
             guard key.frame.intersects(rect) else { continue }
             switch key.kind {
@@ -81,6 +84,7 @@ final class KeyboardKeyPlaneView: UIView {
                     yOffset: yOffset
                 )
             case .space:
+                if joined != nil { continue }
                 let fill = pressed.contains(.space) ? palette.keyPressedFill : palette.keyFill
                 context.fillKeycap(key.frame, fill: fill, radius: radius)
             case .returnKey:

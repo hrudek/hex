@@ -34,6 +34,42 @@ final class KeyboardLayoutTests: XCTestCase {
             }
     }
 
+    func testJoinedSpaceKeycapOnlyConnectsAdjacentKeysWithoutChangingTargets() {
+        for layout in everyLayout() {
+            let originalKeys = layout.keys
+            let joined = JoinedSpaceKeycap(layout: layout)
+            guard layout.field == .text else {
+                XCTAssertNil(joined, "Do not cover URL/email punctuation")
+                continue
+            }
+            guard let joined, let space = layout.key(.space), let typr = layout.key(.typr) else {
+                XCTFail("Adjacent space and Typr must share a background")
+                continue
+            }
+            XCTAssertEqual(joined.frame, space.frame.union(typr.frame))
+            XCTAssertEqual(joined.frame.height, layout.metrics.keyHeight)
+            XCTAssertEqual(joined.radius, layout.metrics.cornerRadius)
+            // The visual seam must not replace the original straight touch boundary.
+            let boundary = space.hitFrame.maxX
+            XCTAssertEqual(layout.hitTest(CGPoint(x: boundary - 0.01, y: space.frame.midY))?.kind, .space)
+            XCTAssertEqual(layout.hitTest(CGPoint(x: boundary + 0.01, y: space.frame.midY))?.kind, .typr)
+            XCTAssertEqual(layout.keys, originalKeys)
+        }
+    }
+
+    @MainActor
+    func testJoinedTyprRegionStaysInsideItsOriginalKeycap() {
+        for layout in everyLayout() where layout.field == .text {
+            let cap = layout.key(.typr)!.frame
+            let region = JoinedSpaceKeycap.typrRegion(cap: cap, radius: layout.metrics.cornerRadius)
+            XCTAssertEqual(region.bounds.minX, cap.minX, accuracy: 0.001)
+            XCTAssertEqual(region.bounds.maxX, cap.maxX, accuracy: 0.001)
+            XCTAssertEqual(region.bounds.minY, cap.minY, accuracy: 0.001)
+            XCTAssertEqual(region.bounds.maxY, cap.maxY, accuracy: 0.001)
+            XCTAssertTrue(region.contains(CGPoint(x: cap.maxX - layout.metrics.cornerRadius, y: cap.midY)))
+        }
+    }
+
     func testPortraitIs253PointsAndLandscapeIs176Points() {
         for width in portraitWidths {
             XCTAssertEqual(KeyboardLayout(width: width).totalHeight, 253, "width \(width)")
