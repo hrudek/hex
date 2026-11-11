@@ -4,6 +4,7 @@ import SwiftUI
 enum SettingsDestination: String, CaseIterable, Hashable {
     case keyboard
     case keyboardDiagnostics = "keyboard-diagnostics"
+    case keyboardLearnedWords = "keyboard-learned-words"
     // Keep the existing simulator scene name; this is not a persisted user setting.
     case textProcessing = "writing"
     case history
@@ -16,6 +17,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         switch self {
         case .keyboard: "Keyboard"
         case .keyboardDiagnostics: "Typing diagnostics"
+        case .keyboardLearnedWords: "Manage learned words"
         case .textProcessing: "AI & vocabulary"
         case .history: "History & feedback"
         case .cleanupPrompt: "Cleanup prompt"
@@ -27,7 +29,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
 
     var subtitle: String {
         switch self {
-        case .keyboard, .keyboardDiagnostics, .textProcessing, .history, .cleanupPrompt: ""
+        case .keyboard, .keyboardDiagnostics, .keyboardLearnedWords, .textProcessing, .history, .cleanupPrompt: ""
         case .speechEngine: "Automatic chooses an engine until you select one. Audio stays on this iPhone."
         case .style: "Choose how Typr formats your dictations. You can also change style from the keyboard."
         case .language: "Choose the language you dictate in, not a translation language. Your speech engine stays selected."

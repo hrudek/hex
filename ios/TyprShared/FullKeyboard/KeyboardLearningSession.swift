@@ -28,6 +28,7 @@ final class KeyboardLearningSession {
     private var dirty = false
     private var lastChange = ContinuousClock.now
     private var saveTask: Task<Void, Never>?
+    private var observer: KeyboardLearningObserver?
 
     /// - Parameters:
     ///   - store: A persistent store, or `nil` for a RAM-only session.
@@ -63,6 +64,7 @@ final class KeyboardLearningSession {
         model = PersonalTypingModel(state: loaded?.0 ?? .init(), isLearningEnabled: enabled)
         diagnostics = loaded?.1 ?? KeyboardDiagnostics()
         if loadWasDeferred { diagnostics.increment(.storeLoadDeferred) }
+        if isPersistent { observer = KeyboardLearningObserver { [weak self] in self?.refresh() } }
     }
 
     var isLearningEnabled: Bool { model.isLearningEnabled }
@@ -172,6 +174,16 @@ final class KeyboardLearningSession {
     func keep(_ word: String) {
         guard model.keep(word) else { return }
         diagnostics.increment(.wordsKept)
+        modelChanged()
+    }
+
+    func forgetKeep(_ word: String) {
+        model.forgetKeep(word)
+        modelChanged()
+    }
+
+    func forgetRejection(_ pair: RejectedCorrection) {
+        model.forgetRejection(pair)
         modelChanged()
     }
 

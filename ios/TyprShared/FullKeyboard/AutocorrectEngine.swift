@@ -100,6 +100,7 @@ final class AutocorrectEngine {
         let original: String
         let insertedText: String
         var kind: CorrectionKind = .autoRule
+        var keptWordWasNew: Bool? = nil
     }
 
     /// One completed word awaiting trust: RAM only, never persisted, logged or exported.
@@ -154,6 +155,7 @@ final class AutocorrectEngine {
     private var lexiconTerms: [String] = []
     private var lexiconTermKeys: Set<String> = []
     private var suppressedInSession: Set<String> = []
+    private var reversibleRejection: RejectedCorrection?
     private(set) var lastCorrection: AppliedCorrection?
     private(set) var pendingFeedback: PendingFeedback?
     private var observedResets: Int
@@ -204,6 +206,10 @@ final class AutocorrectEngine {
         lastCorrection = nil
     }
 
+    func recordAppliedKeep(_ word: String, wasNew: Bool) {
+        lastCorrection = AppliedCorrection(original: word, insertedText: word + " ", keptWordWasNew: wasNew)
+    }
+
     func recordAppliedCorrection(original: String, insertedText: String) {
         lastCorrection = AppliedCorrection(original: original, insertedText: insertedText,
                                            kind: pendingFeedback?.kind ?? .autoRule)
@@ -227,6 +233,7 @@ final class AutocorrectEngine {
             observedFeedbackEpoch = learning.feedbackEpoch
             pendingFeedback = nil
             lastCorrection = nil
+            reversibleRejection = nil
         }
         guard observedResets != learning.resets else { return }
         observedResets = learning.resets
@@ -240,10 +247,12 @@ final class AutocorrectEngine {
         touchInput.clear()
         decodeCache = nil
         pendingFeedback = nil
+        reversibleRejection = nil
     }
 
     func discardFeedback() {
         pendingFeedback = nil
+        reversibleRejection = nil
     }
 
     private func invalidateDecode() {
@@ -256,6 +265,7 @@ final class AutocorrectEngine {
     /// The next word's first letter arrives: trust the previous word only
     /// if it is still intact right before the cursor.
     func settleFeedback(beforeInput: String?, insertedLetter: String, afterInput: String?) {
+        reversibleRejection = nil
         guard let pending = pendingFeedback else { return }
         pendingFeedback = nil
         guard pending.learnable, pending.epoch == learning.feedbackEpoch,
@@ -269,6 +279,14 @@ final class AutocorrectEngine {
 
     /// Backspace restored the typed word right after an automatic replacement.
     func recordUndo(_ undo: AppliedCorrection) {
+        if let wasNew = undo.keptWordWasNew {
+            pendingFeedback = nil
+            if wasNew {
+                learning.forgetKeep(undo.original)
+                suppressedInSession.remove(undo.original.lowercased())
+            }
+            return
+        }
         let pending = pendingFeedback
         pendingFeedback = nil
         switch undo.kind {
@@ -284,13 +302,24 @@ final class AutocorrectEngine {
         // Current boundary corrections append one separator; keep other callers safe.
         let hasSeparator = undo.insertedText.last.map { " .,?!".contains($0) } ?? false
         let replacement = hasSeparator ? String(undo.insertedText.dropLast()) : undo.insertedText
+        let pair = RejectedCorrection(typed: undo.original, replacement: replacement)
+        let wasRejected = learning.model.state.rejected.contains(pair)
         learning.rejectCorrection(typed: undo.original, replacement: replacement)
+        reversibleRejection = wasRejected ? nil : pair
     }
 
     /// An explicit strip choice. `evidence` must be captured before the word is invalidated.
     func recordSuggestionFeedback(_ suggestion: KeyboardSuggestion, literal: String,
                                   evidence: KeyboardTouchWord?) {
         pendingFeedback = nil
+        if let pair = reversibleRejection,
+           pair.typed == PersonalLexiconSnapshot.normalize(literal),
+           pair.replacement == PersonalLexiconSnapshot.normalize(suggestion.replacement),
+           suggestion.kind != .keepLiteral {
+            learning.forgetRejection(pair)
+            suppressedInSession.remove(literal.lowercased())
+        }
+        reversibleRejection = nil
         let evidence = evidence?.text == literal ? evidence : nil
         let mayLearn = touchInput.isLearningIntact && evidence?.learningIntact != false
         // The center slot repeats the typed word when nothing else applies: not an alternative.
@@ -388,8 +417,12 @@ final class AutocorrectEngine {
         var pool: [String] = []
         var completions: Set<String> = []
 
+        if let pair = reversibleRejection, pair.typed == PersonalLexiconSnapshot.normalize(token) {
+            // Rejected protections suppress automatic decisions, not the immediate explicit revert.
+            pool.append(Self.matchCase(of: token, onto: pair.replacement))
+        }
         if let autoFix {
-            pool.append(autoFix)
+            if !pool.contains(autoFix) { pool.append(autoFix) }
         } else if englishEnabled, let suggested = Self.suggestOnlyContractions[lower] {
             pool.append(Self.matchCase(of: token, onto: suggested))
         }

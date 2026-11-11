@@ -281,6 +281,16 @@ final class PersonalTypingModel {
         return true
     }
 
+    func forgetKeep(_ word: String) {
+        state.kept.removeValue(forKey: PersonalLexiconSnapshot.normalize(word))
+        cachedLexicon = nil
+    }
+
+    func forgetRejection(_ pair: RejectedCorrection) {
+        state.rejected.removeAll { $0 == pair }
+        cachedLexicon = nil
+    }
+
     func forgetCount(_ word: String) {
         state.counts.removeValue(forKey: PersonalLexiconSnapshot.normalize(word))
         cachedLexicon = nil

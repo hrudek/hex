@@ -194,6 +194,50 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(engine.autocorrect.learning.diagnostics.acceptedBySource["undo"], 4)
     }
 
+    func testImmediateBackspaceRevertsNewKeepButNotExistingProtection() {
+        for alreadyKept in [false, true] {
+            let (engine, target) = keyboard()
+            if alreadyKept { engine.autocorrect.learning.keep("helo") }
+            type("helo", engine)
+            engine.acceptSuggestion(.init(displayText: "helo", replacement: "helo", kind: .keepLiteral))
+            XCTAssertTrue(engine.autocorrect.learning.protections.isKept("helo"))
+            tap(.delete, engine)
+            XCTAssertEqual(target.text, "helo")
+            XCTAssertEqual(engine.autocorrect.learning.protections.isKept("helo"), alreadyKept)
+            XCTAssertFalse(engine.autocorrect.learning.protections.isRejected(typed: "helo", replacement: "helo"))
+        }
+    }
+
+    func testPickingReplacementImmediatelyRevertsNewRejection() {
+        let (engine, target) = keyboard()
+        type("teh ", engine)
+        tap(.delete, engine)
+        XCTAssertTrue(engine.autocorrect.learning.protections.isRejected(typed: "teh", replacement: "the"))
+        let replacement = engine.suggestions.first { $0.replacement == "the" }
+        XCTAssertNotNil(replacement, "The replacement must remain explicitly available after undo")
+        if let replacement { engine.acceptSuggestion(replacement) }
+        XCTAssertEqual(target.text, "the ")
+        XCTAssertFalse(engine.autocorrect.learning.protections.isRejected(typed: "teh", replacement: "the"))
+        type("teh ", engine)
+        XCTAssertEqual(target.text, "the the ", "Session suppression must be reverted too")
+    }
+
+    func testRejectionRevertDoesNotCrossNewTypingOrEraseOlderPair() {
+        let (engine, _) = keyboard()
+        type("teh ", engine)
+        tap(.delete, engine)
+        type("x", engine)
+        engine.acceptSuggestion(.init(displayText: "the", replacement: "the", kind: .secondary))
+        XCTAssertTrue(engine.autocorrect.learning.protections.isRejected(typed: "teh", replacement: "the"))
+
+        let ac = AutocorrectEngine(checker: Checker(), spatialDecoder: nil)
+        ac.learning.rejectCorrection(typed: "teh", replacement: "the")
+        ac.recordUndo(.init(original: "teh", insertedText: "the "))
+        ac.recordSuggestionFeedback(.init(displayText: "the", replacement: "the", kind: .secondary),
+                                    literal: "teh", evidence: nil)
+        XCTAssertTrue(ac.learning.protections.isRejected(typed: "teh", replacement: "the"))
+    }
+
     func testKeepChipCapturesEvidenceBeforeInvalidation() {
         let (engine, target) = keyboard()
         type("helo", engine)
