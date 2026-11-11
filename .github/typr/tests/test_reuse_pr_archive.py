@@ -29,7 +29,7 @@ class ReuseTests(unittest.TestCase):
         }
         self.run = {
             'id': 123, 'repository': {'full_name': REPO}, 'head_repository': {'full_name': REPO},
-            'event': 'pull_request', 'path': '.github/workflows/typr-ci.yml',
+            'event': 'workflow_dispatch', 'path': '.github/workflows/typr-ci.yml',
             'head_sha': SHA, 'head_branch': 'feature/example',
             'status': 'completed', 'conclusion': 'success',
         }
@@ -62,7 +62,7 @@ class ReuseTests(unittest.TestCase):
 
     def test_rejects_wrong_run_stale_commit_and_cancelled_or_queued_ci(self):
         for change in (
-            {'event': 'push'}, {'event': 'workflow_dispatch'},
+            {'event': 'push'}, {'event': 'pull_request'},
             {'path': '.github/workflows/other.yml'}, {'head_sha': 'd' * 40},
             {'head_branch': 'feature/other'}, {'status': 'queued'},
             {'status': 'waiting'}, {'conclusion': 'cancelled'},

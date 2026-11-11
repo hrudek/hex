@@ -314,10 +314,12 @@ xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>
   them on `SpeechTranscriber`, and
   Parakeet's batch path gets no hint. Whisper gets no vocabulary prompt; for it
   vocabulary is post-processing only (spelling passes and cleanup).
-- **Typr CI:** PRs compile an unsigned device archive (app, keyboard and
-  widgets); they do not build the test bundle or automatically run simulator
-  tests. App changes on `main` run simulator tests after merge, beside
-  TestFlight. Manual `distribution=simulator` runs are available before merge;
+- **Typr CI:** PRs run Linux checks and a required current-commit AI review,
+  with no automatic macOS builds or tests. App changes on `main` build the
+  TestFlight archive and run simulator tests in parallel; tests do not gate
+  upload. New automatic app runs cancel older archive/test jobs, not active
+  signing/uploads. Pipeline-only and documentation changes allocate no macOS
+  jobs. Manual `distribution=simulator` runs are available before merge;
   see [TYPR.md](../TYPR.md). These checks do not prove physical-iPhone
   behavior; a test's presence is not evidence of a passing run.
 
