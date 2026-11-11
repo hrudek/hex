@@ -313,6 +313,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         accentCallout.frame = bounds
         stripView.frame = layout.stripFrame
 
+        typrKey.joinsSpace = JoinedSpaceKeycap(layout: layout) != nil
         typrKey.cornerRadius = layout.metrics.cornerRadius
         if let key = layout.key(.typr) {
             typrKey.frame = key.hitFrame

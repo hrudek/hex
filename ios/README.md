@@ -98,7 +98,10 @@ owner-approved privacy, retention and reset contract.
     speech stay English). A warm-session start also sends up to 300 characters
     of the field's text before the cursor to the app as cleanup context (never
     logged); see [AI_CLEANUP.md](AI_CLEANUP.md#language-context-and-hyphens).
-  - **Full keyboard Typr key (Settings › Keyboard › Full keyboard):** A quick tap
+  - **Full keyboard Typr key (Settings › Keyboard › Full keyboard):** Adjacent space
+    and Typr keys share an outlined keycap with a curved decorative seam. Their
+    touch targets and gesture thresholds are unchanged; URL/email fields keep
+    separate keycaps because punctuation sits between them. A quick tap
     types a space, exactly like the space bar (autocorrect, double-space
     period). A still hold of 0.35 s starts dictation in a warm session (or
     opens Typr without one), with a haptic. Moving at least 60 pt before

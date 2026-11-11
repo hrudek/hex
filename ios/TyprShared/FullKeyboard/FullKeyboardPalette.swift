@@ -73,6 +73,72 @@ enum TyprMarkPath {
     }
 }
 
+/// Drawing-only geometry. Never used for hit testing or gesture thresholds.
+struct JoinedSpaceKeycap {
+    let space: CGRect
+    let typr: CGRect
+    let radius: CGFloat
+
+    init?(layout: KeyboardLayout) {
+        guard let space = layout.key(.space), let typr = layout.key(.typr),
+              abs(typr.frame.minX - space.frame.maxX - layout.metrics.gap) < 0.01 else { return nil }
+        self.space = space.frame
+        self.typr = typr.frame
+        radius = layout.metrics.cornerRadius
+    }
+
+    var frame: CGRect { space.union(typr) }
+
+    /// A soft sloping seam, entirely decorative and independent of the touch boundary.
+    static func seam(cap: CGRect, radius: CGFloat) -> UIBezierPath {
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: cap.minX + 2 * radius, y: cap.minY))
+        path.addCurve(
+            to: CGPoint(x: cap.minX, y: cap.maxY),
+            controlPoint1: CGPoint(x: cap.minX, y: cap.minY),
+            controlPoint2: CGPoint(x: cap.minX + 2 * radius, y: cap.maxY)
+        )
+        return path
+    }
+
+    static func typrRegion(cap: CGRect, radius: CGFloat) -> UIBezierPath {
+        let path = seam(cap: cap, radius: radius)
+        path.addLine(to: CGPoint(x: cap.maxX - radius, y: cap.maxY))
+        path.addQuadCurve(to: CGPoint(x: cap.maxX, y: cap.maxY - radius),
+                          controlPoint: CGPoint(x: cap.maxX, y: cap.maxY))
+        path.addLine(to: CGPoint(x: cap.maxX, y: cap.minY + radius))
+        path.addQuadCurve(to: CGPoint(x: cap.maxX - radius, y: cap.minY),
+                          controlPoint: CGPoint(x: cap.maxX, y: cap.minY))
+        path.close()
+        return path
+    }
+
+    func draw(in context: CGContext, palette: FullKeyboardPalette, spacePressed: Bool) {
+        let outline = UIBezierPath(roundedRect: frame.insetBy(dx: 0.5, dy: 0.5), cornerRadius: radius)
+        context.saveGState()
+        outline.addClip()
+        context.setFillColor((spacePressed ? palette.keyPressedFill : palette.keyFill).cgColor)
+        context.fill(frame)
+        if spacePressed {
+            // Replace, rather than stack, translucent fills on the Typr side.
+            context.saveGState()
+            Self.typrRegion(cap: typr, radius: radius).addClip()
+            context.clear(frame)
+            context.setFillColor(palette.keyFill.cgColor)
+            context.fill(frame)
+            context.restoreGState()
+        }
+        context.restoreGState()
+        let ink = palette.isDark ? UIColor(white: 1, alpha: 0.42) : UIColor(white: 0, alpha: 0.24)
+        ink.setStroke()
+        outline.lineWidth = 0.8
+        outline.stroke()
+        let seam = Self.seam(cap: typr.insetBy(dx: 0, dy: 0.5), radius: radius)
+        seam.lineWidth = 0.8
+        seam.stroke()
+    }
+}
+
 extension CGContext {
     /// Draws a continuous-corner iOS 26 Liquid Glass keycap with no legacy under-shadow.
     func fillKeycap(_ rect: CGRect, fill: UIColor, shadow: UIColor = .clear, radius: CGFloat = FullKeyboardPalette.cornerRadius) {

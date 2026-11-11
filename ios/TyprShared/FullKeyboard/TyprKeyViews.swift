@@ -12,6 +12,9 @@ final class TyprKeyControl: UIControl {
     /// The drawn keycap inside the control's (larger) touch target.
     var keycapFrame: CGRect = .zero { didSet { if keycapFrame != oldValue { setNeedsDisplay() } } }
 
+    /// The key plane supplies the shared background; this control keeps its original target.
+    var joinsSpace = false { didSet { if joinsSpace != oldValue { setNeedsDisplay() } } }
+
     /// Typr: a downward slide shows the compact dictation bar.
     var allowsCompactBar = false { didSet { if allowsCompactBar != oldValue { updateAccessibility() } } }
 
@@ -139,11 +142,20 @@ final class TyprKeyControl: UIControl {
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
         let cap = keycapFrame == .zero ? bounds : keycapFrame
-        context.fillKeycap(
-            cap,
-            fill: isHighlighted ? palette.keyPressedFill : palette.keyFill,
-            radius: cornerRadius
-        )
+        if joinsSpace {
+            if isHighlighted {
+                let region = JoinedSpaceKeycap.typrRegion(cap: cap.insetBy(dx: 0, dy: 1), radius: cornerRadius)
+                // Only add the extra pressed tint over the shared fill.
+                (palette.isDark ? UIColor(white: 1, alpha: 0.14) : palette.keyPressedFill).setFill()
+                region.fill()
+            }
+        } else {
+            context.fillKeycap(
+                cap,
+                fill: isHighlighted ? palette.keyPressedFill : palette.keyFill,
+                radius: cornerRadius
+            )
+        }
         let markSize: CGFloat = min(cap.width - 8, cap.height * 0.82)
         let markRect = CGRect(x: cap.midX - markSize / 2, y: cap.midY - markSize / 2, width: markSize, height: markSize)
         if isWarm {
