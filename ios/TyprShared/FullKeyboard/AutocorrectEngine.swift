@@ -561,7 +561,7 @@ final class AutocorrectEngine {
             outcome = spatialDecoder.decodeDetailed(evidence, languages: languages,
                                                     calibration: learning.calibration(for: evidence.layout),
                                                     personal: learning.personalPriors)
-            if forSuggestions {
+            if forSuggestions, case .result = outcome, !spatialDecoder.isResourceLoading {
                 learning.increment(.suggestionDecodes)
                 learning.recordLatency(Self.seconds(since: started), kind: .suggestion)
             }

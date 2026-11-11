@@ -16,7 +16,7 @@ final class AutocorrectEngineTests: XCTestCase {
         target = FixtureTextTarget()
         target.autocapitalizationType = UITextAutocapitalizationType.none
         let session = KeyboardLearningSession(defaults: defaults)
-        let autocorrect = AutocorrectEngine(checker: SystemTextChecker(), learning: session)
+        let autocorrect = AutocorrectEngine(checker: SystemTextChecker(), learning: session, spatialDecoder: nil)
         engine = FullKeyboardEngine(target: target, autocorrect: autocorrect)
         engine.width = 393
         engine.clock = { [unowned self] in self.now }

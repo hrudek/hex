@@ -299,6 +299,14 @@ final class SpatialWordDecoderTests: XCTestCase {
 
     func testSuggestionDecodeCacheAndBoundaryLatencyAreIndependent() {
         let ac = engine()
+        for text in ["g", "ge"] {
+            ac.touchInput.clear()
+            track(evidence(text, aimedAt: text), in: ac)
+            _ = ac.suggestions(beforeInput: text, field: .text, autocorrectionType: .default)
+        }
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 0, "Evidence refusals are not searches")
+        XCTAssertEqual(ac.learning.diagnostics.suggestionMs.reduce(0, +), 0)
+        ac.touchInput.clear()
         track(evidence("gello", aimedAt: "hello"), in: ac)
         for _ in 0..<5 {
             _ = ac.suggestions(beforeInput: "gello", field: .text, autocorrectionType: .default)
@@ -959,6 +967,12 @@ final class SpatialWordDecoderTests: XCTestCase {
         let ac = AutocorrectEngine(checker: SpatialChecker(valid: ["hello"], guesses: ["hello"]),
                                    spatialDecoder: source)
         track(word, in: ac)
+        for _ in 0..<5 {
+            _ = ac.suggestions(beforeInput: "gello", field: .text, autocorrectionType: .default)
+        }
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 0)
+        XCTAssertEqual(ac.learning.diagnostics.suggestionMs.reduce(0, +), 0)
+        XCTAssertEqual(ac.learning.diagnostics[.boundaries], 0)
         XCTAssertEqual(replacement(ac), "hello")
         XCTAssertEqual(ac.learning.diagnostics[.resourceLoading], 1)
         XCTAssertEqual(ac.learning.diagnostics[.refusedMissingResource], 0)
