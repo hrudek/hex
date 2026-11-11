@@ -104,7 +104,14 @@ final class KeyboardLearningStore {
     func save(model: PersonalTypingModel.State, diagnostics: inout KeyboardDiagnostics) -> Bool {
         resetObserved = false
         guard currentEpochs == loadedEpochs else { resetObserved = true; return false }
-        guard model.validated() != nil else { diagnostics.increment(.storeWriteFailed); return false }
+        var model = model
+        let repaired = model.validated() == nil && model.discardInvalidTouchStats()
+        if repaired { diagnostics.increment(.storeWriteFailed) }
+        guard model.validated() != nil else {
+            if !repaired { diagnostics.increment(.storeWriteFailed) }
+            isPersistent = false // An unrecoverable state must not fail on every session flush.
+            return false
+        }
         guard directory != nil else {
             ramModel = model
             ramDiagnostics = diagnostics

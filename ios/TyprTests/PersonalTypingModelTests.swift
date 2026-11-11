@@ -94,8 +94,25 @@ final class PersonalTypingModelTests: XCTestCase {
             let accepted = model.learn([try label(1, letter: "g", layout: grid)], layout: grid, source: .undo)
             XCTAssertEqual(accepted.accepted, 1)
             XCTAssertTrue(accepted.rejected.isEmpty)
+            XCTAssertNotNil(model.state.validated())
             let rejected = model.learn([try label(1.01, letter: "g", layout: grid)], layout: grid, source: .undo)
             XCTAssertEqual(rejected.rejected[.outlier], 1)
+        }
+    }
+
+    func testAlternatingOnePitchSamplesKeepVarianceValid() throws {
+        for width: CGFloat in [320, 375, 393, 402, 430, 440] {
+            let grid = KeyboardLayout(width: width)
+            let model = PersonalTypingModel()
+            for index in 0..<300 {
+                let outcome = model.learn([try label(index.isMultiple(of: 2) ? 1 : -1,
+                                                     letter: "g", layout: grid)], layout: grid, source: .undo)
+                XCTAssertEqual(outcome.accepted, 1)
+                XCTAssertNotNil(model.state.validated())
+            }
+            let value = try XCTUnwrap(model.state.layouts[KeyboardLayoutSignature(grid).id]?.keys["g"])
+            XCTAssertGreaterThan(value.varianceX, 0.99)
+            XCTAssertLessThanOrEqual(value.varianceX, 1)
         }
     }
 

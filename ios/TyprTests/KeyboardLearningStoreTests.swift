@@ -183,6 +183,32 @@ final class KeyboardLearningStoreTests: XCTestCase {
         XCTAssertEqual(diagnostics[.storeWriteFailed], 2)
     }
 
+    func testInvalidKeyStatsAreDroppedWithoutLosingProtectionOrBlockingLaterSaves() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        let layout = KeyboardLayout(width: 375)
+        let signature = KeyboardLayoutSignature(layout)
+        let model = PersonalTypingModel()
+        model.keep("hello"); model.recordWord("world")
+        model.rejectCorrection(typed: "teh", replacement: "the")
+        var state = model.state
+        state.layouts[signature.id] = .init(signature: signature, lastUpdated: Date(),
+            keys: ["g": .init(n: 1, meanX: 1.0000000000000004), "h": .init(n: 2, varianceX: .nan),
+                   "a": .init(n: 1)])
+        XCTAssertNil(state.validated())
+        let store = fixture.store()
+        var diagnostics = KeyboardDiagnostics()
+        XCTAssertTrue(store.save(model: state, diagnostics: &diagnostics))
+        XCTAssertTrue(store.isPersistent)
+        XCTAssertEqual(diagnostics[.storeWriteFailed], 1)
+        XCTAssertTrue(state.discardInvalidTouchStats()) // Same repair the session applies to RAM.
+        XCTAssertFalse(state.discardInvalidTouchStats())
+        XCTAssertNotNil(state.validated())
+        XCTAssertEqual(Set(state.layouts[signature.id]?.keys.map(\.key) ?? []), ["a"])
+        XCTAssertTrue(store.save(model: state, diagnostics: &diagnostics))
+        XCTAssertEqual(diagnostics[.storeWriteFailed], 1)
+        XCTAssertEqual(fixture.store().load().0, state)
+    }
+
     func testLearningSettingDefaultsOnAndSharesKey() throws {
         let fixture = try Fixture(); defer { fixture.clean() }
         let settings = TyprSettings(defaults: fixture.defaults)

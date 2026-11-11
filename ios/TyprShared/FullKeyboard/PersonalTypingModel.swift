@@ -13,13 +13,15 @@ final class PersonalTypingModel {
         // Pitch-normalized sufficient statistics adapted from AVGVSTVS96/iikb
         // Packages/KeyboardModules/Sources/KeyboardCore/Correction/TouchModel.swift (MIT).
         mutating func update(x: Double, y: Double) {
+            // The inclusive learn gate tolerates floating-point pitch rounding only.
+            let x = max(-1, min(1, x)), y = max(-1, min(1, y))
             n = min(256, n + 1)
             let weight = max(1 / Double(n), 1 / 64.0)
             let dx = x - meanX, dy = y - meanY
-            meanX += weight * dx
-            meanY += weight * dy
-            varianceX = (1 - weight) * (varianceX + weight * dx * dx)
-            varianceY = (1 - weight) * (varianceY + weight * dy * dy)
+            meanX = max(-1, min(1, meanX + weight * dx))
+            meanY = max(-1, min(1, meanY + weight * dy))
+            varianceX = max(0, min(1, (1 - weight) * (varianceX + weight * dx * dx)))
+            varianceY = max(0, min(1, (1 - weight) * (varianceY + weight * dy * dy)))
         }
 
         var calibration: SpatialTouchCalibration.Key {
@@ -79,6 +81,21 @@ final class PersonalTypingModel {
                       && $0.value.lastUpdated.timeIntervalSinceReferenceDate.isFinite }),
                   rejected.allSatisfy({ Self.validWord($0.typed) && Self.validWord($0.replacement) }) else { return nil }
             return self
+        }
+
+        /// Repair only invalid key aggregates, preserving unrelated words and layouts.
+        /// Called before saving as a backstop against an invalid statistic poisoning a session.
+        @discardableResult
+        mutating func discardInvalidTouchStats() -> Bool {
+            let original = layouts
+            for (id, var layout) in layouts {
+                layout.keys = layout.keys.filter { key, stats in
+                    key.utf8.count == 1 && key.utf8.allSatisfy { (97...122).contains($0) } && stats.isValid
+                }
+                if layout.keys.isEmpty { layouts.removeValue(forKey: id) }
+                else { layouts[id] = layout }
+            }
+            return layouts != original
         }
 
         static func validWord(_ word: String) -> Bool {
@@ -281,6 +298,12 @@ final class PersonalTypingModel {
         }
         return Summary(layouts: layouts, keptWords: state.kept.count, countedWords: state.counts.count,
             wordCountTotal: state.counts.values.reduce(0) { $0 + $1.count }, rejectedCorrections: state.rejected.count)
+    }
+
+    /// Mutates RAM too, so the same invalid aggregate is reported only once.
+    func prepareForSave() -> Bool {
+        guard state.validated() == nil else { return false }
+        return state.discardInvalidTouchStats()
     }
 
     func reset() { state = State(); cachedLexicon = nil }

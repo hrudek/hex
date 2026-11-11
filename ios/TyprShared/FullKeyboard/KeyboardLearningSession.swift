@@ -106,6 +106,10 @@ final class KeyboardLearningSession {
             stopPersistence()
             return
         }
+        if model.prepareForSave() {
+            diagnostics.increment(.storeWriteFailed)
+            generation &+= 1
+        }
         // The store posts the change notification after a successful write.
         if store.save(model: model.state, diagnostics: &diagnostics) {
             dirty = false
