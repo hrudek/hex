@@ -11,8 +11,9 @@ gestures, static hit-testing and the three suggestion slots are unchanged.
 `AutocorrectEngine.decide` serves both suggestions and replace-on-Space.
 `replacementOnSpace` records one decision transaction; tapping the Typr key uses
 the same Space path. Return never autocorrects or records a new decision boundary;
-it can settle feedback for an earlier, intact word. Double-space punctuation
-remains separate. The existing Autocorrect and independent Deutsch/English
+it does not settle learning feedback either. Unchanged literals settle only on the
+next word's first unambiguous letter with the previous word still intact. A second
+Space, double-space-period and punctuation never teach. The existing Autocorrect and independent Deutsch/English
 settings apply; both languages default on. Autocorrect off disables spatial decoding
 and boundary decisions, not explicit suggestion feedback or diagnostics inspection.
 
@@ -39,7 +40,12 @@ spatial refusal, the spelling fallback is blocked only when an above-literal
 same-length or transposition candidate has a **nonnegative spatial-only lead**
 over the literal. A prior-promoted but geometrically worse neighbor no longer
 vetoes spelling fallback (the PR #96 finding). A recorded spatial refusal may
-therefore coexist with a successful spelling-fallback decision.
+therefore coexist with a successful spelling-fallback decision. The dashboard calls
+these “Paths that declined to replace”, not reasons the final word stayed unchanged.
+Undo suppresses the original for the session and persists its rejected pair, with
+identity labels only for intact evidence; it never permanently keeps or counts the
+original. The explicit keep chip still permanently protects it, including while
+learning is off; off supplies no labels/counts.
 
 ## Evidence, scoring and bounded search
 
@@ -68,20 +74,30 @@ therefore coexist with a successful spelling-fallback decision.
   **6,000 pops, 12,000 generated states and 12,000 spelling-trail records**, depth
   at most 32; at most eight distinct above-literal alternatives. Subtree maximum
   priors and state dominance tighten bounds without changing scoring. Selected
-  resources are lazy loaded/mapped and fully validated, with a derived subtree
-  index; missing either selected language is resource unavailability, not a
-  preference for the other. The engine caches the current evidence/languages/
-  learning-generation result, not an unbounded word history.
+  resources are mapped, fully validated and subtree-indexed in a detached task
+  started on keyboard appearance with Autocorrect on, then installed on the main
+  actor. Until ready, decode immediately reports unavailable(resource), so spelling
+  fallback runs without blocking typing. Boundaries count `resourceLoading`
+  (“Word data still loading”), separately from missing/invalid data. Missing either
+  selected language is resource unavailability, not a preference for the other.
+  Injected lexicons remain synchronous for deterministic tests. The engine caches
+  the current evidence/languages/learning-generation result, not an unbounded word
+  history. Resource-loading outcomes are not cached across readiness.
 - The personal scan considers at most 2,000 sorted kept or count≥2 words,
   retaining only those absent from all selected corpora and passing length/alphabet/
-  first-letter geometry filters. The completeness cap is checked on that union
-  **before** corpus filtering; a larger union makes the result incomplete even
-  if few personal-only words survive. Today's drawn keys
+  first-letter geometry filters. The model validates and enforces one combined
+  kept ∪ counted bound of 2,000 words, evicting unkept counts before keeps. Thus
+  personal snapshot size within that bound never invalidates completeness. An
+  oversized externally supplied snapshot is still refused as incomplete, not
+  silently truncated and called complete. Today's drawn keys
   have no direct ä/ö/ü/ß centers: Unicode data is preserved, but no centers are
   invented. Existing digraph rules and popup fallback remain responsible.
 
 `complete` certifies the exact top-eight distinct **above-literal** spellings
-under this bounded candidate universe and frozen max-path objective. It is not
+under this bounded candidate universe and frozen max-path objective. Ordering uses
+rounded 1e-9-log-unit score buckets, then spelling and language; pruning retains
+that tie window. This avoids platform-dependent key-center/libm/sum rounding
+breaking mathematical ties, with a transitive comparator. It is not
 an accuracy estimate. Essential arena truncation or unfinished search prevents
 that proof; partial results can still supply manual suggestions, never automatic
 replacement.
@@ -109,7 +125,11 @@ search budget with half-arena limits. Retrieval is **best effort**, not covered 
 `complete`, and never feeds automatic decisions or the geometry veto. The engine
 filters structural suggestions for valid/kept/contact literals and rejected pairs.
 The decoder's display list is not a guarantee of the final two visible alternatives.
-Manual prefix completions are marked separately and never supply touch labels.
+Every strict prefix extension is a completion regardless of retrieval source
+(including spatial `keyboar → keyboard` or spelling guesses); picking it records
+manualCompletionPick and a word count but no touch labels. Internal missing-letter
+alternatives such as `helo → hello` still use conservative alignment labels.
+Deleted/retyped words can retain decoding evidence but supply no labels or counts.
 
 ## Sources and checks
 
@@ -176,6 +196,40 @@ filesystem caches may be warm. The derived index alone is 981,112 bytes
 P3c's integrated Linux rerun matched all P1c non-timing results. These historical
 runs are not checks performed by the documentation task and establish no Apple
 SDK build, system-checker behavior, iPhone latency or learning benefit.
+
+### Observed iOS simulator synthetic evaluation
+
+GitHub run **42954810678**, `sim1.log` `TYPR-EVAL` output:
+**iOS simulator on GitHub macOS runner, synthetic taps, not iPhone**.
+The Apple SDK build succeeded; the full run executed 560 tests with three failed
+assertions in two decoder tests (deterministic ties and undo boundary labels).
+The evaluation tests themselves passed. P7 fixes those assertions' causes and
+adds Linux regression checks; a new Apple simulator run is still required.
+
+The same tune/holdout seeds, noise, corpus-membership validity proxy, learning-off
+setting, 384 structural + 256 neighbor samples, 789 controls and 830 prefixes per
+seed were used. A is same-length; B includes edits/display-only retrieval.
+
+| Simulator metric | Tune | Holdout |
+| --- | ---: | ---: |
+| B structural display recall@3 | 318 / 384 | 341 / 384 |
+| B neighbor display recall@3 | 256 / 256 | 255 / 256 |
+| Neighbor correct would-auto, A / B | 243 / 243 | 228 / 227 |
+| Structural correct would-auto, B | 0 | 0 |
+| Wrong typo autos / unwanted control autos, A and B | 0 / 0 | 0 / 0 |
+| Incomplete searches, A and B | 0 | 0 |
+| Unavailable samples per variant (EN neighbor evidence-distance failure) | 0 | 1 |
+| B prefix mean / p95, ms | 2.77 / 9.08 | 2.88 / 9.62 |
+| B DE two-neighbor mean / p95, ms | 23.51 / 32.67 | 22.57 / 30.88 |
+| B EN two-neighbor mean / p95, ms | 19.36 / 29.53 | 21.01 / 32.61 |
+| Maximum pops / generated states, all groups | 2,419 / 3,113 | 2,990 / 4,113 |
+
+All controls/prefixes were available. Aggregate recall/automatic outcomes match
+the Linux summary; simulator timing and search work are separate observations,
+not iPhone performance. Resource preparation is excluded from these decode
+timings. No real typing or personal-learning benefit is established. P7's Linux
+Swift 6.2 optimized rerun on both seeds preserved every recorded non-timing
+metric (including pops/generated summaries) versus the prior Linux final runs.
 
 ## Required owner iPhone checks
 

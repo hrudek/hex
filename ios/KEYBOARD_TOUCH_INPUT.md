@@ -27,8 +27,9 @@ do not prevent tracking. Email/URL fields and missing document context do.
 
 - Single-character backspace removes the last sample only if pre/post-edit tokens
   match; the remaining current word can survive. It cancels pending feedback and
-  never relabels an erased tap. A subsequent fully aligned word may qualify for
-  trusted feedback; arbitrary edit/retype alignment is not inferred.
+  never relabels an erased tap. Any deletion/retyping disqualifies the entire word
+  from learning labels and word counts, even if evidence remains useful for decoding
+  or the word is reconstructed after deletion.
 - Word deletion, unsupported inserts and unalignable edits clear current evidence.
   Accepted suggestions and autocorrect undo capture any usable evidence **before**
   clearing/replacing the current word. Space clears the tracker after the decision;
@@ -57,7 +58,8 @@ path. No surrounding field-text history is retained by the tracker. Its
 Automatic corrections **alone never teach** touch labels or word counts. Explicit
 keep, associated undo and uniquely aligned manual alternative picks can supply
 bounded labels; unchanged valid literals can settle only after an intact suffix
-check at the next letter/boundary. Prefix completion picks supply word counts,
+check when the next word's first unambiguous letter is inserted. A second Space,
+double-space-period, Return or punctuation never settles a literal. Prefix completion picks supply word counts,
 not labels. Full signal rules, distance/layout/finite guards and reset epochs
 are defined in [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md#trusted-signals).
 
