@@ -153,6 +153,42 @@ final class KeyboardLearningStore {
             isPersistent: store.isPersistent)
     }
 
+    /// Explicit app-only inspection; never included in dashboard summaries or exports.
+    func learnedWords() -> PersonalTypingModel.State? { load().0 }
+
+    enum LearnedEntry {
+        case kept(String), count(String), rejected(RejectedCorrection)
+    }
+
+    /// Edit the authoritative snapshot under the reset lock, then advance its epoch.
+    /// A dirty keyboard must reload, not merge its stale protections back into this file.
+    @discardableResult
+    func deleteLearnedEntry(_ entry: LearnedEntry) -> Bool {
+        guard let defaults, directory != nil else { return false }
+        do {
+            try withLock { root in
+                let epochs = currentEpochs
+                var corrupt = 0
+                guard let saved: PersonalTypingModel.State = read(root.appendingPathComponent(Self.learningName),
+                    limit: Self.maximumLearningBytes, epoch: epochs.learning, corrupt: &corrupt),
+                    var state = saved.validated() else { throw CocoaError(.fileReadCorruptFile) }
+                switch entry {
+                case .kept(let word): state.kept.removeValue(forKey: word)
+                case .count(let word): state.counts.removeValue(forKey: word)
+                case .rejected(let pair): state.rejected.removeAll { $0 == pair }
+                }
+                let next = epochs.learning == Int.max ? 0 : epochs.learning + 1
+                let data = try JSONEncoder().encode(Saved(epoch: next, value: state))
+                guard data.count <= Self.maximumLearningBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+                try write(data, to: root.appendingPathComponent(Self.learningName))
+                defaults.set(next, forKey: Self.learningResetKey)
+                defaults.synchronize()
+            }
+            Self.postChanged()
+            return true
+        } catch { return false }
+    }
+
     @discardableResult
     func requestLearningReset() -> Bool { requestReset(learning: true) }
 

@@ -236,6 +236,13 @@ snapshot fixture, with Deutsch and English enabled, to capture both correction-l
 controls on the Keyboard page; ordinary launches never set these preferences.
 `settings-keyboard-diagnostics` renders a deterministic in-memory synthetic dashboard,
 without reading/writing/resetting personal snapshots or seeding preferences.
+**Typing diagnostics → Manage learned words** explicitly opens the private saved
+keeps, rejected pairs and counts for individual swipe/Edit deletion; the dashboard
+itself still shows totals only. A deletion advances the learning epoch so dirty
+keyboard RAM cannot restore it. The optional `settings-keyboard-learned-words`
+scene shows synthetic fixture data only. Immediate Backspace after a new keep,
+or immediately picking the replacement after undo, reverts that new protection;
+see [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md#manage-learned-words).
 The existing Keyboard setup checklist retains its selective visibility: it appears
 for incomplete keyboard/Full Access, microphone or model setup, or an explicit
 setup request. Once complete it is absent on ordinary launches. Each explicit

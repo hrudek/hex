@@ -204,10 +204,12 @@ final class FullKeyboardEngine {
     }
 
     func acceptSuggestion(_ suggestion: KeyboardSuggestion) {
+        autocorrect.syncLearning()
         // Capture the word's taps before invalidating them: an explicit choice may teach Typr.
         let before = target.documentContextBeforeInput
         let evidence = autocorrect.touchInput.evidence(beforeInput: before)
         let token = AutocorrectEngine.currentToken(in: before)
+        let keepWasNew = token.map { !autocorrect.learning.protections.kept.contains(PersonalLexiconSnapshot.normalize($0)) } ?? false
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
         }
@@ -219,6 +221,9 @@ final class FullKeyboardEngine {
         }
         autocorrect.clearPendingUndo()
         insert(suggestion.replacement + " ")
+        if suggestion.kind == .keepLiteral, let token {
+            autocorrect.recordAppliedKeep(token, wasNew: keepWasNew)
+        }
         // The suggestion's separator counts as the first space of double-space period.
         lastSpaceAt = clock()
     }
@@ -448,6 +453,7 @@ final class FullKeyboardEngine {
     }
 
     func deleteBackward(allowAutocorrectUndo: Bool = true) {
+        autocorrect.syncLearning()
         let beforeDeletion = target.documentContextBeforeInput
         if allowAutocorrectUndo,
            let undo = autocorrect.consumePendingUndo(),

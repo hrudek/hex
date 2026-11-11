@@ -134,6 +134,7 @@ struct KeyboardDiagnosticsView: View {
             note("The event counts above cover the statistics period. Retained learning below may cover a different period and is bounded.")
             metric("Retained counted words", snapshot.model.countedWords.formatted())
             metric("Retained word-count total", snapshot.model.wordCountTotal.formatted())
+            NavigationLink("Manage learned words", value: SettingsDestination.keyboardLearnedWords)
             metric("Retained kept words", snapshot.model.keptWords.formatted())
             metric("Retained rejected corrections", snapshot.model.rejectedCorrections.formatted())
             touchModel

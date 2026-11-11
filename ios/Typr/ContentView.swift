@@ -150,11 +150,13 @@ struct ContentView: View {
                     if destination == .keyboardDiagnostics {
                         // Owns its SettingsPage so pull-to-refresh reaches the scroll view.
                         KeyboardDiagnosticsView()
+                    } else if destination == .keyboardLearnedWords {
+                        KeyboardLearnedWordsView()
                     } else {
                         SettingsPage(title: destination.title, subtitle: destination.subtitle) {
                             switch destination {
                             case .keyboard: KeyboardSettingsCard()
-                            case .keyboardDiagnostics: EmptyView() // Handled above.
+                            case .keyboardDiagnostics, .keyboardLearnedWords: EmptyView() // Handled above.
                             case .textProcessing: TextProcessingSettingsCard()
                             case .cleanupPrompt: CleanupPromptEditor()
                             case .history: HistorySettingsCard { showingLog = true }

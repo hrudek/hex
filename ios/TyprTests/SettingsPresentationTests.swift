@@ -13,7 +13,18 @@ final class SettingsPresentationTests: XCTestCase {
             )
         }
         XCTAssertEqual(Set(SettingsDestination.allCases.map(\.title)),
-                       ["Keyboard", "Typing diagnostics", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
+                       ["Keyboard", "Typing diagnostics", "Manage learned words", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
+    }
+
+    @MainActor
+    func testLearnedWordsFixtureContainsOnlySyntheticEntries() {
+        let state = KeyboardLearnedWordsView.fixtureState()
+        XCTAssertNotNil(state.validated())
+        XCTAssertEqual(Set(state.kept.keys), ["swift", "typr"])
+        XCTAssertEqual(state.rejected, [.init(typed: "teh", replacement: "the")])
+        XCTAssertEqual(state.counts["hello"]?.count, 12)
+        XCTAssertEqual(SettingsDestination.snapshotDestination(arguments:
+            ["Typr", "--snap-state", "settings-keyboard-learned-words"]), .keyboardLearnedWords)
     }
 
     func testTypingDiagnosticsRouteAndTitle() {

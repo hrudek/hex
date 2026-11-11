@@ -26,6 +26,47 @@ final class KeyboardLearningStoreTests: XCTestCase {
         }
     }
 
+    func testIndividualDeletionsWinOverDirtyKeyboardAndPreserveOtherDomains() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        let session = KeyboardLearningSession(store: fixture.store(), defaults: fixture.defaults)
+        session.keep("hello")
+        session.keep("world")
+        session.recordWord("hello")
+        session.rejectCorrection(typed: "teh", replacement: "the")
+        session.flush()
+        let staleWriter = fixture.store()
+        let stale = try XCTUnwrap(staleWriter.load().0)
+        session.keep("unsaved")
+        let initialDiagnostics = session.diagnostics
+
+        XCTAssertTrue(fixture.store().deleteLearnedEntry(.kept("hello")))
+        var counters = initialDiagnostics
+        XCTAssertFalse(staleWriter.save(model: stale, diagnostics: &counters))
+        XCTAssertTrue(staleWriter.resetObserved)
+        session.flush()
+        XCTAssertFalse(session.protections.isKept("hello"))
+        XCTAssertTrue(session.protections.isKept("world"))
+        XCTAssertEqual(session.protections.counts["hello"], 1)
+        XCTAssertFalse(session.protections.isKept("unsaved"), "Explicit edit installs disk state, not dirty RAM")
+
+        XCTAssertTrue(fixture.store().deleteLearnedEntry(.count("hello")))
+        session.flush()
+        XCTAssertNil(session.protections.counts["hello"])
+        let pair = RejectedCorrection(typed: "teh", replacement: "the")
+        XCTAssertTrue(fixture.store().deleteLearnedEntry(.rejected(pair)))
+        session.flush()
+        let final = try XCTUnwrap(fixture.store().load().0)
+        XCTAssertNil(final.kept["hello"])
+        XCTAssertTrue(final.counts.isEmpty)
+        XCTAssertTrue(final.rejected.isEmpty)
+        XCTAssertNotNil(final.kept["world"])
+        XCTAssertEqual(session.diagnostics, initialDiagnostics, "Learning edits leave statistics alone")
+    }
+
+    func testDeleteWithoutPersistentStorageDoesNotPretendToSucceed() {
+        XCTAssertFalse(KeyboardLearningStore(directory: nil, defaults: nil).deleteLearnedEntry(.kept("hello")))
+    }
+
     func testRoundTripSummaryAndFileMetadata() throws {
         let fixture = try Fixture(); defer { fixture.clean() }
         let model = PersonalTypingModel()

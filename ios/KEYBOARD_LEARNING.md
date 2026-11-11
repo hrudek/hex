@@ -123,8 +123,8 @@ The existing App Group (`group.dev.rudek.typr`) contains:
 - `learning.lock` — coordination only, not a data archive.
 
 Each JSON envelope has a reset epoch and schema-versioned value. Only the
-keyboard writes learning/diagnostic snapshots; the app reads summaries and
-requests resets. Writes are atomic **per file**, protected with
+keyboard writes learning/diagnostic snapshots; the app reads summaries,
+requests resets and explicitly deletes individual saved lexicon entries. Writes are atomic **per file**, protected with
 `completeUntilFirstUserAuthentication`, excluded from backup, directory mode
 0700 and file mode 0600. One lock covers save/reset operations, using three
 nonblocking `flock` attempts with 5 ms pauses. This is not a transactional commit
@@ -175,6 +175,38 @@ an iOS text replacement containing spaces, digits or other punctuation suppresse
 the shortcut for this session only; it does not persist a rejected pair or keep.
 Both protections work while learning is off, without teaching labels/counts.
 The dictation-log archive and its separate retention/reset rules are unchanged.
+
+## Manage learned words
+
+**Typing diagnostics → Manage learned words** loads saved kept words, rejected
+`typed → replacement` pairs and frequent-word counts only after an explicit tap.
+Swipe or Edit deletes one entry; keeps and counts are separate entries even when
+they share a word. No context, typed history, raw taps or per-word dates are shown.
+The dashboard and exports do not include this list. Without saved data the page
+explains that Full Access may be off or nothing has been saved; the app cannot
+inspect the keyboard's current permission or RAM-only learning.
+
+Each deletion rereads the authoritative file under `learning.lock`, removes only
+the selected entry, atomically writes the remaining learning with a new learning
+epoch, publishes that epoch and posts the existing Darwin notification. A running
+keyboard reloads on notification/refresh; a stale writer is refused under the same
+lock before it can restore deleted data. Installing the edited snapshot deliberately
+discards unsaved RAM learning and pending feedback/session suppression; saved touch
+calibration, other words/pairs and statistics stay. Errors are shown for retry.
+As with resets, this is not secure erasure. File write and defaults publication are
+not a crash-atomic transaction: termination between them can invalidate the learning
+snapshot (fail closed), rather than restore a deleted word.
+
+Immediately pressing Backspace after a keep removes a newly added keep and restores
+the literal without its separator. A keep that already existed is not removed.
+Immediately picking the original replacement after undoing an automatic correction
+removes only the newly added rejected pair and its session suppression. New typing,
+another feedback action, context changes or an epoch change end this association.
+These are protection reversals, not rollback of already aggregated touch labels,
+counts or diagnostic events. Older protection is never erased by an immediate revert.
+
+The optional `settings-keyboard-learned-words` snapshot uses synthetic in-memory
+fixture words only and never reads or edits the saved personal collection.
 
 ## Diagnostic definitions and limits
 
