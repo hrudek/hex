@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 @testable import Typr
 
@@ -207,6 +208,60 @@ final class KeyboardLearningStoreTests: XCTestCase {
         XCTAssertTrue(store.save(model: state, diagnostics: &diagnostics))
         XCTAssertEqual(diagnostics[.storeWriteFailed], 1)
         XCTAssertEqual(fixture.store().load().0, state)
+    }
+
+    func testSessionRetriesContendedInitialLoadAndCountsItOnlyOnce() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        let model = PersonalTypingModel()
+        model.keep("hello")
+        model.rejectCorrection(typed: "dont", replacement: "don't")
+        var diagnostics = KeyboardDiagnostics()
+        diagnostics.increment(.boundaries, by: 7)
+        XCTAssertTrue(fixture.store().save(model: model.state, diagnostics: &diagnostics))
+        let fd = open(fixture.file("learning.lock").path, O_RDWR)
+        guard fd >= 0 else { return XCTFail("Could not open synthetic store lock") }
+        defer { _ = flock(fd, LOCK_UN); close(fd) }
+        XCTAssertEqual(flock(fd, LOCK_EX | LOCK_NB), 0)
+        var allowed = true
+        let session = KeyboardLearningSession(store: fixture.store(), defaults: fixture.defaults,
+                                              allowsPersistence: { allowed })
+        XCTAssertFalse(session.isPersistent)
+        XCTAssertFalse(session.protections.isKept("hello"))
+        for _ in 0..<3 { session.refresh() }
+        XCTAssertEqual(session.diagnostics[.storeLoadDeferred], 1)
+        XCTAssertFalse(session.isPersistent)
+        XCTAssertEqual(flock(fd, LOCK_UN), 0)
+        allowed = false
+        session.refresh()
+        XCTAssertFalse(session.isPersistent, "Do not read the shared store without Full Access")
+        allowed = true
+        session.refresh()
+        XCTAssertTrue(session.isPersistent)
+        XCTAssertTrue(session.protections.isKept("hello"))
+        XCTAssertTrue(session.protections.isRejected(typed: "dont", replacement: "don't"))
+        XCTAssertEqual(session.diagnostics[.boundaries], 7)
+        XCTAssertEqual(session.diagnostics[.storeLoadDeferred], 1)
+        for _ in 0..<3 { session.refresh(); session.flush() }
+        XCTAssertEqual(fixture.store().load().1[.storeLoadDeferred], 1)
+        XCTAssertEqual(fixture.store().load().0, model.state)
+    }
+
+    func testInitialLoadWaitsForPermissionThenRestoresSavedProtection() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        let model = PersonalTypingModel(); model.keep("hello")
+        var diagnostics = KeyboardDiagnostics()
+        XCTAssertTrue(fixture.store().save(model: model.state, diagnostics: &diagnostics))
+        var allowed = false
+        let session = KeyboardLearningSession(store: fixture.store(), defaults: fixture.defaults,
+                                              allowsPersistence: { allowed })
+        session.refresh()
+        XCTAssertFalse(session.isPersistent)
+        XCTAssertEqual(session.diagnostics[.storeLoadDeferred], 0, "No attempted load failed")
+        allowed = true
+        session.refresh()
+        XCTAssertTrue(session.isPersistent)
+        XCTAssertTrue(session.protections.isKept("hello"))
+        XCTAssertEqual(session.diagnostics[.storeLoadDeferred], 0)
     }
 
     func testLearningSettingDefaultsOnAndSharesKey() throws {

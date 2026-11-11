@@ -18,6 +18,9 @@ final class KeyboardLearningSession {
     private(set) var resets = 0
     private(set) var isPersistent: Bool
     private var store: KeyboardLearningStore
+    /// Retry only before the first successful load, never after a write/permission failure.
+    private var pendingLoad: KeyboardLearningStore?
+    private var loadWasDeferred = false
     private let defaults: UserDefaults?
     private let allowsPersistence: () -> Bool
     private let debounce: Duration
@@ -43,20 +46,23 @@ final class KeyboardLearningSession {
         var active = KeyboardLearningStore(directory: nil, defaults: defaults)
         // Read epochs before loading: a reset racing the load is then seen by the next refresh.
         var initialEpochs = active.currentEpochs
-        if let store, allowsPersistence() {
+        pendingLoad = store?.isPersistent == true ? store : nil
+        if let store = pendingLoad, allowsPersistence() {
             initialEpochs = store.currentEpochs
             let result = store.load()
             // A locked or unreadable store stays RAM-only: never overwrite saved data with an empty model.
             if store.isPersistent {
                 loaded = result
                 active = store
-            }
+                pendingLoad = nil
+            } else { loadWasDeferred = true }
         }
         self.store = active
         isPersistent = loaded != nil
         epochs = initialEpochs
         model = PersonalTypingModel(state: loaded?.0 ?? .init(), isLearningEnabled: enabled)
         diagnostics = loaded?.1 ?? KeyboardDiagnostics()
+        if loadWasDeferred { diagnostics.increment(.storeLoadDeferred) }
     }
 
     var isLearningEnabled: Bool { model.isLearningEnabled }
@@ -74,6 +80,27 @@ final class KeyboardLearningSession {
             model.isLearningEnabled = enabled
             generation &+= 1
             feedbackEpoch &+= 1
+        }
+        if let pendingLoad, allowsPersistence() {
+            let beforeLoad = pendingLoad.currentEpochs
+            let result = pendingLoad.load()
+            if pendingLoad.isPersistent {
+                // Disk is authoritative: never overwrite saved protection with the provisional
+                // RAM-only model from a contended startup. Pending feedback cannot cross this load.
+                store = pendingLoad
+                self.pendingLoad = nil
+                isPersistent = true
+                model = PersonalTypingModel(state: result.0 ?? .init(), isLearningEnabled: enabled)
+                diagnostics = result.1
+                if loadWasDeferred { diagnostics.increment(.storeLoadDeferred) }
+                epochs = beforeLoad
+                generation &+= 1
+                feedbackEpoch &+= 1
+                markChanged()
+            } else if !loadWasDeferred {
+                loadWasDeferred = true
+                diagnostics.increment(.storeLoadDeferred)
+            }
         }
         let current = store.currentEpochs
         guard current != epochs else { return }
@@ -124,6 +151,7 @@ final class KeyboardLearningSession {
     func stopPersistence() {
         saveTask?.cancel()
         saveTask = nil
+        pendingLoad = nil
         guard isPersistent else { return }
         isPersistent = false
         store = KeyboardLearningStore(directory: nil, defaults: defaults)

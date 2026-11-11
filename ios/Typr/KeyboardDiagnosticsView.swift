@@ -171,7 +171,7 @@ struct KeyboardDiagnosticsView: View {
             metric("Learning file", Presentation.fileSize(snapshot.learningFile.bytes))
             metric("Statistics file", Presentation.fileSize(snapshot.diagnosticsFile.bytes))
             note("Location: Typr's shared app group on this iPhone.")
-            counterRows([.storeCorruptDiscarded, .storeWriteFailed])
+            counterRows([.storeCorruptDiscarded, .storeWriteFailed, .storeLoadDeferred])
             if diagnostics[.storeCorruptDiscarded] > 0 {
                 note("Invalid saved data was discarded. Some aggregates may be unavailable until the keyboard saves again.")
             }
