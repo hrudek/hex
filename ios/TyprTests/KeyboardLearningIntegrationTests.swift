@@ -132,6 +132,33 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(session.diagnostics[.autoRule], 1)
     }
 
+    func testContractionUndoPersistsRejectedPairAcrossReloadWithoutKeep() throws {
+        let name = "KeyboardLearning-contraction-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let session = KeyboardLearningSession(store: KeyboardLearningStore(directory: directory, defaults: defaults),
+                                              defaults: defaults)
+        let (engine, target) = keyboard(session: session)
+        type("dont ", engine)
+        XCTAssertEqual(target.text, "don't ")
+        tap(.delete, engine)
+        XCTAssertEqual(target.text, "dont")
+        XCTAssertTrue(session.protections.isRejected(typed: "dont", replacement: "don't"))
+        XCTAssertFalse(session.protections.isKept("dont"))
+        XCTAssertEqual(session.diagnostics[.correctionsRejected], 1)
+        session.flush()
+        let reloaded = KeyboardLearningSession(store: KeyboardLearningStore(directory: directory, defaults: defaults),
+                                               defaults: defaults)
+        XCTAssertTrue(reloaded.protections.isRejected(typed: "dont", replacement: "don't"))
+        let (next, nextTarget) = keyboard(session: reloaded)
+        type("dont ", next)
+        XCTAssertEqual(nextTarget.text, "dont ")
+        XCTAssertEqual(reloaded.diagnostics[.refusedProtected], 1)
+        XCTAssertEqual(reloaded.diagnostics[.autoRule], 1, "Reload must not repeat the correction")
+    }
+
     func testSpellingUndoHasSeparateCounter() {
         let (engine, _) = keyboard(checker: Checker(answers: ["helo": ["hello"]]))
         type("helo ", engine)

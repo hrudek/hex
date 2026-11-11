@@ -166,7 +166,7 @@ final class PersonalTypingModelTests: XCTestCase {
         XCTAssertFalse(model.lexicon.isKept("strasse"), "ß is not folded to ss")
         for word in ["a", "two words", "can't", "word1", String(repeating: "a", count: 33)] {
             XCTAssertFalse(model.keep(word)); XCTAssertFalse(model.recordWord(word))
-            XCTAssertFalse(model.rejectCorrection(typed: word, replacement: "hello"))
+            if word != "can't" { XCTAssertFalse(model.rejectCorrection(typed: word, replacement: "hello")) }
         }
         model.forgetCount("ÜBER")
         XCTAssertNil(model.lexicon.counts["über"])
@@ -208,6 +208,21 @@ final class PersonalTypingModelTests: XCTestCase {
         XCTAssertEqual(model.state.kept.count, 2000)
         XCTAssertNil(model.state.counts["hello"], "Counts cannot evict a keep")
         XCTAssertNotNil(model.state.validated())
+    }
+
+    func testRejectedFormsAllowApostrophesButNotPhrasesOrNonletters() throws {
+        let model = PersonalTypingModel()
+        for replacement in ["DON'T", "Don’t", "I'm"] {
+            XCTAssertTrue(model.rejectCorrection(typed: "DONT", replacement: replacement))
+            XCTAssertTrue(model.lexicon.isRejected(typed: "dont", replacement: replacement))
+            XCTAssertFalse(model.keep(replacement)); XCTAssertFalse(model.recordWord(replacement))
+        }
+        for replacement in ["two words", "word1", "''", "a", String(repeating: "a", count: 33)] {
+            XCTAssertFalse(model.rejectCorrection(typed: "dont", replacement: replacement))
+        }
+        XCTAssertNotNil(model.state.validated())
+        let reloaded = try JSONDecoder().decode(PersonalTypingModel.State.self, from: JSONEncoder().encode(model.state))
+        XCTAssertEqual(reloaded.validated(), model.state)
     }
 
     func testRejectedPairsFIFOAndDeduplication() {

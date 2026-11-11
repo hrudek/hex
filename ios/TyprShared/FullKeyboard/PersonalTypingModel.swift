@@ -79,7 +79,7 @@ final class PersonalTypingModel {
             guard kept.allSatisfy({ Self.validWord($0.key) && $0.value.timeIntervalSinceReferenceDate.isFinite }),
                   counts.allSatisfy({ Self.validWord($0.key) && (1...10_000).contains($0.value.count)
                       && $0.value.lastUpdated.timeIntervalSinceReferenceDate.isFinite }),
-                  rejected.allSatisfy({ Self.validWord($0.typed) && Self.validWord($0.replacement) }) else { return nil }
+                  rejected.allSatisfy({ Self.validRejectedWord($0.typed) && Self.validRejectedWord($0.replacement) }) else { return nil }
             return self
         }
 
@@ -101,6 +101,15 @@ final class PersonalTypingModel {
         static func validWord(_ word: String) -> Bool {
             (2...32).contains(word.count) && word.utf8.count <= 256
                 && word.allSatisfy(\.isLetter) && word == PersonalLexiconSnapshot.normalize(word)
+        }
+
+        /// Rejected correction forms may contain straight or typographic apostrophes.
+        /// Keeps/counts remain letter-only; multi-word text replacements stay session-only.
+        static func validRejectedWord(_ word: String) -> Bool {
+            (2...32).contains(word.count) && word.utf8.count <= 256
+                && word.contains(where: \.isLetter)
+                && word.allSatisfy { $0.isLetter || $0 == "'" || $0 == "’" }
+                && word == PersonalLexiconSnapshot.normalize(word)
         }
 
         /// One shared word budget. Evict unkept counts first, then the oldest keep
@@ -263,7 +272,7 @@ final class PersonalTypingModel {
     @discardableResult
     func rejectCorrection(typed: String, replacement: String) -> Bool {
         let pair = RejectedCorrection(typed: typed, replacement: replacement)
-        guard State.validWord(pair.typed), State.validWord(pair.replacement) else { return false }
+        guard State.validRejectedWord(pair.typed), State.validRejectedWord(pair.replacement) else { return false }
         if !state.rejected.contains(pair) {
             state.rejected.append(pair)
             if state.rejected.count > 512 { state.rejected.removeFirst() }

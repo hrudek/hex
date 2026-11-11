@@ -162,8 +162,12 @@ The obsolete `keyboard.learnedWords` defaults key is deleted when a learning
 session finds it, **without migration** (owner-approved). One explicit keep
 chip now permanently protects the literal immediately, rather than the old
 two-keeps-in-a-session threshold. Undo only suppresses for the session and records
-a persistent rejected pair, never a permanent keep. Both protections work while
-learning is off, without teaching labels/counts.
+a persistent rejected pair, never a permanent keep. Rejected forms allow letters
+and straight/typographic apostrophes (2–32 characters), so undoing `dont → don't`
+protects that pair after reload. Keeps and word counts remain letter-only. Undo of
+an iOS text replacement containing spaces, digits or other punctuation suppresses
+the shortcut for this session only; it does not persist a rejected pair or keep.
+Both protections work while learning is off, without teaching labels/counts.
 The dictation-log archive and its separate retention/reset rules are unchanged.
 
 ## Diagnostic definitions and limits
