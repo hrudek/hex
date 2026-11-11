@@ -169,6 +169,33 @@ final class FullKeyboardEngineTests: XCTestCase {
         }
     }
 
+    func testLongPressPlainPunctuationUsesTheSameBoundaryHandling() throws {
+        for trailingSpace in [false, true] {
+            for mark in ["?", "!", "."] {
+                resetText()
+                type("teh")
+                if trailingSpace { tap(.space) }
+                tap(.layerSwitch(.numbers))
+                down(1, .character(mark))
+                XCTAssertTrue(engine.openAccentMenuIfEligible(forTouch: 1))
+                let menu = try XCTUnwrap(engine.activeAccentMenu)
+                let index = try XCTUnwrap(menu.options.firstIndex(of: mark))
+                let cell = menu.cellFrames[index]
+                engine.touchEnded(id: 1, at: CGPoint(x: cell.midX, y: cell.midY))
+                XCTAssertEqual(target.text, "the" + mark)
+            }
+        }
+    }
+
+    func testPunctuationSpacingStillWorksWithAutocorrectDisabled() {
+        for disabledSetting in [false, true] {
+            resetText("word ")
+            if disabledSetting { engine.autocorrect.isEnabled = false } else { target.autocorrectionType = .no }
+            punctuation("?")
+            XCTAssertEqual(target.text, "word?", "spacing cleanup is independent of word replacement")
+        }
+    }
+
     func testPunctuationDoesNotReconsiderExplicitKeep() {
         type("teh")
         engine.acceptSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))

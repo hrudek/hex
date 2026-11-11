@@ -281,8 +281,9 @@ final class AutocorrectEngine {
             learnIdentity(evidence, literal: undo.original, source: .undo)
         }
         suppressedInSession.insert(undo.original.lowercased())
-        // Every automatic boundary correction appends exactly one separator.
-        let replacement = String(undo.insertedText.dropLast())
+        // Current boundary corrections append one separator; keep other callers safe.
+        let hasSeparator = undo.insertedText.last.map { " .,?!".contains($0) } ?? false
+        let replacement = hasSeparator ? String(undo.insertedText.dropLast()) : undo.insertedText
         learning.rejectCorrection(typed: undo.original, replacement: replacement)
     }
 

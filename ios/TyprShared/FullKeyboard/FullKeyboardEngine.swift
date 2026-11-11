@@ -554,7 +554,7 @@ final class FullKeyboardEngine {
             shift.didType()
         }
         autocorrect.clearPendingUndo()
-        insert(chosen)
+        typeCharacter(chosen)
     }
 
     /// Typr: a tap on the Typr key types a space, exactly like the space bar
