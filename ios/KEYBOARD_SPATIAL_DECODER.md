@@ -88,10 +88,16 @@ learning is off; off supplies no labels/counts.
 - The personal scan considers at most 2,000 sorted kept or count≥2 words,
   retaining only those absent from all selected corpora and passing length/alphabet/
   first-letter geometry filters. Normalization, sorting, alphabet labels and maximum
-  bonus are prepared once per immutable snapshot; corpus absence is cached per
-  snapshot/selected-language set. Per-decode scan work is length/geometry filtering
-  and scoring only the absent words. The model validates and enforces one combined
-  kept ∪ counted bound of 2,000 words, evicting unkept counts before keeps. Thus
+  bonus are prepared once per immutable snapshot, normalizing each word once.
+  Filtered entries track snapshot identity so count bonuses stay current. A separate
+  word-level corpus-absence memo survives snapshot/count changes, keyed by selected
+  language set (at most three sets, each capped at 4,096 words; cleared at capacity
+  before inserting an unseen word). Installing resources clears both caches.
+  New snapshots only repeat corpus lookups for unseen/evicted words; a first decode
+  with a new language set still populates its memo. Per-decode scan work is otherwise
+  length/geometry filtering and scoring only the absent words. The model validates
+  and enforces one combined kept ∪ counted bound of 2,000 words, evicting unkept
+  counts before keeps. Thus
   personal snapshot size within that bound never invalidates completeness. An
   oversized externally supplied snapshot is still refused as incomplete, not
   silently truncated and called complete. Today's drawn keys
@@ -201,6 +207,30 @@ filesystem caches may be warm. The derived index alone is 981,112 bytes
 P3c's integrated Linux rerun matched all P1c non-timing results. These historical
 runs are not checks performed by the documentation task and establish no Apple
 SDK build, system-checker behavior, iPhone latency or learning benefit.
+
+### Observed Linux personal-snapshot change latency
+
+P11 measured Swift 6.2 `-O` on the same Linux x86_64 Ryzen host, bundled DE+EN,
+393 pt, synthetic `keyboar` taps offset +3/−2 pt, and 2,000 public dictionary words
+each initially counted twice. After an initial decode populates the corpus cache,
+each of **40 count changes** increments one existing word, builds a new snapshot,
+decodes once, then decodes again. Medians from the same probe before/after P11:
+
+| Step | Before | After |
+| --- | ---: | ---: |
+| Snapshot / ScanList construction | 6.75 ms | 3.65 ms |
+| First decode after count change | 30.49 ms | 2.37 ms |
+| Warm decode, unchanged snapshot | 2.10 ms | 2.09 ms |
+
+These are separate operations, not end-to-end keystroke measurements. The initial
+corpus-cache-populating decode still took **31.12 ms before / 30.54 ms after**, with
+snapshot construction and resource read/validation/indexing excluded. Capacity
+clears and previously unseen language sets/words can incur fresh corpus lookups.
+The earlier P9 warm-only timings excluded snapshot construction and first-cache
+work, so did not establish responsiveness after a word count changed. This probe
+covers that gap; it is **Linux-only, not iPhone or simulator latency**. Both fixed
+evaluation seeds retain all non-timing metrics (including search work); no typing
+quality improvement or extension-memory measurement is claimed.
 
 ### Observed iOS simulator synthetic evaluation
 

@@ -94,6 +94,22 @@ final class TypingModelTypesTests: XCTestCase {
         XCTAssertEqual(first.kept, model.lexicon.kept)
     }
 
+    func testScanBonusesIgnoreNoncanonicalCountKeysButIncludeUnscannedWords() {
+        let snapshot = PersonalLexiconSnapshot(kept: ["cat", "kept"],
+            counts: ["cat": 2, "CAT": 10_000, "UPPER": 10_000, "once": 1, "negative": -1], rejected: [])
+        XCTAssertEqual(snapshot.scan.entries.map(\.word), ["cat", "kept"])
+        XCTAssertEqual(snapshot.scan.entries.first?.bonus, snapshot.bonus(for: "cat"))
+        XCTAssertEqual(snapshot.scan.entries.last?.bonus, 0)
+        XCTAssertEqual(snapshot.scan.maxBonus, snapshot.bonus(for: "cat"))
+        // A count of one is not scanned, but still bounds the corpus search bonus.
+        let single = PersonalLexiconSnapshot(kept: [], counts: ["once": 1], rejected: [])
+        XCTAssertTrue(single.scan.entries.isEmpty)
+        XCTAssertEqual(single.scan.maxBonus, 0.25)
+        let unsupported = PersonalLexiconSnapshot(kept: [], counts: ["word1": 15], rejected: [])
+        XCTAssertTrue(unsupported.scan.entries.isEmpty)
+        XCTAssertEqual(unsupported.scan.maxBonus, PersonalLexiconSnapshot.maxBonus)
+    }
+
     func testRejectedPairNormalizationLookupAndCodable() throws {
         let pair = RejectedCorrection(typed: "Mu\u{0308}ller", replacement: "Straße")
         XCTAssertEqual(Array(pair.typed.unicodeScalars), Array("müller".unicodeScalars))

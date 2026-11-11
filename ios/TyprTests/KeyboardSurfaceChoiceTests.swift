@@ -32,7 +32,8 @@ final class KeyboardSurfaceChoiceTests: XCTestCase {
     }
 
     func testFullKeyboardViewAllowsCompactBarOnTheTyprKey() {
-        let view = FullKeyboardView(model: KeyboardViewModel(), target: FixtureTextTarget())
+        let view = FullKeyboardView(model: KeyboardViewModel(), target: FixtureTextTarget(),
+            autocorrect: AutocorrectEngine(spatialDecoder: nil))
         XCTAssertFalse(view.allowsCompactBar, "off unless the controller turns it on")
         view.allowsCompactBar = true
         XCTAssertTrue(view.allowsCompactBar)

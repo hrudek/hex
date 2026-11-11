@@ -95,7 +95,7 @@ nonisolated struct PersonalLexiconSnapshot: Equatable, Sendable {
     let kept: Set<String>
     let counts: [String: Int]
     let rejected: Set<RejectedCorrection>
-    /// Shared identity lets the decoder cache corpus membership without comparing 2,000 words.
+    /// Shared identity lets the decoder reuse filtered entries without comparing 2,000 words.
     let scan: ScanList
 
     nonisolated final class ScanList: Sendable {
@@ -109,19 +109,25 @@ nonisolated struct PersonalLexiconSnapshot: Equatable, Sendable {
         let maxBonus: Double
 
         init(kept: Set<String>, counts: [String: Int]) {
-            func bonus(_ word: String) -> Double {
-                guard let count = counts[PersonalLexiconSnapshot.normalize(word)], count >= 1 else { return 0 }
+            func bonus(_ count: Int) -> Double {
+                guard count >= 1 else { return 0 }
                 return min(PersonalLexiconSnapshot.maxBonus, 0.25 * log2(1 + Double(count)))
             }
+            // Check each counted key once; kept-only words are checked below. Noncanonical
+            // count keys cannot supply a bonus, even in externally constructed snapshots.
+            let normalizedCounts = counts.filter { $0.key == PersonalLexiconSnapshot.normalize($0.key) }
             let words = kept.union(counts.keys.filter { (counts[$0] ?? 0) >= 2 }).sorted()
             complete = words.count <= 2_000
-            maxBonus = counts.keys.map(bonus).max() ?? 0
+            maxBonus = normalizedCounts.values.map(bonus).max() ?? 0
             entries = words.prefix(2_000).compactMap { word in
+                let normalized = counts[word] == nil
+                    ? word == PersonalLexiconSnapshot.normalize(word) : normalizedCounts[word] != nil
+                guard normalized else { return nil }
                 let letters = Array(word)
-                guard word == PersonalLexiconSnapshot.normalize(word), (2...32).contains(letters.count) else { return nil }
+                guard (2...32).contains(letters.count) else { return nil }
                 let labels = letters.compactMap { SpatialWordLexicon.alphabet.firstIndex(of: $0) }
                 guard labels.count == letters.count else { return nil }
-                return Entry(word: word, labels: labels, bonus: bonus(word))
+                return Entry(word: word, labels: labels, bonus: bonus(counts[word] ?? 0))
             }
         }
     }

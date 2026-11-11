@@ -124,7 +124,7 @@ nonisolated enum KeyboardDiagnosticsPresentation {
         case .wordsKept: "Words explicitly kept"
         case .correctionsRejected: "Corrections rejected"
         case .storeCorruptDiscarded: "Invalid saved files discarded"
-        case .storeWriteFailed: "Save failures"
+        case .storeWriteFailed: "Save failures or repairs"
         case .storeLoadDeferred: "Deferred learning loads"
         }
     }

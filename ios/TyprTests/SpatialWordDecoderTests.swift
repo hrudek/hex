@@ -745,32 +745,45 @@ final class SpatialWordDecoderTests: XCTestCase {
         let counts = Dictionary(uniqueKeysWithValues: words.map { ($0, 2) })
         let snapshot = PersonalLexiconSnapshot(kept: [], counts: counts, rejected: [])
         let decoder = SpatialWordDecoder(lexicons: sources)
-        for languages: Set<SpatialWordDecoder.Language> in [[.english], [.german], [.english, .german], [.english]] {
-            for typed in ["helo", "keyboar", "thinkng", "wunderbar", "strasse", "teh"] {
-                let word = evidence(typed, aimedAt: typed)
-                // A new decoder/snapshot is the cold reference; then reuse the same snapshot
-                // across changing evidence and language sets, including a cached set revisit.
-                let cold = try XCTUnwrap(SpatialWordDecoder(lexicons: sources).decode(word, languages: languages,
-                    personal: .init(kept: [], counts: counts, rejected: [])))
-                for _ in 0..<2 {
-                    let cached = try XCTUnwrap(decoder.decode(word, languages: languages, personal: snapshot))
-                    XCTAssertEqual(cached.literalScore, cold.literalScore)
-                    XCTAssertEqual(cached.literalSpatialScore, cold.literalSpatialScore)
-                    XCTAssertEqual(cached.literalInLexicon, cold.literalInLexicon)
-                    XCTAssertEqual(cached.complete, cold.complete)
-                    XCTAssertEqual(cached.visits, cold.visits)
-                    XCTAssertEqual(cached.generated, cold.generated)
-                    for (actual, expected) in [(cached.candidates, cold.candidates), (cached.suggestions, cold.suggestions)] {
-                        XCTAssertEqual(actual.count, expected.count)
-                        for (a, b) in zip(actual, expected) {
-                            XCTAssertEqual(a.word, b.word); XCTAssertEqual(a.language, b.language)
-                            XCTAssertEqual(a.score, b.score); XCTAssertEqual(a.spatialScore, b.spatialScore)
-                            XCTAssertEqual(a.edit, b.edit); XCTAssertEqual(a.alignment, b.alignment)
+        let changedWord = try XCTUnwrap(words.first { $0.count >= 3 && $0.allSatisfy { $0.isASCII } })
+        var changedCounts = counts
+        changedCounts[changedWord] = 3
+        // Model the combined bound's eviction when adding a new counted word.
+        changedCounts.removeValue(forKey: try XCTUnwrap(words.last))
+        changedCounts["zello"] = 2
+        let updated = PersonalLexiconSnapshot(kept: [], counts: changedCounts, rejected: [])
+        XCTAssertTrue(updated.scan.complete)
+        XCTAssertFalse(updated.scan === snapshot.scan)
+        // Warm the original snapshot, change a count and add a word, then revisit the original.
+        // The corpus memo survives, but entry bonuses and personal-only words must refresh.
+        for (current, currentCounts) in [(snapshot, counts), (updated, changedCounts), (snapshot, counts)] {
+            for languages: Set<SpatialWordDecoder.Language> in [[.english], [.german], [.english, .german], [.english]] {
+                for typed in ["helo", "keyboar", "thinkng", "wunderbar", "strasse", "teh", "xello", changedWord] {
+                    let word = evidence(typed, aimedAt: typed == "xello" ? "zello" : typed)
+                    let cold = try XCTUnwrap(SpatialWordDecoder(lexicons: sources).decode(word, languages: languages,
+                        personal: .init(kept: [], counts: currentCounts, rejected: [])))
+                    for _ in 0..<2 {
+                        let cached = try XCTUnwrap(decoder.decode(word, languages: languages, personal: current))
+                        XCTAssertEqual(cached.literalScore, cold.literalScore)
+                        XCTAssertEqual(cached.literalSpatialScore, cold.literalSpatialScore)
+                        XCTAssertEqual(cached.literalInLexicon, cold.literalInLexicon)
+                        XCTAssertEqual(cached.complete, cold.complete)
+                        XCTAssertEqual(cached.visits, cold.visits)
+                        XCTAssertEqual(cached.generated, cold.generated)
+                        for (actual, expected) in [(cached.candidates, cold.candidates), (cached.suggestions, cold.suggestions)] {
+                            XCTAssertEqual(actual.count, expected.count)
+                            for (a, b) in zip(actual, expected) {
+                                XCTAssertEqual(a.word, b.word); XCTAssertEqual(a.language, b.language)
+                                XCTAssertEqual(a.score, b.score); XCTAssertEqual(a.spatialScore, b.spatialScore)
+                                XCTAssertEqual(a.edit, b.edit); XCTAssertEqual(a.alignment, b.alignment)
+                            }
                         }
                     }
                 }
             }
         }
+        XCTAssertTrue(decoder.decode(evidence("xello", aimedAt: "zello"), languages: [.english],
+            personal: updated)?.candidates.contains { $0.word == "zello" && $0.language == nil } ?? false)
         let changed = PersonalLexiconSnapshot(kept: ["zello"], counts: [:], rejected: [])
         let word = evidence("xello", aimedAt: "zello")
         XCTAssertTrue(decoder.decode(word, languages: [.english], personal: changed)?.candidates.contains { $0.word == "zello" } ?? false)

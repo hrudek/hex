@@ -176,6 +176,8 @@ final class SpatialWordDecoder {
     private var loadTask: Task<Void, Never>?
     private var personalScan: PersonalLexiconSnapshot.ScanList?
     private var absentPersonalWords: [Set<Language>: [PersonalLexiconSnapshot.ScanList.Entry]] = [:]
+    private var corpusAbsent: [Set<Language>: [String: Bool]] = [:]
+    private static let corpusMemoLimit = 4_096
     private(set) var isResourceLoading = false
 
     init(lexicons: [Language: SpatialWordLexicon]) {
@@ -209,6 +211,7 @@ final class SpatialWordDecoder {
             guard let self else { return }
             self.lexicons = loaded
             self.absentPersonalWords.removeAll()
+            self.corpusAbsent.removeAll()
             self.isResourceLoading = false
             self.loadTask = nil
         }
@@ -216,8 +219,9 @@ final class SpatialWordDecoder {
 
     private func lexicon(_ language: Language) -> SpatialWordLexicon? { lexicons[language] }
 
-    /// Snapshot identity is stable throughout a word/generation. Corpus absence is independent
-    /// of evidence and cached for each selected-language set (at most three nonempty sets).
+    /// The filtered entries track snapshot identity (including changed bonuses). Corpus absence
+    /// depends only on installed resources and the language set, so its bounded RAM memo survives
+    /// count changes. At most three nonempty language sets; installing resources clears both caches.
     private func personalWords(_ personal: PersonalLexiconSnapshot, languages: Set<Language>,
                                sources: [(Language, SpatialWordLexicon)]) -> [PersonalLexiconSnapshot.ScanList.Entry] {
         if personalScan !== personal.scan {
@@ -225,9 +229,15 @@ final class SpatialWordDecoder {
             absentPersonalWords.removeAll()
         }
         if let cached = absentPersonalWords[languages] { return cached }
+        var memo = corpusAbsent.removeValue(forKey: languages) ?? [:]
         let words = personal.scan.entries.filter { entry in
-            sources.allSatisfy { $0.1.logPrior(for: entry.word) == nil }
+            if let absent = memo[entry.word] { return absent }
+            let absent = sources.allSatisfy { $0.1.logPrior(for: entry.word) == nil }
+            if memo.count >= Self.corpusMemoLimit { memo.removeAll(keepingCapacity: true) }
+            memo[entry.word] = absent
+            return absent
         }
+        corpusAbsent[languages] = memo
         absentPersonalWords[languages] = words
         return words
     }

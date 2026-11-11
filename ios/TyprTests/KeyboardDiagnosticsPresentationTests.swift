@@ -38,6 +38,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         XCTAssertEqual(Set(Presentation.refusals), refusals)
         XCTAssertTrue(Presentation.label(.refusedIncompleteSearch).contains("limit"))
         XCTAssertTrue(Presentation.label(.refusedProtected).contains("Protected"))
+        XCTAssertEqual(Presentation.label(.storeWriteFailed), "Save failures or repairs")
         for source in TouchLabelSource.allCases { XCTAssertFalse(Presentation.sourceLabel(source).isEmpty) }
         for reason in TouchLabelRejection.allCases { XCTAssertFalse(Presentation.rejectionLabel(reason).isEmpty) }
     }

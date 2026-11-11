@@ -191,7 +191,7 @@ The dictation-log archive and its separate retention/reset rules are unchanged.
 | Suggestions latency / suggestion searches | Uncached spatial calls returning a search result, triggered by suggestions; excludes evidence/resource refusals, word data still loading and detached word-data preparation; not all keystrokes, strip rendering, host callbacks or end-to-end input latency |
 | Learning events | Words counted, keeps and rejections during the statistics period; not unique retained words/pairs |
 | Trusted/rejected labels | Diagnostics-owned source/reason counters since statistics reset; learning reset preserves them; reasons include outlier, nonfinite position, unknown key, layout mismatch and ambiguous alignment |
-| Save failures / invalid files discarded / deferred learning loads | Observed save failures (including repaired invalid key statistics), invalid payloads rejected, and failed initial-load episodes counted once despite retries; failures may remain only in RAM and be absent from the app snapshot |
+| Save failures or repairs / invalid files discarded / deferred learning loads | Observed save failures (including repaired invalid key statistics), invalid payloads rejected, and failed initial-load episodes counted once despite retries; failures may remain only in RAM and be absent from the app snapshot |
 
 Not every invalidated gesture yields a rejected-label counter: most are discarded
 before learning. `learningOff` counts labels actually submitted by explicit

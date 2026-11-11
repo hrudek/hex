@@ -26,7 +26,8 @@ final class SuggestionBarTests: XCTestCase {
 
     private func keyboard(showsBar: Bool, text: String = "") -> (FullKeyboardView, FixtureTextTarget) {
         let target = FixtureTextTarget(text: text)
-        let view = FullKeyboardView(model: KeyboardViewModel(), target: target)
+        let view = FullKeyboardView(model: KeyboardViewModel(), target: target,
+            autocorrect: AutocorrectEngine(spatialDecoder: nil))
         view.suggestionBarOverride = showsBar
         view.orientationOverride = .portrait
         view.engine.autocorrect.isEnabled = true
