@@ -156,6 +156,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     private var cachedGerman: GermanAutocorrect? // Typr
 
     func warmUpTextCheckerAsync() {
+        if engine.autocorrect.isEnabled { engine.autocorrect.spatialDecoder?.prepareResources() }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.engine.autocorrect.german?.warmUp() // Typr
@@ -176,12 +177,15 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     }
 
     func syncSettings() {
+        // Learning switch and app reset epochs; never per keystroke.
+        engine.autocorrect.syncLearning()
         applySuggestionBarSetting()
         let wantsAutocorrect = FullKeyboardSettings().autocorrect
         if engine.autocorrect.isEnabled != wantsAutocorrect {
             engine.autocorrect.isEnabled = wantsAutocorrect
             engine.refreshSuggestions()
         }
+        if wantsAutocorrect { engine.autocorrect.spatialDecoder?.prepareResources() }
         let wantsEnglish = TyprSettings().autocorrectEnglish
         if engine.autocorrect.englishEnabled != wantsEnglish {
             engine.autocorrect.englishEnabled = wantsEnglish
@@ -232,6 +236,11 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         }
     }
 
+    /// Writes pending learning and diagnostics now (dismissal, memory warning, remount).
+    func flushLearning() {
+        engine.autocorrect.learning.flush()
+    }
+
     /// Selection changes and keyboard dismissal must not retain current-word taps.
     func discardTouchEvidence() {
         engine.discardTouchEvidence()
@@ -239,6 +248,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     /// Frees non-essential UI and Metal drawables when the extension approaches its memory ceiling.
     func handleMemoryWarning() {
+        flushLearning()
         discardTouchEvidence()
         dismissStyleMenu()
         if !showsRecording, let panel = recordingPanel {

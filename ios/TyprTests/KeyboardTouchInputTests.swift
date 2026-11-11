@@ -16,7 +16,7 @@ final class KeyboardTouchInputTests: XCTestCase {
     private func makeEngine(_ target: FixtureTextTarget) -> FullKeyboardEngine {
         let checker = TouchEvidenceChecker()
         // Isolate the evidence contract; spatial ranking is covered in SpatialWordDecoderTests.
-        let ac = AutocorrectEngine(checker: checker, learnedWords: LearnedWordsStore(defaults: nil), spatialDecoder: nil)
+        let ac = AutocorrectEngine(checker: checker, learning: KeyboardLearningSession(), spatialDecoder: nil)
         let engine = FullKeyboardEngine(target: target, autocorrect: ac)
         engine.width = 393
         engine.configureForField()

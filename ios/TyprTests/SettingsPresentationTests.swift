@@ -13,7 +13,13 @@ final class SettingsPresentationTests: XCTestCase {
             )
         }
         XCTAssertEqual(Set(SettingsDestination.allCases.map(\.title)),
-                       ["Keyboard", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
+                       ["Keyboard", "Typing diagnostics", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
+    }
+
+    func testTypingDiagnosticsRouteAndTitle() {
+        XCTAssertEqual(SettingsDestination.snapshotDestination(arguments: ["Typr", "--snap-state", "settings-keyboard-diagnostics"]), .keyboardDiagnostics)
+        XCTAssertEqual(SettingsDestination.keyboardDiagnostics.title, "Typing diagnostics")
+        XCTAssertEqual(SettingsDestination.keyboardDiagnostics.subtitle, "")
     }
 
     func testTypingAssistanceSnapshotOpensKeyboardSettings() {

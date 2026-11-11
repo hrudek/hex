@@ -11,6 +11,7 @@ struct TyprSettings {
         static let autocorrectGerman = "typr.autocorrectGerman"
         static let autocorrectEnglish = "typr.autocorrectEnglish"
         static let hideSuggestionBar = "typr.hideSuggestionBar"
+        static let personalLearning = "keyboard.personalLearning"
         static let dictationLanguage = "typr.dictationLanguage"
         static let preferredSpeechEngine = "typr.preferredSpeechEngine"
     }
@@ -49,6 +50,12 @@ struct TyprSettings {
     var autocorrectEnglish: Bool {
         get { defaults?.object(forKey: Key.autocorrectEnglish) as? Bool ?? true }
         nonmutating set { defaults?.set(newValue, forKey: Key.autocorrectEnglish) }
+    }
+
+    /// Learn local touch calibration and word counts. Explicit keep protection still works while off.
+    var personalLearning: Bool {
+        get { defaults?.object(forKey: Key.personalLearning) as? Bool ?? true }
+        nonmutating set { defaults?.set(newValue, forKey: Key.personalLearning) }
     }
 
     /// The dictation language (a picker, not a switch). Automatic, the default, keeps the

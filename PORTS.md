@@ -15,27 +15,82 @@ sync instructions or local dependencies.
 | Host detection safety (process-ID table) and the resuming URL table | [getdictus/dictus-ios](https://github.com/getdictus/dictus-ios) (`main`), which ports the table from [n0an/VivaDicta](https://github.com/n0an/VivaDicta) at `fac7599517d9110d0e8fc7b439b4e60709547144` | `DictusKeyboard/HostAppResolver.swift`, `DictusKeyboard/HostArbiterActivation.m`, `DictusCore/Sources/DictusCore/KnownAppSchemes.swift` | `8804c3629741b9aebe9475e0b2103769eb969dc5` | `ios/TyprShared/HostReturnCatalog.swift` (custom-scheme entries only; universal links left out), `ios/TyprKeyboard/KeyboardHost.swift` | MIT, © PIVI Solutions; VivaDicta MIT, © Anton Novoselov |
 | Whisper tokenizer special tokens: the special-token table (end, English, no-speech, no-timestamps, start-of-previous, start-of-transcript, first timestamp, transcribe, translate, whitespace) and the `allLanguageTokens` set built from `Constants.languages` | [argmaxinc/argmax-oss-swift](https://github.com/argmaxinc/argmax-oss-swift) (`v1.1.1`) | `Sources/WhisperKit/Core/Models.swift` (`WhisperTokenizerWrapper.init`) | `1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4` | `ios/Typr/WhisperTokenizer.swift` (`TyprWhisperTokenizer`: translated, not copied; every token must round-trip or loading fails instead of upstream's pre-V3 default IDs, the whitespace token is the byte-level `Ġ`, and the word split is Typr's own minimal one, not upstream's) | MIT, © 2024 argmax, inc.; notice in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
 
-## Static spatial keyboard decoder (step 2)
+## Keyboard correction, personal learning and diagnostics (iikb)
 
-Owner-approved narrow adaptation from [AVGVSTVS96/iikb](https://github.com/AVGVSTVS96/iikb)
-at `9c74e51f0218a814e2e99756087d3f38ef003614`, MIT, © 2026 Bassim Shahidy:
+Owner-approved translation of selected ideas from
+[AVGVSTVS96/iikb](https://github.com/AVGVSTVS96/iikb/tree/08df5aa1e698d8587b6dcaef53f5e555ba1fac2a)
+at **`08df5aa1e698d8587b6dcaef53f5e555ba1fac2a`**, **MIT, © 2026 Bassim Shahidy**.
+This extends the static decoder adoption at `9c74e51f0218a814e2e99756087d3f38ef003614`;
+the reviewed Correction/Typing/MemoryStore/Stats sources are unchanged between
+those revisions. The host-return adoption above retains its own historical pin.
+No upstream package is built or added as a dependency.
 
-- Sources: `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Decoder.swift`,
-  `Lexicon.swift`, `TouchModel.swift`.
-- Destination: `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift`.
-- Adapted ideas: bounded trie candidate search, spatial log-likelihood plus unigram
-  prior, offsets in key cells. Typr rewrites these as a fixed Gaussian and bounded
-  same-length traversal, with its own Unicode alphabet, checked TSW1 format and
-  conservative replacement policy. Not upstream's full A* search or learned/joint
-  predictive model. No hypothetical learning, edit paths, completions, dynamic
-  hit-testing, context/network model, swipe or personal/app memory is adopted.
-- None of iikb's word/model resources are copied. Separate FrequencyWords data
-  is owner-approved under CC BY-SA 4.0, not MIT; provenance, hashes and reproduction
-  are in `ios/TyprShared/FullKeyboard/WordData/README.md`.
-- Tests: `SpatialWordDecoderTests`, `ios/tools/keyboard_words/test_build.py`.
-  See `ios/KEYBOARD_SPATIAL_DECODER.md` for behavior and outstanding iPhone proof.
-- The iikb MIT notice is already reproduced in `THIRD_PARTY_NOTICES.md`; it also
-  covers this algorithm adoption at the pinned revision above.
+Exact source and destination paths (multiple source ideas may share a destination):
+
+| Source path at the pinned revision | Adopted/adapted idea | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Decoder.swift` | Best-first trie states, spelling trails, missing/extra/transposed-letter transitions | `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Lexicon.swift` | Compact trie traversal and corpus unigram priors; not its binary format | `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` | Separate literal score, spatial/prior components and candidate provenance; not its automatic replacement policy | `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift`, `ios/TyprShared/FullKeyboard/AutocorrectEngine.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TouchModel.swift` | Layout-separated, pitch-normalized sufficient statistics, rewritten as bounded per-key diagonal mean/variance | `ios/TyprShared/FullKeyboard/TypingModelTypes.swift`, `ios/TyprShared/FullKeyboard/PersonalTypingModel.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift`, `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LanguageModel.swift` | Explicit keeps, personal word counts and rejected corrections; only bounded unigram influence | `ios/TyprShared/FullKeyboard/TypingModelTypes.swift`, `ios/TyprShared/FullKeyboard/PersonalTypingModel.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`PendingWord`, keep/revert/settle) | One delayed feedback transaction and explicit choices, with stricter Typr trust/alignment rules | `ios/TyprShared/FullKeyboard/AutocorrectEngine.swift`, `ios/TyprShared/FullKeyboard/FullKeyboardEngine.swift`, `ios/TyprShared/FullKeyboard/KeyboardLearningSession.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardStore/MemoryStore.swift`, `App/Stats/TapsPage.swift` | Saved snapshot + Darwin notification + foreground reload; not private/shared upstream memory files | `ios/TyprShared/FullKeyboard/KeyboardLearningStore.swift`, `ios/Typr/KeyboardDiagnosticsModel.swift`, `ios/Typr/KeyboardDiagnosticsView.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Aim.swift`, `App/Stats/TapsPage.swift` | Pitch-to-point model display and layout selection, not raw recent points or an accuracy layer | `ios/Typr/KeyboardDiagnosticsModel.swift`, `ios/Typr/KeyboardTouchModelView.swift` |
+
+Typr-specific adaptations and boundaries:
+
+- Checked Unicode TSW1 DE/EN resources remain; one interleaved search has 6,000-pop,
+  12,000-state/trail caps and an explicit above-literal completeness proof. At most
+  one structural edit; incomplete search never authorizes inferred replacement.
+  Below-literal structural retrieval is suggestion-only and best effort.
+- Static hit-testing remains. Gaussian calibration uses shrunk/clamped means and
+  diagonal variance, not iikb's NIW/Student-t mixture, pooled covariance or drift
+  memories. No automatic-output touch/word-count training; manual labels must
+  have independent unambiguous alignment and finite/distance/layout checks.
+- Typr keeps deterministic rules, valid-literal/contact/keep protections,
+  total/spatial/runner-up margins and English/German system validation. No borrowed
+  posterior-best replacement policy or lowercased-frequency noun capitalization.
+- Owner-approved local persistence is schema/epoch validated, byte/collection
+  bounded and protected in the existing App Group, gated by actual Full Access;
+  otherwise session RAM only. App read/reset UI, diagnostics definitions and
+  `KeyboardDiagnostics.swift` are Typr's bounded design, not an upstream stats port.
+
+Excluded from this adoption:
+
+- Neural prediction/fine-tuning and contextual/app histories:
+  `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Network.swift`,
+  `LanguageModel.swift`, `AppWords.swift`, and
+  `Packages/KeyboardModules/Sources/KeyboardStore/PersonalNetwork.swift`
+  (the three Correction files share the preceding Correction directory).
+- Swipe (`Packages/KeyboardModules/Sources/KeyboardCore/Correction/Swipe*.swift`),
+  dynamic hit targets (`Packages/KeyboardModules/Sources/KeyboardCore/Correction/KeyMap.swift`),
+  split/join/space reinterpretation and decoder completions (`Corrector.swift`,
+  `Decoder.swift`, `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift`).
+- Raw recent-tap reservoirs (`TouchModel.swift`), unbounded JSONL statistics
+  (`Packages/KeyboardModules/Sources/KeyboardStore/TypingStats.swift`), low-level
+  trace (`Packages/KeyboardModules/Sources/KeyboardUI/TouchTrace.swift`), and
+  “Accuracy = 1 − deletes/keys” (`App/Stats/Overview.swift`).
+- Backup/network sources (`Packages/KeyboardModules/Sources/KeyboardStore/Backup.swift`,
+  `Packages/KeyboardModules/Sources/KeyboardStore/Source.swift`), upstream voice,
+  branding, entitlements and build/signing configuration. No keyboard network.
+- **All** iikb resources, including
+  `Packages/KeyboardModules/Sources/KeyboardEnglish/Resources/`; no model, lexicon,
+  swipe weights or test corpus is copied. Typr's separate FrequencyWords data
+  stays **CC BY-SA 4.0**, not MIT; exact provenance/hashes/reproduction remain in
+  [WordData/README.md](ios/TyprShared/FullKeyboard/WordData/README.md).
+
+The existing iikb MIT notice in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+was checked against the pinned LICENSE and covers these adaptations; no duplicate
+notice is needed. Short source comments credit translated ideas. Behavior,
+synthetic Linux evidence and outstanding Apple/device proof are in
+[KEYBOARD_SPATIAL_DECODER.md](ios/KEYBOARD_SPATIAL_DECODER.md); privacy, limits,
+reset and switch semantics are in [KEYBOARD_LEARNING.md](ios/KEYBOARD_LEARNING.md).
+Implemented regression suites include `SpatialWordDecoderTests`,
+`SpatialTypoEvaluationTests`, `KeyboardLearningIntegrationTests`,
+`PersonalTypingModelTests`, `KeyboardLearningStoreTests`, `KeyboardDiagnosticsTests`,
+`TypingModelTypesTests`, `KeyboardDiagnosticsPresentationTests` and offline
+`ios/tools/keyboard_words/test_build.py`. These listings do not claim an iOS pass.
 
 ## Carried keyboard PR paths
 

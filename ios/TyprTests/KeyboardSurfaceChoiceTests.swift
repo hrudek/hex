@@ -8,16 +8,14 @@ final class KeyboardSurfaceChoiceTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
         suiteName = "KeyboardSurfaceChoiceTests-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
-        super.tearDown()
     }
 
     // MARK: - Full keyboard
@@ -34,7 +32,8 @@ final class KeyboardSurfaceChoiceTests: XCTestCase {
     }
 
     func testFullKeyboardViewAllowsCompactBarOnTheTyprKey() {
-        let view = FullKeyboardView(model: KeyboardViewModel(), target: FixtureTextTarget())
+        let view = FullKeyboardView(model: KeyboardViewModel(), target: FixtureTextTarget(),
+            autocorrect: AutocorrectEngine(spatialDecoder: nil))
         XCTAssertFalse(view.allowsCompactBar, "off unless the controller turns it on")
         view.allowsCompactBar = true
         XCTAssertTrue(view.allowsCompactBar)

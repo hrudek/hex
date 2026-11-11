@@ -1554,7 +1554,7 @@ final class DictationController {
             controller.keyboardSessionEnabled = false
 
         case "settings-overview", "settings-keyboard", "settings-writing", "settings-history", "settings-speech-engine",
-             "settings-style", "settings-language":
+             "settings-style", "settings-language", "settings-keyboard-diagnostics":
             controller.phase = .ready
             controller.warmDuration = .off
             controller.keyboardSessionEnabled = false

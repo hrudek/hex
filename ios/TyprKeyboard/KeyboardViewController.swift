@@ -50,6 +50,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         fullKeyboard?.discardTouchEvidence()
+        fullKeyboard?.flushLearning()
         pollTimer?.invalidate()
         pollTimer = nil
         viewModel.dismissFeedback()
@@ -167,14 +168,28 @@ final class KeyboardViewController: UIInputViewController {
             child.removeFromParent()
         }
         surface?.removeFromSuperview()
+        fullKeyboard?.flushLearning()
         fullKeyboard = nil
         didWarmLexicon = false
 
         let mounted: UIView
         if wantsFull {
+            // Learning files are written only with real Full Access on a device; otherwise RAM
+            // for this keyboard session.
+            #if targetEnvironment(simulator)
+            let store: KeyboardLearningStore? = nil
+            #else
+            let store = hasFullAccess ? KeyboardLearningStore() : nil
+            #endif
+            let learning = KeyboardLearningSession(
+                store: store,
+                defaults: UserDefaults(suiteName: KeyboardBridge.appGroup),
+                allowsPersistence: { [weak self] in self?.hasFullAccess == true }
+            )
             let keyboard = FullKeyboardView(
                 model: viewModel,
-                target: DocumentProxyTextTarget { [unowned self] in self.textDocumentProxy }
+                target: DocumentProxyTextTarget { [unowned self] in self.textDocumentProxy },
+                autocorrect: AutocorrectEngine(learning: learning)
             )
             keyboard.hostController = self
             keyboard.allowsHaptics = { [weak self] in self?.hasFullAccess ?? false }

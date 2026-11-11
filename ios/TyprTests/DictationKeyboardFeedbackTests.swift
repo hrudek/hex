@@ -311,7 +311,8 @@ final class DictationKeyboardFeedbackTests: XCTestCase {
         target: FixtureTextTarget = FixtureTextTarget(text: "Host text"),
         showsBar: Bool = false
     ) -> FullKeyboardView {
-        let view = FullKeyboardView(model: model, target: target)
+        let view = FullKeyboardView(model: model, target: target,
+            autocorrect: AutocorrectEngine(spatialDecoder: nil))
         view.suggestionBarOverride = showsBar
         view.frame = CGRect(x: 0, y: 0, width: 393, height: view.preferredHeight)
         view.layoutIfNeeded()

@@ -129,14 +129,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Static spatial keyboard recognition and word data
+## Keyboard correction, personal learning, diagnostics and word data
 
-`ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift` adapts the bounded trie search,
-spatial likelihood/prior combination and cell-relative geometry ideas from iikb's
-`Decoder.swift`, `Lexicon.swift` and `TouchModel.swift` at
-`9c74e51f0218a814e2e99756087d3f38ef003614`. This is a narrow rewritten implementation,
-not a port of its learned model; see [PORTS.md](PORTS.md). The iikb MIT notice above
-(Copyright (c) 2026 Bassim Shahidy) also applies to this adoption.
+Typr adapts selected bounded trie/edit-search, spatial/prior scoring, pitch-normalized
+learning statistics, explicit pending feedback and snapshot-dashboard ideas from
+[AVGVSTVS96/iikb at `08df5aa1e698d8587b6dcaef53f5e555ba1fac2a`](https://github.com/AVGVSTVS96/iikb/tree/08df5aa1e698d8587b6dcaef53f5e555ba1fac2a).
+Exact source/destination paths and exclusions are recorded in [PORTS.md](PORTS.md).
+These are rewritten, bounded Typr implementations, not a port of iikb's full
+learned/neural model or resources. The existing iikb MIT notice above
+(Copyright (c) 2026 Bassim Shahidy), verified against the
+[pinned LICENSE](https://github.com/AVGVSTVS96/iikb/blob/08df5aa1e698d8587b6dcaef53f5e555ba1fac2a/LICENSE),
+also covers these adaptations; it is not duplicated here.
 
 The bundled `keyboard-de.words` and `keyboard-en.words` are derived from **Hermit Dave /
 FrequencyWords**, revision `525f9b560de45753a5ea01069454e72e9aa541c6`, 2018 DE/EN

@@ -1,58 +1,87 @@
 # Current-word touch evidence
 
-Step 1 (PR #95) preserved information that fixed key hit-testing otherwise discards,
-without changing typing/correction outputs. The tracker itself still changes no hit-testing,
-visible keys, gestures, settings or dictation and adds no switch, learning or word data.
-Step 2 now consumes its evidence in the separately documented
-[static spatial decoder](KEYBOARD_SPATIAL_DECODER.md).
+PR #95 preserved information that fixed key hit-testing otherwise discards.
+The tracker still changes no hit-testing, visible keys, gestures or dictation.
+Its evidence now serves the [keyboard correction path](KEYBOARD_SPATIAL_DECODER.md)
+and bounded [personal learning through trusted feedback](KEYBOARD_LEARNING.md).
+The tracker itself has no settings or serialization; the separate default-on
+learning switch controls personal model/count updates and inference.
 
 ## Ownership and coordinates
 
-`AutocorrectEngine` owns `KeyboardTouchInput`. `FullKeyboardEngine` supplies each unambiguous
-letter's inserted text, committed point and key, plus the complete `KeyboardLayout` snapshot.
-Points are in keyboard-view coordinates, including the suggestion strip. A normal release
-uses its release point; rollover uses the last point available when the earlier letter is
-committed, exactly once and in insertion order. Shifted letters retain their inserted case.
+`AutocorrectEngine` owns `KeyboardTouchInput`. `FullKeyboardEngine` supplies each
+unambiguous letter's inserted text, committed point and key, plus the complete
+`KeyboardLayout` snapshot. Points use keyboard-view coordinates, including the
+suggestion strip. A normal release uses its release point; rollover uses the
+last point available when the earlier letter is committed, exactly once and in
+insertion order. Shifted letters retain their inserted case.
 
 Only a fully observed, contiguous prose word is available through
-`touchInput.evidence(beforeInput:)`. It must match `AutocorrectEngine.currentToken` exactly.
-Suggestions and replace-on-space validate that association before using it for static
-spatial ranking. Missing evidence preserves the existing spelling-only path. Hidden suggestions and disabled
-autocorrect do not prevent tracking. Email/URL fields and missing document context do.
+`touchInput.evidence(beforeInput:)`. It must match
+`AutocorrectEngine.currentToken` exactly. Suggestions and replace-on-Space
+validate that association before spatial ranking. Missing evidence preserves
+the cautious spelling-only path. Hidden suggestions and disabled autocorrect
+do not prevent tracking. Email/URL fields and missing document context do.
 
 ## Conservative invalidation
 
-- Single-character backspace removes the last sample only if both pre/post-edit tokens match.
-- Word deletion, accepted suggestions, autocorrect undo, space, return and unsupported inserts
-  discard evidence. Earlier words are never restored from a history.
-- Accents chosen in a popup and slides between keys fall back to spelling-only correction;
-  their positions are not labeled as ordinary taps. Numeric/symbol input also falls back.
-- External text changes (including inserted dictation), selection changes, field preparation,
-  keyboard dismissal, memory warnings, canceled gestures and layout changes discard evidence.
-  External invalidation also marks held taps unusable, so a late release cannot recreate it.
-- After invalidation in the middle of a word, subsequent letters cannot create evidence for
-  just that word's suffix. Tracking resumes at a new, fully observed word.
-- At most 64 samples are retained; longer words fall back until a new word begins.
+- Single-character backspace removes the last sample only if pre/post-edit tokens
+  match; the remaining current word can survive. It cancels pending feedback and
+  never relabels an erased tap. Any deletion/retyping disqualifies the entire word
+  from learning labels and word counts, even if evidence remains useful for decoding
+  or the word is reconstructed after deletion.
+- Word deletion, unsupported inserts and unalignable edits clear current evidence.
+  Accepted suggestions and autocorrect undo capture any usable evidence **before**
+  clearing/replacing the current word. Space clears the tracker after the decision;
+  the engine can retain that word in one bounded pending-feedback transaction.
+  Earlier words are never restored from a touch history.
+- Popup accents and slides between keys fall back to spelling-only correction;
+  their positions are not ordinary tap labels. Numeric/symbol input also falls back.
+- External text changes (including dictation/paste), selection changes, field
+  preparation, keyboard dismissal, memory warnings, canceled gestures and layout
+  changes discard current and pending evidence. Held taps become unusable too,
+  so a late release cannot recreate an invalidated word.
+- After invalidation in the middle of a word, later letters cannot create evidence
+  for just its suffix. Tracking resumes at a new, fully observed word.
+- At most 64 samples are retained; overflow clears evidence until a new word.
 
-The existing token parser also excludes handles, paths, identifiers attached to punctuation
-and other non-prose contexts. This first step conservatively excludes apostrophe sequences
-rather than trying to align them. Corrected words and manual replacements are not training
-labels: there is no learning in this change.
+The token parser excludes handles, paths, identifiers attached to punctuation
+and other non-prose contexts. Apostrophe sequences have no tap alignment path.
 
-## Privacy and proof
+## Feedback and privacy boundary
 
-The tracker stores only the current word and geometry in RAM. It has no serialization,
-UserDefaults, file, log, export or network path, and no retained surrounding field text.
-It does not introduce a persistent keyboard log or change the dictation-log exception.
+Current-word touch evidence and its single pending-feedback transaction stay
+**RAM-only**: no raw tap serialization, UserDefaults, file, log, export or network
+path. No surrounding field-text history is retained by the tracker. Its
+`KeyboardTouchWord`/`TouchLabel` values are not Codable.
 
-`KeyboardTouchInputTests` covers geometry, rollover, deletion/retyping, undo, suggestions,
-external changes, held-tap invalidation, layout changes, accents, slides, cancellation,
-trackpad activation, hidden suggestions, disabled autocorrect, non-prose fields, overflow,
-missing context and unchanged correction outputs. Existing keyboard and autocorrect suites
-remain regression checks. These are iOS simulator tests; Linux checks cannot establish that
-they compile/pass. Actual host callback ordering, fast two-thumb typing and keyboard lifecycle
-behavior require an iPhone check. Conservative host invalidation can reduce evidence
-coverage without changing what is typed; measure that coverage before building a decoder.
+Automatic corrections **alone never teach** touch labels or word counts. Explicit
+keep, associated undo and uniquely aligned manual alternative picks can supply
+bounded labels; unchanged valid literals can settle only after an intact suffix
+check when the next word's first unambiguous letter is inserted. A second Space,
+double-space-period, Return or punctuation never settles a literal. Prefix completion picks supply word counts,
+not labels. Full signal rules, distance/layout/finite guards and reset epochs
+are defined in [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md#trusted-signals).
 
-[Step 2](KEYBOARD_SPATIAL_DECODER.md) adds the static decoder and licensed DE/EN data.
-A conservative personal touch model remains a separate, unimplemented future decision.
+For touch data, **only aggregated per-key counts, offsets and variances are
+persisted**, not the word's points or order. The separate personal lexicon also
+stores bounded kept words, trusted word counts and rejected pairs; diagnostics
+store text-free counters/histograms. With real keyboard Full Access these files
+are local, protected and excluded from backup; otherwise session-only. This is
+not a persistent typing log and does not change the dictation-log exception.
+
+## Proof limits
+
+`KeyboardTouchInputTests` covers geometry, rollover, deletion/retyping, undo,
+suggestions, external/held-tap invalidation, layout changes, accents, slides,
+cancellation, trackpad, hidden suggestions, disabled autocorrect, non-prose
+fields, overflow, missing context and unchanged tracking-only outputs.
+`KeyboardLearningIntegrationTests` covers trusted feedback and invalidation;
+decoder tests cover evidence use with spatial scoring enabled. Implemented tests
+are not evidence of a passing iOS run; Linux cannot validate UIKit/host ordering.
+
+Actual host callbacks, evidence coverage during fast two-thumb typing and
+keyboard lifecycle behavior need the owner iPhone checks in the
+[correction-path reference](KEYBOARD_SPATIAL_DECODER.md#required-owner-iphone-checks).
+Conservative invalidation may reduce evidence coverage without changing typed
+characters; coverage and learned model movement do not establish accuracy.

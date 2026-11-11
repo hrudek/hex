@@ -171,7 +171,7 @@ final class FullKeyboardEngine {
 
     /// Invalidates in-flight taps too: a late release must not recreate evidence after a cursor/field change.
     func discardTouchEvidence() {
-        autocorrect.touchInput.clear()
+        autocorrect.discardEvidence()
         for id in touchOrder {
             touches[id]?.hasUnambiguousPoint = false
         }
@@ -204,13 +204,17 @@ final class FullKeyboardEngine {
     }
 
     func acceptSuggestion(_ suggestion: KeyboardSuggestion) {
+        // Capture the word's taps before invalidating them: an explicit choice may teach Typr.
+        let before = target.documentContextBeforeInput
+        let evidence = autocorrect.touchInput.evidence(beforeInput: before)
+        let token = AutocorrectEngine.currentToken(in: before)
+        if let token {
+            autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
+        }
         discardTouchEvidence()
-        if let token = AutocorrectEngine.currentToken(in: target.documentContextBeforeInput) {
+        if let token {
             for _ in 0..<token.count {
                 target.deleteBackward()
-            }
-            if suggestion.kind == .keepLiteral {
-                autocorrect.suppressAndKeep(token)
             }
         }
         autocorrect.clearPendingUndo()
@@ -378,6 +382,8 @@ final class FullKeyboardEngine {
                 break
             }
             autocorrect.clearPendingUndo()
+            // Return never autocorrects or settles learning.
+            autocorrect.discardFeedback()
             insert("\n")
         case .layerSwitch:
             // Hold 123, slide to a key, let go: type it and go back.
@@ -409,7 +415,7 @@ final class FullKeyboardEngine {
     }
 
     func cancelAllTouches() {
-        autocorrect.touchInput.clear()
+        discardTouchEvidence()
         let hadTouches = !touches.isEmpty || activeAccentMenu != nil
         touches.removeAll()
         touchOrder.removeAll()
@@ -450,12 +456,14 @@ final class FullKeyboardEngine {
             }
             target.insertText(undo.original)
             autocorrect.touchInput.clear()
-            autocorrect.suppressAndKeep(undo.original)
+            autocorrect.recordUndo(undo)
+            autocorrect.touchInput.deletedBackward(before: nil, after: target.documentContextBeforeInput)
             lastSpaceAt = nil
             didEdit()
             return
         }
         autocorrect.clearPendingUndo()
+        autocorrect.discardFeedback()
         target.deleteBackward()
         autocorrect.touchInput.deletedBackward(before: beforeDeletion, after: target.documentContextBeforeInput)
         lastSpaceAt = nil
@@ -463,6 +471,7 @@ final class FullKeyboardEngine {
     }
 
     func deleteWordBackward() {
+        autocorrect.discardFeedback()
         autocorrect.touchInput.clear()
         autocorrect.clearPendingUndo()
         guard let before = target.documentContextBeforeInput, !before.isEmpty else {
@@ -482,6 +491,7 @@ final class FullKeyboardEngine {
         for _ in 0..<max(1, count) {
             target.deleteBackward()
         }
+        autocorrect.touchInput.deletedBackward(before: nil, after: target.documentContextBeforeInput)
         lastSpaceAt = nil
         didEdit()
     }
@@ -522,6 +532,8 @@ final class FullKeyboardEngine {
         // Keep evidence through replacementOnSpace, then discard the completed word.
         _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         defer { autocorrect.touchInput.clear() }
+        // A second separator (including double-space-period) is not trusted feedback.
+        autocorrect.discardFeedback()
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
             autocorrect.clearPendingUndo()
@@ -551,13 +563,20 @@ final class FullKeyboardEngine {
             return
         }
         autocorrect.clearPendingUndo()
-        insert(" ")
+        insert(" ", keepsFeedback: true)
         lastSpaceAt = now
     }
 
-    private func insert(_ text: String, sample: KeyboardTouchWord.Sample? = nil) {
+    /// `keepsFeedback`: the boundary's own separator, which opened the pending word feedback.
+    private func insert(_ text: String, sample: KeyboardTouchWord.Sample? = nil, keepsFeedback: Bool = false) {
         let before = target.documentContextBeforeInput
         target.insertText(text)
+        if sample != nil, text.count == 1, text.first?.isLetter == true {
+            autocorrect.settleFeedback(beforeInput: before, insertedLetter: text,
+                                      afterInput: target.documentContextBeforeInput)
+        } else if !keepsFeedback {
+            autocorrect.discardFeedback()
+        }
         if let sample {
             autocorrect.touchInput.append(text: text, point: sample.point, key: sample.key,
                                          layout: layout, before: before, after: target.documentContextBeforeInput)
