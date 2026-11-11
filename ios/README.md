@@ -100,7 +100,8 @@ owner-approved privacy, retention and reset contract.
     logged); see [AI_CLEANUP.md](AI_CLEANUP.md#language-context-and-hyphens).
   - **Full keyboard Typr key (Settings › Keyboard › Full keyboard):** Adjacent space
     and Typr keys share an outlined keycap with a curved decorative seam. The seam
-    stays left of the Typr keycap to leave the full wordmark room with padding. Their
+    flows within the original small Typr key's left padding: keycap size, wordmark
+    size and centered artwork remain exactly as before the joined style. Their
     touch targets and gesture thresholds are unchanged; URL/email fields keep
     separate keycaps because punctuation sits between them. A quick tap
     types a space, exactly like the space bar (autocorrect, double-space

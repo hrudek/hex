@@ -64,6 +64,12 @@ struct FullKeyboardPalette: Equatable {
 /// The same outlined Typr wordmark used by SwiftUI and the app icon, optically
 /// centered like the icon because the keyboard key centers it on the keycap.
 enum TyprMarkPath {
+    /// Unchanged pre-joined-key sizing and centering (baseline 055ccefc).
+    static func frame(in cap: CGRect) -> CGRect {
+        let size = min(cap.width - 8, cap.height * 0.82)
+        return CGRect(x: cap.midX - size / 2, y: cap.midY - size / 2, width: size, height: size)
+    }
+
     static func draw(in context: CGContext, rect: CGRect, color: UIColor, coreColor: UIColor?) {
         context.saveGState()
         context.setFillColor((coreColor ?? color).cgColor)
@@ -92,13 +98,18 @@ struct JoinedSpaceKeycap {
     /// A soft sloping seam, entirely decorative and independent of the touch boundary.
     static func seam(cap: CGRect, radius: CGFloat) -> UIBezierPath {
         let path = UIBezierPath()
-        // Keep the entire seam left of the original keycap, leaving the wordmark
-        // its full existing width plus padding. Only the drawn segment grows.
-        path.move(to: CGPoint(x: cap.minX, y: cap.minY))
+        // Start with the original small key's top-left corner. The flowing seam
+        // stays inside its existing left padding, not 17 pt into the space bar.
+        path.move(to: CGPoint(x: cap.minX + radius, y: cap.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: cap.minX, y: cap.minY + radius),
+            controlPoint: CGPoint(x: cap.minX, y: cap.minY)
+        )
+        let bend: CGFloat = min(1.5, radius / 5)
         path.addCurve(
-            to: CGPoint(x: cap.minX - 2 * radius, y: cap.maxY),
-            controlPoint1: CGPoint(x: cap.minX - 2 * radius, y: cap.minY),
-            controlPoint2: CGPoint(x: cap.minX, y: cap.maxY)
+            to: CGPoint(x: cap.minX, y: cap.maxY),
+            controlPoint1: CGPoint(x: cap.minX + bend, y: cap.midY),
+            controlPoint2: CGPoint(x: cap.minX + bend, y: cap.maxY - radius)
         )
         return path
     }
@@ -122,8 +133,8 @@ struct JoinedSpaceKeycap {
         context.setFillColor((spacePressed ? palette.keyPressedFill : palette.keyFill).cgColor)
         context.fill(frame)
         if spacePressed || typrPressed {
-            // Render the full decorative segment here: it now extends beyond the
-            // Typr control's unchanged touch bounds. Replace translucent fills.
+            // Keep the two pressed fills separate without stacking translucent
+            // colours over the shared background.
             context.saveGState()
             Self.typrRegion(cap: typr, radius: radius).addClip()
             context.clear(frame)

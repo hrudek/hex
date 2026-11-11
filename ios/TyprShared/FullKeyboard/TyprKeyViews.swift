@@ -29,7 +29,7 @@ final class TyprKeyControl: UIControl {
     var onMenuDrag: ((CGPoint) -> Void)?
     var onMenuRelease: ((CGPoint) -> Void)?
 
-    /// Drawing state only; the plane paints the segment outside this control's target.
+    /// Drawing state only; the plane paints both connected key backgrounds.
     var onHighlightChanged: ((Bool) -> Void)?
 
     private var gesture = TyprKeyGesture()
@@ -157,8 +157,7 @@ final class TyprKeyControl: UIControl {
                 radius: cornerRadius
             )
         }
-        let markSize: CGFloat = min(cap.width - 8, cap.height * 0.82)
-        let markRect = CGRect(x: cap.midX - markSize / 2, y: cap.midY - markSize / 2, width: markSize, height: markSize)
+        let markRect = TyprMarkPath.frame(in: cap)
         if isWarm {
             TyprMarkPath.draw(in: context, rect: markRect, color: palette.textBase, coreColor: palette.warmCore)
         } else {
