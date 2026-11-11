@@ -281,7 +281,8 @@ final class AutocorrectEngine {
             learnIdentity(evidence, literal: undo.original, source: .undo)
         }
         suppressedInSession.insert(undo.original.lowercased())
-        let replacement = undo.insertedText.hasSuffix(" ") ? String(undo.insertedText.dropLast()) : undo.insertedText
+        // Every automatic boundary correction appends exactly one separator.
+        let replacement = String(undo.insertedText.dropLast())
         learning.rejectCorrection(typed: undo.original, replacement: replacement)
     }
 
@@ -469,7 +470,7 @@ final class AutocorrectEngine {
         return [literal, primary] + (secondary.map { [$0] } ?? [])
     }
 
-    /// One word-boundary transaction (Space or Typr key): decides once, records diagnostics once and
+    /// One word-boundary transaction (space, Typr key or sentence punctuation): decides once, records diagnostics once and
     /// opens the pending feedback. Returns `(tokenToDelete, replacement)` only for a cautious fix.
     func replacementOnSpace(
         beforeInput: String?,

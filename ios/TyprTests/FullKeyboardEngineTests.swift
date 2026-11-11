@@ -116,6 +116,139 @@ final class FullKeyboardEngineTests: XCTestCase {
         XCTAssertEqual(target.text, "42 ")
     }
 
+    private func resetText(_ text: String = "", keyboardType: UIKeyboardType = .default) {
+        target = FixtureTextTarget(text: text)
+        target.autocapitalizationType = UITextAutocapitalizationType.none
+        target.keyboardType = keyboardType
+        let ac = AutocorrectEngine(learning: KeyboardLearningSession(defaults: defaults), spatialDecoder: nil)
+        engine = FullKeyboardEngine(target: target, autocorrect: ac)
+        engine.width = 393
+        engine.clock = { [unowned self] in self.now }
+        engine.configureForField()
+    }
+
+    private func punctuation(_ mark: String, sliding: Bool = false) {
+        if sliding {
+            down(1, .layerSwitch(.numbers))
+            let at = point(.character(mark))
+            engine.touchMoved(id: 1, to: at)
+            engine.touchEnded(id: 1, at: at)
+        } else {
+            tap(.layerSwitch(.numbers))
+            tap(.character(mark))
+        }
+    }
+
+    func testPunctuationCorrectsTheCurrentWordOnTapAndNumberSlide() {
+        for sliding in [false, true] {
+            for mark in ["?", "!", ".", ","] {
+                resetText()
+                type("teh")
+                punctuation(mark, sliding: sliding)
+                XCTAssertEqual(target.text, "the" + mark)
+                XCTAssertNil(engine.autocorrect.pendingFeedback, "punctuation must not teach automatic output")
+                XCTAssertNil(engine.autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput))
+            }
+        }
+    }
+
+    func testPunctuationReplacesSpaceAfterAutomaticAndExplicitCorrection() {
+        for explicit in [false, true] {
+            for mark in ["?", "!", ".", ","] {
+                resetText()
+                type("teh")
+                if explicit {
+                    engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+                } else {
+                    tap(.space)
+                }
+                XCTAssertEqual(target.text, "the ")
+                punctuation(mark)
+                XCTAssertEqual(target.text, "the" + mark)
+            }
+        }
+    }
+
+    func testPunctuationDoesNotReconsiderExplicitKeep() {
+        type("teh")
+        engine.acceptSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
+        punctuation("?")
+        XCTAssertEqual(target.text, "teh?")
+    }
+
+    func testDoubleSpaceAfterAutomaticAndExplicitCorrection() {
+        for explicit in [false, true] {
+            for typrKey in [false, true] {
+                resetText()
+                type("teh")
+                if explicit {
+                    engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+                } else {
+                    tap(.space)
+                }
+                now += 0.2
+                if typrKey { engine.typeSpaceFromTyprKey() } else { tap(.space) }
+                XCTAssertEqual(target.text, "the. ")
+                now += 0.1
+                tap(.space)
+                XCTAssertEqual(target.text, "the.  ")
+            }
+        }
+    }
+
+    func testSlowSpaceAfterSuggestionDoesNotInsertPeriod() {
+        type("teh")
+        engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+        now += 0.5
+        tap(.space)
+        XCTAssertEqual(target.text, "the  ")
+    }
+
+    func testPunctuationPreservesWhitespaceAndNonProseFields() {
+        for text in ["word  ", "word\n", "word\t", " "] {
+            resetText(text)
+            punctuation("?")
+            XCTAssertEqual(target.text, text + "?")
+        }
+        for field in [UIKeyboardType.emailAddress, .URL] {
+            resetText("teh ", keyboardType: field)
+            punctuation(".")
+            XCTAssertEqual(target.text, "teh .")
+            resetText("teh", keyboardType: field)
+            punctuation(".")
+            XCTAssertEqual(target.text, "teh.")
+        }
+    }
+
+    func testPunctuationRespectsDisabledAutocorrect() {
+        for disabledSetting in [false, true] {
+            resetText()
+            if disabledSetting { engine.autocorrect.isEnabled = false } else { target.autocorrectionType = .no }
+            type("teh")
+            punctuation("!")
+            XCTAssertEqual(target.text, "teh!")
+        }
+    }
+
+    func testDeleteUndoesPunctuationCorrectionWithoutLearningPunctuationAsAWord() {
+        type("teh")
+        punctuation("?")
+        engine.deleteBackward()
+        XCTAssertEqual(target.text, "teh")
+        XCTAssertTrue(engine.autocorrect.learning.model.lexicon.isRejected(typed: "teh", replacement: "the"))
+        XCTAssertFalse(engine.autocorrect.learning.model.lexicon.isRejected(typed: "teh", replacement: "the?"))
+        XCTAssertNil(engine.autocorrect.pendingFeedback)
+    }
+
+    func testExternalCursorChangeInvalidatesSuggestionDoubleSpace() {
+        type("teh")
+        engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+        engine.textDidChange()
+        now += 0.1
+        tap(.space)
+        XCTAssertEqual(target.text, "the  ")
+    }
+
     func testDoubleSpaceTypesAPeriod() {
         type("ok")
         tap(.space)
