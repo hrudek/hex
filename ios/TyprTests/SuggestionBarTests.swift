@@ -69,6 +69,27 @@ final class SuggestionBarTests: XCTestCase {
         XCTAssertFalse(target.text.lowercased().contains("teh"), target.text)
     }
 
+    func testHeldStripChipAndAccessibilityUseTheirOwnActivationChoice() throws {
+        let strip = KeyboardStripView()
+        let old = KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary)
+        let new = KeyboardSuggestion(displayText: "world", replacement: "world", kind: .secondary)
+        var selected: KeyboardSuggestion?
+        strip.onSelectSuggestion = { selected = $0 }
+        strip.update(suggestions: [old], statusText: nil)
+        let button = try XCTUnwrap(strip.subviews.compactMap { $0 as? UIControl }.first { $0.tag == 0 })
+        button.sendActions(for: .touchDown)
+        strip.update(suggestions: [new], statusText: nil)
+        button.sendActions(for: .touchUpInside)
+        XCTAssertEqual(selected, old, "A delayed ranking must not change a held choice")
+        XCTAssertTrue(button.accessibilityActivate())
+        XCTAssertEqual(selected, new, "VoiceOver activates the current choice without touch-down")
+        selected = nil
+        button.sendActions(for: .touchDown)
+        button.sendActions(for: .touchCancel)
+        button.sendActions(for: .touchUpInside)
+        XCTAssertNil(selected)
+    }
+
     func testSwitchingTheBarRebuildsTheKeys() {
         let (view, _) = keyboard(showsBar: true)
         view.suggestionBarOverride = false

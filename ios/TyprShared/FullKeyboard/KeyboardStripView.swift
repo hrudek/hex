@@ -22,6 +22,7 @@ final class KeyboardStripView: UIView {
     private let slotButtons: [SlotButton] = [SlotButton(), SlotButton(), SlotButton()]
     private var currentSuggestions: [KeyboardSuggestion] = []
     private var statusText: String?
+    private var selection = KeyboardSuggestionSelection()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -38,7 +39,10 @@ final class KeyboardStripView: UIView {
 
         for (index, button) in slotButtons.enumerated() {
             button.tag = index
+            button.addTarget(self, action: #selector(handleSlotDown(_:)), for: .touchDown)
             button.addTarget(self, action: #selector(handleSlotTap(_:)), for: .touchUpInside)
+            button.addTarget(self, action: #selector(handleSlotCancel(_:)), for: [.touchCancel, .touchUpOutside])
+            button.addTarget(self, action: #selector(handleSlotAccessibility(_:)), for: .primaryActionTriggered)
             button.isHidden = true
             addSubview(button)
         }
@@ -51,6 +55,7 @@ final class KeyboardStripView: UIView {
     func update(suggestions: [KeyboardSuggestion], statusText: String?) {
         guard suggestions != currentSuggestions || statusText != self.statusText else { return }
         currentSuggestions = suggestions
+        if suggestions.isEmpty { selection = KeyboardSuggestionSelection() }
         self.statusText = statusText
 
         if let statusText, suggestions.isEmpty {
@@ -113,8 +118,21 @@ final class KeyboardStripView: UIView {
         UIRectFill(CGRect(x: (slotW * 2).rounded() - hairline / 2, y: y, width: hairline, height: lineH))
     }
 
+    @objc private func handleSlotDown(_ sender: SlotButton) {
+        selection.begin(slot: sender.tag, suggestions: currentSuggestions)
+    }
+
     @objc private func handleSlotTap(_ sender: SlotButton) {
-        guard sender.tag < currentSuggestions.count else { return }
+        guard let suggestion = selection.finish(slot: sender.tag) else { return }
+        onSelectSuggestion?(suggestion) // Engine revalidates its original token/field ownership.
+    }
+
+    @objc private func handleSlotCancel(_ sender: SlotButton) {
+        selection.cancel(slot: sender.tag)
+    }
+
+    @objc private func handleSlotAccessibility(_ sender: SlotButton) {
+        guard currentSuggestions.indices.contains(sender.tag) else { return }
         onSelectSuggestion?(currentSuggestions[sender.tag])
     }
 
@@ -143,6 +161,11 @@ final class KeyboardStripView: UIView {
             self.palette = palette
             accessibilityLabel = suggestion.displayText
             setNeedsDisplay()
+        }
+
+        override func accessibilityActivate() -> Bool {
+            sendActions(for: .primaryActionTriggered)
+            return true
         }
 
         @objc private func redraw() { setNeedsDisplay() }

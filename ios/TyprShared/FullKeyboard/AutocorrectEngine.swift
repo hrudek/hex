@@ -15,6 +15,7 @@ nonisolated struct KeyboardSuggestion: Equatable, Sendable {
     let replacement: String
     let kind: Kind
     var isCompletion = false
+    var ownership: KeyboardSuggestionOwnership?
 
     var willAutoReplace: Bool {
         if case .primary(let auto) = kind { return auto }
@@ -162,6 +163,48 @@ final class AutocorrectEngine {
     private var observedFeedbackEpoch: Int
     private var decodeCache: DecodeCache?
     private var spellingCache: SpellingCache?
+    private(set) var suggestionConfiguration = 0
+
+    var suggestionLanguages: Set<SpatialWordDecoder.Language> {
+        var languages: Set<SpatialWordDecoder.Language> = []
+        if englishEnabled { languages.insert(.english) }
+        if german != nil { languages.insert(.german) }
+        return languages
+    }
+
+    /// Called only by the worker's deferred preparation, never by key insertion.
+    func suggestionRequest(ownership: KeyboardSuggestionOwnership,
+                           evidence: KeyboardTouchWord?) -> KeyboardSuggestionWorker.Request {
+        let token = ownership.token ?? ""
+        let eligible = isEnabled && !suggestionLanguages.isEmpty && evidence?.text == token
+            && (token == token.lowercased() || (token.first?.isUppercase == true
+                && String(token.dropFirst()) == token.dropFirst().lowercased()))
+            && !Self.shorthandAllowlist.contains(token.lowercased())
+        let evidence = eligible ? evidence : nil
+        return .init(ownership: ownership, evidence: evidence, languages: suggestionLanguages,
+                     calibration: evidence.flatMap { learning.calibration(for: $0.layout) },
+                     personal: evidence == nil ? .empty : learning.personalPriors,
+                     lexicons: spatialDecoder?.resourceSnapshot ?? [:])
+    }
+
+    /// A compatible immutable result is adopted into the same cache the authoritative boundary
+    /// reads. Checker calls remain here on MainActor, in a separate step after key handling.
+    func finishSuggestions(_ result: KeyboardSuggestionWorker.Result) -> [KeyboardSuggestion] {
+        if let evidence = result.request.evidence, let outcome = result.outcome {
+            decodeCache = DecodeCache(evidence: evidence, languages: result.request.languages,
+                                      generation: learning.generation, outcome: outcome)
+            if case .result = outcome, spatialDecoder?.isResourceLoading == false {
+                learning.increment(.suggestionDecodes)
+                learning.recordLatency(result.seconds, kind: .suggestion)
+            }
+        }
+        let suggestions = suggestions(beforeInput: result.request.ownership.context,
+                                      field: result.request.ownership.field,
+                                      autocorrectionType: result.request.ownership.permitsCorrection ? .default : .no)
+        // A loading refusal must not survive installation of resources.
+        if spatialDecoder?.isResourceLoading == true { decodeCache = nil }
+        return suggestions
+    }
 
     init(
         checker: TextChecking? = nil,
@@ -197,6 +240,7 @@ final class AutocorrectEngine {
                 terms.append(trimmedOutput)
             }
         }
+        invalidateDecode()
         lexiconShortcuts = shortcuts
         lexiconTerms = terms
         lexiconTermKeys = Set(terms.map { $0.lowercased() })
@@ -256,6 +300,7 @@ final class AutocorrectEngine {
     }
 
     private func invalidateDecode() {
+        suggestionConfiguration &+= 1
         decodeCache = nil
         spellingCache = nil
     }

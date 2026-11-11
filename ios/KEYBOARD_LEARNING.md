@@ -114,6 +114,25 @@ to ±.25 pitch; sigma clamps to .22–.50. The word bonus is
 `min(1.0, .25 × log2(1 + count))` log units. These bounds limit influence; they
 are not evidence of calibration quality or improved typing.
 
+## Suggestion snapshot isolation
+
+The [suggestion worker](KEYBOARD_SPATIAL_DECODER.md#suggestion-worker-and-boundary-authority)
+receives immutable Sendable calibration/personal-prior values. All live learning,
+protection/rejection mutations, diagnostics and pending feedback stay on MainActor;
+worker output alone never teaches. Results and chips must match learning generation
+**and** feedback/reset epoch, including a statistics-only reset. Switching learning
+off or deleting/resetting saved data invalidates older results rather than letting
+their ranking/protection state cross that change.
+
+At most one running job and one replaceable latest request can retain bounded
+current-word evidence/context in RAM; no worker field is Codable or written.
+Context is capped at 256 characters / 2,048 UTF-8 bytes, token at 64 characters /
+256 bytes, alongside existing tap/personal bounds. There is no new file,
+permission, setting, ordered context history or data collection.
+Suggestion-search diagnostics record accepted uncached worker decode duration
+on MainActor; queue wait, lazy snapshot preparation, checker finish and rendering
+are excluded, so the histogram is still not end-to-end keystroke latency.
+
 ## Files, saves and reset
 
 The existing App Group (`group.dev.rudek.typr`) contains:

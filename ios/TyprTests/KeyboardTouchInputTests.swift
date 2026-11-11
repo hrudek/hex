@@ -91,7 +91,7 @@ final class KeyboardTouchInputTests: XCTestCase {
         tap(.returnKey)
         XCTAssertNil(evidence)
         type("cat")
-        engine.acceptSuggestion(.init(displayText: "car", replacement: "car", kind: .secondary))
+        engine.acceptOwnedFixtureSuggestion(.init(displayText: "car", replacement: "car", kind: .secondary))
         XCTAssertEqual(target.text, "cat dog\ncar ")
         XCTAssertNil(evidence)
     }
@@ -260,7 +260,7 @@ final class KeyboardTouchInputTests: XCTestCase {
             plainTarget.autocapitalizationType = UITextAutocapitalizationType.none
             let plain = makeEngine(plainTarget)
             XCTAssertNotNil(typed.autocorrect.touchInput.evidence(beforeInput: typedTarget.text))
-            XCTAssertEqual(typed.suggestions, plain.suggestions, word)
+            XCTAssertEqual(typed.suggestions.map { $0.replacement }, plain.suggestions.map { $0.replacement }, word)
             typed.typeSpaceFromTyprKey()
             plain.typeSpaceFromTyprKey()
             XCTAssertEqual(typedTarget.text, plainTarget.text, word)

@@ -49,6 +49,84 @@ with spaces, digits or other punctuation get session-only undo suppression (no s
 The explicit keep chip still permanently protects it, including while
 learning is off; off supplies no labels/counts.
 
+## Suggestion worker and boundary authority
+
+Ordinary key insertion no longer calls suggestion ranking synchronously.
+`FullKeyboardEngine.refreshSuggestions` validates current evidence, advances a text
+revision, replaces stale alternatives with safe current-literal/keep chips and
+submits a replaceable request. One owned `KeyboardSuggestionWorker` has **one
+running job and one latest pending preparation**, not a task/queue entry per key.
+Preparation coalesces after key handling returns (including lazy personal snapshot
+construction). Its immutable Sendable request includes revision, engine/field
+ownership, bounded context/token, language configuration, learning generation,
+feedback/reset epoch, resource revision, layout/evidence, calibration and personal
+priors. No mutable checker or learning session crosses isolation.
+
+A private actor owns `SpatialWordRanking` and its personal/corpus memos. The existing
+search/scoring code is extracted unchanged from the main-actor resource facade;
+immutable mapped resources and indexes are shared copy-on-write, not rebuilt or
+expanded per request. Resource preparation remains detached. On completion the
+main actor checks the entire ownership stamp **before** touching policy or UI,
+adopts only an exact-compatible decode and runs the existing spelling/casing,
+lexicon-completion and suggestion policy in a separate main-actor step.
+`UITextChecker`/`GermanAutocorrect` never leave MainActor. This avoids checker
+work on the insertion call stack, not every possible main-thread scheduling stall:
+lazy snapshot construction and the checker finish can still occupy the main
+actor between keys. Hardware event-to-insertion latency needs device measurement.
+
+Space, the Typr key and sentence punctuation **never wait for the worker**.
+A matching ready decode is reused by the existing synchronous authoritative
+decision; if absent/stale, that boundary runs the same bounded synchronous search
+and checker decision as before. Full ranking/automatic-policy semantics are
+unchanged for a frozen eligible snapshot. Incomplete/below-literal results retain
+their existing refusal/display-only rules; no partial result gains authority.
+The final checker/policy decision is always made on MainActor, not cached as an
+unconditional replacement. Immediate undo and learning association are unchanged.
+
+Each published chip carries the originating ownership stamp. Picking checks
+revision, context/token, current field routing/autocorrection permission, settings,
+layout, learning generation and epoch again before deleting text or learning.
+A held chip retains its touch-down choice rather than reading a possibly newer
+slot on touch-up (at most three held choices); cancellation cannot select a new
+slot. VoiceOver activation selects the current chip without a touch-down. An old
+chip is refused even if a new field contains the same word after a field callback. No proxy API can identify an unreported field switch with identical
+text/traits; actual host callback behavior remains an iPhone proof requirement.
+Text/selection/field/layout changes, cancellation, hidden strip, dismissal,
+remount, host backgrounding and memory warnings drop pending/stale work.
+Dismissal/backgrounding suspend suggestions; late jobs/warmup cannot read a hidden
+proxy, and appearance/host activation prepares a new field revision. In-flight
+search is bounded but not preempted; cancellation releases the latest pending
+snapshot and discards the old completion without starting overlapping searches.
+
+Additional suggestion bounds: **256 context characters / 2,048 UTF-8 bytes**,
+**64 token characters / 256 UTF-8 bytes** (larger tokens/contexts get no strip
+ranking; boundary policy is unchanged), at most 64 captured taps and the existing
+2,000-word personal bound. Current/pending worker snapshots stay RAM-only and are
+not a text/tap history. Each core retains at most three language-set corpus memos
+of 4,096 entries; the worker and boundary have separate mutable memos, so their
+memo payload can roughly double, while word-file/index backing stays shared.
+Search arena **element payload** is capped at 1,632,000 bytes per active search
+on the measured 64-bit Linux ABI (states, trails, heap indices and key/value
+payload for dominance entries). A cache-missing synchronous boundary can overlap
+one worker search, so budget two active arenas (3,264,000 bytes of element payload).
+This excludes Swift container/capacity/allocator overhead, strings, other
+matrices/caches and resources; it is not RSS, a
+physical-footprint ceiling or an iOS ABI claim.
+
+`KeyboardSuggestionWorkerTests` covers delayed/reordered completions, stale chips,
+field/context/trait/language/layout/learning/reset changes, cancellation,
+suspension, latest-only queueing, blocked-worker boundary fallback and held-tap
+rollover. `KeyboardSuggestionEvaluationTests` compares complete search outcomes
+(all scores/alignments/work), final strips and boundary decisions on the shared
+DE/EN/mixed noisy-touch generator and reports recall, valid-control unwanted
+changes, maximum-capacity personal scans, synthetic main-actor time and payload
+bounds using `EVAL P1_...` lines. The injected corpus checker is deterministic,
+not Apple's dictionaries; guessed intended words are fixture-supplied, so recall
+is a scheduling-equivalence regression, not independent accuracy evidence.
+See the task handover for exact observed checks; test existence is not a pass.
+Real-device checker timing, event-loop delay, rapid Space overlap in two hosts,
+Full Access/lifecycle races and peak physical footprint remain unverified.
+
 ## Evidence, scoring and bounded search
 
 - Decode only a fully observed word with 3–32 aligned letter taps, matching the
@@ -158,6 +236,41 @@ edit alignment and repeated-letter ambiguity, Gaussian normalization, priors,
 DP oracle, deterministic ties, caps/completeness, suggestion-only separation,
 validation/protections, feedback and undo. Offline Python tests validate the
 compiler and committed resources. Test presence is not a passing iOS run.
+
+### Observed Linux P1 worker regression
+
+Swift **6.4.2**, Swift 6 mode, Linux x86_64 **debug**, synthetic data, not iPhone
+or simulator. The task's full harness run executed **260 tests: 250 passed,
+1 known Linux backup-metadata failure, 9 platform skips**. All 15 new worker and
+evaluation tests passed; the known failure remains visible, not weakened.
+On 2,560 noisy snapshots, worker outcomes (including scores/alignments/search
+work), strips and boundary decisions matched the synchronous API exactly.
+The injected checker uses corpus membership and fixture-provided intended-word
+guesses, not Apple's actual dictionaries or an independent quality benchmark.
+
+| Frozen mode | Samples | Final-strip recall@1 / @3 | Wrong automatic changes, worker / baseline |
+| --- | ---: | --- | --- |
+| DE | 640 | 592 / 596 | 1 / 1 |
+| EN | 640 | 589 / 592 | 1 / 1 |
+| Mixed DE/EN | 1,280 | 1,163 / 1,166 | 1 / 1 |
+
+The fixed noisy-case bound is one existing policy error per mode: intended
+`aber` with transposed `baer` takes the German rule to `bär`; intended `live`
+with missing first letter `ive` takes the English rule to `I've` (also in mixed
+mode). This scheduling PR deliberately preserves both rather than changing rules.
+**624 synthetic-valid word/name/compound/code-switch controls had zero unwanted
+changes**. The 2,000-personal-word/calibrated snapshot test matched the synchronous
+search; its cold worker scan took 166.165 ms here, reinforcing why it is not on
+the ordinary insertion path.
+
+A 160-key synthetic main-actor probe (20 × `keyboard`) simulated the old insertion
+plus synchronous ranking versus current insertion: mean **6.463 → 0.021 ms**,
+p95 **13.345 → 0.036 ms**, p99 **14.559 → 0.053 ms**, max **15.188 → 0.160 ms**.
+English fixture-checker calls during insertion were **1,160 → 0**. Mean remaining suggestion-ready
+wait after the burst was 2.066 ms across both variants. This deliberately excludes
+host delivery/event-loop waiting, rendering and real checker costs; it is not an
+iPhone speedup claim. The task handover preserves the full `EVAL` lines and exact
+commands; the harness's final test log also contains the original spatial tables.
 
 ### Observed Linux x86 synthetic evaluation
 

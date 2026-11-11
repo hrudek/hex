@@ -158,7 +158,7 @@ final class FullKeyboardEngineTests: XCTestCase {
                 resetText()
                 type("teh")
                 if explicit {
-                    engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+                    engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
                 } else {
                     tap(.space)
                 }
@@ -198,7 +198,7 @@ final class FullKeyboardEngineTests: XCTestCase {
 
     func testPunctuationDoesNotReconsiderExplicitKeep() {
         type("teh")
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
         punctuation("?")
         XCTAssertEqual(target.text, "teh?")
     }
@@ -209,7 +209,7 @@ final class FullKeyboardEngineTests: XCTestCase {
                 resetText()
                 type("teh")
                 if explicit {
-                    engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+                    engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
                 } else {
                     tap(.space)
                 }
@@ -225,7 +225,7 @@ final class FullKeyboardEngineTests: XCTestCase {
 
     func testSlowSpaceAfterSuggestionDoesNotInsertPeriod() {
         type("teh")
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
         now += 0.5
         tap(.space)
         XCTAssertEqual(target.text, "the  ")
@@ -269,7 +269,7 @@ final class FullKeyboardEngineTests: XCTestCase {
 
     func testExternalCursorChangeInvalidatesSuggestionDoubleSpace() {
         type("teh")
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "the", replacement: "the", kind: .secondary))
         engine.textDidChange()
         now += 0.1
         tap(.space)

@@ -159,7 +159,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     func warmUpTextCheckerAsync() {
         if engine.autocorrect.isEnabled { engine.autocorrect.spatialDecoder?.prepareResources() }
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.engine.suggestionsAreActive else { return }
             self.engine.autocorrect.german?.warmUp() // Typr
             guard let checker = self.engine.autocorrect.checker as? SystemTextChecker else { return }
             checker.warmUp()
@@ -179,7 +179,13 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     func syncSettings() {
         // Learning switch and app reset epochs; never per keystroke.
+        let generation = engine.autocorrect.learning.generation
+        let feedbackEpoch = engine.autocorrect.learning.feedbackEpoch
         engine.autocorrect.syncLearning()
+        if generation != engine.autocorrect.learning.generation
+            || feedbackEpoch != engine.autocorrect.learning.feedbackEpoch {
+            engine.refreshSuggestions()
+        }
         applySuggestionBarSetting()
         let wantsAutocorrect = FullKeyboardSettings().autocorrect
         if engine.autocorrect.isEnabled != wantsAutocorrect {
@@ -240,6 +246,11 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// Writes pending learning and diagnostics now (dismissal, memory warning, remount).
     func flushLearning() {
         engine.autocorrect.learning.flush()
+    }
+
+    /// A late worker or warmup completion must not read a hidden host's document proxy.
+    func suspendSuggestions() {
+        engine.suspendSuggestions()
     }
 
     /// Selection changes and keyboard dismissal must not retain current-word taps.

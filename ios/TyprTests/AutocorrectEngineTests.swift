@@ -163,8 +163,9 @@ final class AutocorrectEngineTests: XCTestCase {
         XCTAssertEqual(slots.dropFirst().first?.willAutoReplace, false)
     }
 
-    func testSpaceDeleteSpaceKeepLoopAndPersonalProtection() {
+    func testSpaceDeleteSpaceKeepLoopAndPersonalProtection() async {
         typeWord("teh")
+        await engine.waitForSuggestions()
         XCTAssertEqual(engine.suggestions.count >= 2, true)
         XCTAssertEqual(engine.suggestions[0].kind, .keepLiteral)
         XCTAssertEqual(engine.suggestions[1].replacement, "the")

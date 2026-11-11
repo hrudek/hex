@@ -24,6 +24,10 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         configureView()
+        NotificationCenter.default.addObserver(self, selector: #selector(hostWillResignActive),
+                                               name: .NSExtensionHostWillResignActive, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(hostDidBecomeActive),
+                                               name: .NSExtensionHostDidBecomeActive, object: nil)
         syncFromBridge(animated: false)
     }
 
@@ -49,11 +53,22 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        fullKeyboard?.suspendSuggestions()
         fullKeyboard?.discardTouchEvidence()
         fullKeyboard?.flushLearning()
         pollTimer?.invalidate()
         pollTimer = nil
         viewModel.dismissFeedback()
+    }
+
+    @objc private func hostWillResignActive() {
+        fullKeyboard?.suspendSuggestions()
+        fullKeyboard?.discardTouchEvidence()
+    }
+
+    @objc private func hostDidBecomeActive() {
+        guard viewIfLoaded?.window != nil else { return }
+        fullKeyboard?.prepareForField()
     }
 
     override func didReceiveMemoryWarning() {
@@ -167,6 +182,8 @@ final class KeyboardViewController: UIInputViewController {
             child.willMove(toParent: nil)
             child.removeFromParent()
         }
+        fullKeyboard?.suspendSuggestions()
+        fullKeyboard?.discardTouchEvidence()
         surface?.removeFromSuperview()
         fullKeyboard?.flushLearning()
         fullKeyboard = nil

@@ -2,8 +2,8 @@ import CoreGraphics
 
 /// Ephemeral evidence for one completely observed word. Coordinates use the captured layout's
 /// keyboard-view space (including the strip). Not Codable: never persisted, logged or exported.
-nonisolated struct KeyboardTouchWord: Equatable {
-    struct Sample: Equatable {
+nonisolated struct KeyboardTouchWord: Equatable, Sendable {
+    struct Sample: Equatable, Sendable {
         let text: String
         let point: CGPoint
         let key: KeyboardKey
