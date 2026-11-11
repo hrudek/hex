@@ -219,6 +219,8 @@ final class FullKeyboardEngine {
         }
         autocorrect.clearPendingUndo()
         insert(suggestion.replacement + " ")
+        // The suggestion's separator counts as the first space of double-space period.
+        lastSpaceAt = clock()
     }
 
     // MARK: - Touches
@@ -392,7 +394,7 @@ final class FullKeyboardEngine {
                let character = under.character,
                under.kind != touch.key.kind {
                 autocorrect.clearPendingUndo()
-                insert(character)
+                typeCharacter(character)
                 layerState.switchTo(returnLayer)
                 rebuildLayout()
                 refreshAutoCapitalization()
@@ -507,7 +509,41 @@ final class FullKeyboardEngine {
         }
         autocorrect.clearPendingUndo()
         if touch.hasUnambiguousPoint, touch.evidenceLayout == layout {
-            insert(text, sample: .init(text: text, point: touch.point, key: key))
+            typeCharacter(text, sample: .init(text: text, point: touch.point, key: key))
+        } else {
+            typeCharacter(text)
+        }
+    }
+
+    /// Sentence punctuation is a word boundary too, including hold-123/slide input.
+    private func typeCharacter(_ text: String, sample: KeyboardTouchWord.Sample? = nil) {
+        guard [".", ",", "?", "!"].contains(text), field == .text else {
+            insert(text, sample: sample)
+            return
+        }
+        let before = target.documentContextBeforeInput
+        // Remove one word separator, never indentation, a newline or multiple spaces.
+        if let before, before.hasSuffix(" "),
+           let previous = before.dropLast().last, previous.isLetter || previous.isNumber {
+            target.deleteBackward()
+            // This word was already committed; do not reconsider an explicit choice.
+            insert(text)
+            return
+        }
+        if let (original, replacement) = autocorrect.replacementOnSpace(
+            beforeInput: target.documentContextBeforeInput,
+            field: field,
+            autocorrectionType: target.autocorrectionType
+        ) {
+            for _ in 0..<original.count { target.deleteBackward() }
+            target.insertText(replacement + text)
+            autocorrect.recordAppliedCorrection(original: original, insertedText: replacement + text)
+            autocorrect.discardFeedback()
+            autocorrect.touchInput.clear()
+            lastSpaceAt = nil
+            layerState.didInsert(text)
+            rebuildLayoutIfNeeded()
+            didEdit()
         } else {
             insert(text)
         }
@@ -518,7 +554,7 @@ final class FullKeyboardEngine {
             shift.didType()
         }
         autocorrect.clearPendingUndo()
-        insert(chosen)
+        typeCharacter(chosen)
     }
 
     /// Typr: a tap on the Typr key types a space, exactly like the space bar
