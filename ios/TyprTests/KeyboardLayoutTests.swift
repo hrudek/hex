@@ -1,4 +1,5 @@
 import CoreGraphics
+import UIKit
 import XCTest
 @testable import Typr
 
@@ -58,16 +59,44 @@ final class KeyboardLayoutTests: XCTestCase {
     }
 
     @MainActor
-    func testJoinedTyprRegionStaysInsideItsOriginalKeycap() {
+    func testJoinedTyprRegionFitsFullWordmarkWithoutChangingKeycap() {
         for layout in everyLayout() where layout.field == .text {
             let cap = layout.key(.typr)!.frame
             let region = JoinedSpaceKeycap.typrRegion(cap: cap, radius: layout.metrics.cornerRadius)
-            XCTAssertEqual(region.bounds.minX, cap.minX, accuracy: 0.001)
+            XCTAssertEqual(region.bounds.minX, cap.minX - 2 * layout.metrics.cornerRadius, accuracy: 0.001)
+            let seam = JoinedSpaceKeycap.seam(cap: cap, radius: layout.metrics.cornerRadius)
+            XCTAssertLessThanOrEqual(seam.bounds.maxX, cap.minX)
+            // The unchanged wordmark square (including its blank margins) must
+            // sit wholly to the right of the seam in every layout fixture.
+            let markSize = min(cap.width - 8, cap.height * 0.82)
+            let mark = CGRect(x: cap.midX - markSize / 2, y: cap.midY - markSize / 2,
+                              width: markSize, height: markSize)
+            for x in [mark.minX, mark.midX, mark.maxX] {
+                for y in [mark.minY, mark.midY, mark.maxY] {
+                    XCTAssertTrue(region.contains(CGPoint(x: x, y: y)))
+                }
+            }
             XCTAssertEqual(region.bounds.maxX, cap.maxX, accuracy: 0.001)
             XCTAssertEqual(region.bounds.minY, cap.minY, accuracy: 0.001)
             XCTAssertEqual(region.bounds.maxY, cap.maxY, accuracy: 0.001)
             XCTAssertTrue(region.contains(CGPoint(x: cap.maxX - layout.metrics.cornerRadius, y: cap.midY)))
         }
+    }
+
+    @MainActor
+    func testJoinedKeyHighlightIsDrawingOnlyAndResetsOnCancel() {
+        let control = TyprKeyControl()
+        control.joinsSpace = true
+        var highlights: [Bool] = []
+        var actions = 0
+        control.onHighlightChanged = { highlights.append($0) }
+        control.onTap = { actions += 1 }
+        control.onHold = { actions += 1 }
+        control.isHighlighted = true
+        control.isHighlighted = true
+        control.cancelTracking(with: nil)
+        XCTAssertEqual(highlights, [true, false])
+        XCTAssertEqual(actions, 0)
     }
 
     func testPortraitIs253PointsAndLandscapeIs176Points() {

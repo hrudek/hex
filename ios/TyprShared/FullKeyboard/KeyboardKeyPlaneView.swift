@@ -6,6 +6,7 @@ import UIKit
 @MainActor
 final class KeyboardKeyPlaneView: UIView {
     let engine: FullKeyboardEngine
+    var typrPressed = false { didSet { if typrPressed != oldValue { setNeedsDisplay() } } }
     var palette = FullKeyboardPalette(isDark: false) { didSet { if palette != oldValue { setNeedsDisplay() } } }
     var returnLabel = "return" { didSet { if returnLabel != oldValue { setNeedsDisplay() } } }
     var returnSymbol: String? = "return" { didSet { if returnSymbol != oldValue { setNeedsDisplay() } } }
@@ -52,7 +53,7 @@ final class KeyboardKeyPlaneView: UIView {
         let hideGlyphs = engine.isTrackpadActive
 
         let joined = JoinedSpaceKeycap(layout: layout)
-        joined?.draw(in: context, palette: palette, spacePressed: pressed.contains(.space))
+        joined?.draw(in: context, palette: palette, spacePressed: pressed.contains(.space), typrPressed: typrPressed)
 
         for key in layout.keys {
             guard key.frame.intersects(rect) else { continue }

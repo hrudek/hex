@@ -29,6 +29,9 @@ final class TyprKeyControl: UIControl {
     var onMenuDrag: ((CGPoint) -> Void)?
     var onMenuRelease: ((CGPoint) -> Void)?
 
+    /// Drawing state only; the plane paints the segment outside this control's target.
+    var onHighlightChanged: ((Bool) -> Void)?
+
     private var gesture = TyprKeyGesture()
     private var holdWork: DispatchWorkItem?
 
@@ -46,7 +49,12 @@ final class TyprKeyControl: UIControl {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isHighlighted: Bool {
-        didSet { if isHighlighted != oldValue { setNeedsDisplay() } }
+        didSet {
+            if isHighlighted != oldValue {
+                setNeedsDisplay()
+                onHighlightChanged?(isHighlighted)
+            }
+        }
     }
 
     private func updateAccessibility() {
@@ -142,14 +150,7 @@ final class TyprKeyControl: UIControl {
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
         let cap = keycapFrame == .zero ? bounds : keycapFrame
-        if joinsSpace {
-            if isHighlighted {
-                let region = JoinedSpaceKeycap.typrRegion(cap: cap.insetBy(dx: 0, dy: 1), radius: cornerRadius)
-                // Only add the extra pressed tint over the shared fill.
-                (palette.isDark ? UIColor(white: 1, alpha: 0.14) : palette.keyPressedFill).setFill()
-                region.fill()
-            }
-        } else {
+        if !joinsSpace {
             context.fillKeycap(
                 cap,
                 fill: isHighlighted ? palette.keyPressedFill : palette.keyFill,

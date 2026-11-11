@@ -92,11 +92,13 @@ struct JoinedSpaceKeycap {
     /// A soft sloping seam, entirely decorative and independent of the touch boundary.
     static func seam(cap: CGRect, radius: CGFloat) -> UIBezierPath {
         let path = UIBezierPath()
-        path.move(to: CGPoint(x: cap.minX + 2 * radius, y: cap.minY))
+        // Keep the entire seam left of the original keycap, leaving the wordmark
+        // its full existing width plus padding. Only the drawn segment grows.
+        path.move(to: CGPoint(x: cap.minX, y: cap.minY))
         path.addCurve(
-            to: CGPoint(x: cap.minX, y: cap.maxY),
-            controlPoint1: CGPoint(x: cap.minX, y: cap.minY),
-            controlPoint2: CGPoint(x: cap.minX + 2 * radius, y: cap.maxY)
+            to: CGPoint(x: cap.minX - 2 * radius, y: cap.maxY),
+            controlPoint1: CGPoint(x: cap.minX - 2 * radius, y: cap.minY),
+            controlPoint2: CGPoint(x: cap.minX, y: cap.maxY)
         )
         return path
     }
@@ -113,18 +115,19 @@ struct JoinedSpaceKeycap {
         return path
     }
 
-    func draw(in context: CGContext, palette: FullKeyboardPalette, spacePressed: Bool) {
+    func draw(in context: CGContext, palette: FullKeyboardPalette, spacePressed: Bool, typrPressed: Bool) {
         let outline = UIBezierPath(roundedRect: frame.insetBy(dx: 0.5, dy: 0.5), cornerRadius: radius)
         context.saveGState()
         outline.addClip()
         context.setFillColor((spacePressed ? palette.keyPressedFill : palette.keyFill).cgColor)
         context.fill(frame)
-        if spacePressed {
-            // Replace, rather than stack, translucent fills on the Typr side.
+        if spacePressed || typrPressed {
+            // Render the full decorative segment here: it now extends beyond the
+            // Typr control's unchanged touch bounds. Replace translucent fills.
             context.saveGState()
             Self.typrRegion(cap: typr, radius: radius).addClip()
             context.clear(frame)
-            context.setFillColor(palette.keyFill.cgColor)
+            context.setFillColor((typrPressed ? palette.keyPressedFill : palette.keyFill).cgColor)
             context.fill(frame)
             context.restoreGState()
         }
