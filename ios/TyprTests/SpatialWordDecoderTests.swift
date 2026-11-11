@@ -715,6 +715,60 @@ final class SpatialWordDecoderTests: XCTestCase {
                        0.25 * 0.25 / (2 * 0.35 * 0.35), accuracy: 1e-10)
     }
 
+    func testTwoThousandCountedDictionaryWordsHaveIdenticalColdAndCachedResults() throws {
+        var sources: [SpatialWordDecoder.Language: SpatialWordLexicon] = [:]
+        for language in SpatialWordDecoder.Language.allCases {
+            let url = try XCTUnwrap(Bundle.main.url(forResource: "keyboard-\(language.rawValue)",
+                withExtension: "words", subdirectory: "WordData"))
+            sources[language] = try XCTUnwrap(SpatialWordLexicon(data: Data(contentsOf: url)))
+        }
+        let english = try XCTUnwrap(sources[.english])
+        var words: [String] = []
+        func collect(_ index: Int, _ prefix: String) throws {
+            let node = try XCTUnwrap(english.node(index))
+            if node.count > 0, PersonalTypingModel.State.validWord(prefix) { words.append(prefix) }
+            for child in node.children where words.count < 2_000 {
+                let next = try XCTUnwrap(english.node(child))
+                try collect(child, prefix + String(SpatialWordLexicon.alphabet[next.label]))
+            }
+        }
+        try collect(0, "")
+        XCTAssertEqual(words.count, 2_000)
+        let counts = Dictionary(uniqueKeysWithValues: words.map { ($0, 2) })
+        let snapshot = PersonalLexiconSnapshot(kept: [], counts: counts, rejected: [])
+        let decoder = SpatialWordDecoder(lexicons: sources)
+        for languages: Set<SpatialWordDecoder.Language> in [[.english], [.german], [.english, .german], [.english]] {
+            for typed in ["helo", "keyboar", "thinkng", "wunderbar", "strasse", "teh"] {
+                let word = evidence(typed, aimedAt: typed)
+                // A new decoder/snapshot is the cold reference; then reuse the same snapshot
+                // across changing evidence and language sets, including a cached set revisit.
+                let cold = try XCTUnwrap(SpatialWordDecoder(lexicons: sources).decode(word, languages: languages,
+                    personal: .init(kept: [], counts: counts, rejected: [])))
+                for _ in 0..<2 {
+                    let cached = try XCTUnwrap(decoder.decode(word, languages: languages, personal: snapshot))
+                    XCTAssertEqual(cached.literalScore, cold.literalScore)
+                    XCTAssertEqual(cached.literalSpatialScore, cold.literalSpatialScore)
+                    XCTAssertEqual(cached.literalInLexicon, cold.literalInLexicon)
+                    XCTAssertEqual(cached.complete, cold.complete)
+                    XCTAssertEqual(cached.visits, cold.visits)
+                    XCTAssertEqual(cached.generated, cold.generated)
+                    for (actual, expected) in [(cached.candidates, cold.candidates), (cached.suggestions, cold.suggestions)] {
+                        XCTAssertEqual(actual.count, expected.count)
+                        for (a, b) in zip(actual, expected) {
+                            XCTAssertEqual(a.word, b.word); XCTAssertEqual(a.language, b.language)
+                            XCTAssertEqual(a.score, b.score); XCTAssertEqual(a.spatialScore, b.spatialScore)
+                            XCTAssertEqual(a.edit, b.edit); XCTAssertEqual(a.alignment, b.alignment)
+                        }
+                    }
+                }
+            }
+        }
+        let changed = PersonalLexiconSnapshot(kept: ["zello"], counts: [:], rejected: [])
+        let word = evidence("xello", aimedAt: "zello")
+        XCTAssertTrue(decoder.decode(word, languages: [.english], personal: changed)?.candidates.contains { $0.word == "zello" } ?? false)
+        XCTAssertFalse(decoder.decode(word, languages: [.english], personal: snapshot)?.candidates.contains { $0.language == nil } ?? true)
+    }
+
     func testLearningAlignmentDropsAmbiguousAndTransposedLabels() {
         XCTAssertEqual(SpatialWordDecoder.align(word: "hello", taps: Array("hello")), [0, 1, 2, 3, 4])
         XCTAssertEqual(SpatialWordDecoder.align(word: "hello", taps: Array("helo")), [0, 1, nil, nil, 3])

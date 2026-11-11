@@ -95,6 +95,47 @@ nonisolated struct PersonalLexiconSnapshot: Equatable, Sendable {
     let kept: Set<String>
     let counts: [String: Int]
     let rejected: Set<RejectedCorrection>
+    /// Shared identity lets the decoder cache corpus membership without comparing 2,000 words.
+    let scan: ScanList
+
+    nonisolated final class ScanList: Sendable {
+        nonisolated struct Entry: Sendable {
+            let word: String
+            let labels: [Int]
+            let bonus: Double
+        }
+        let entries: [Entry]
+        let complete: Bool
+        let maxBonus: Double
+
+        init(kept: Set<String>, counts: [String: Int]) {
+            func bonus(_ word: String) -> Double {
+                guard let count = counts[PersonalLexiconSnapshot.normalize(word)], count >= 1 else { return 0 }
+                return min(PersonalLexiconSnapshot.maxBonus, 0.25 * log2(1 + Double(count)))
+            }
+            let words = kept.union(counts.keys.filter { (counts[$0] ?? 0) >= 2 }).sorted()
+            complete = words.count <= 2_000
+            maxBonus = counts.keys.map(bonus).max() ?? 0
+            entries = words.prefix(2_000).compactMap { word in
+                let letters = Array(word)
+                guard word == PersonalLexiconSnapshot.normalize(word), (2...32).contains(letters.count) else { return nil }
+                let labels = letters.compactMap { SpatialWordLexicon.alphabet.firstIndex(of: $0) }
+                guard labels.count == letters.count else { return nil }
+                return Entry(word: word, labels: labels, bonus: bonus(word))
+            }
+        }
+    }
+
+    init(kept: Set<String>, counts: [String: Int], rejected: Set<RejectedCorrection>) {
+        self.kept = kept
+        self.counts = counts
+        self.rejected = rejected
+        scan = ScanList(kept: kept, counts: counts)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.kept == rhs.kept && lhs.counts == rhs.counts && lhs.rejected == rhs.rejected
+    }
 
     static let empty = PersonalLexiconSnapshot(kept: [], counts: [:], rejected: [])
     static let maxBonus = 1.0

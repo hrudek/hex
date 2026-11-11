@@ -174,6 +174,8 @@ final class SpatialWordDecoder {
     private var lexicons: [Language: SpatialWordLexicon]
     private let bundle: Bundle?
     private var loadTask: Task<Void, Never>?
+    private var personalScan: PersonalLexiconSnapshot.ScanList?
+    private var absentPersonalWords: [Set<Language>: [PersonalLexiconSnapshot.ScanList.Entry]] = [:]
     private(set) var isResourceLoading = false
 
     init(lexicons: [Language: SpatialWordLexicon]) {
@@ -206,12 +208,29 @@ final class SpatialWordDecoder {
             }.value
             guard let self else { return }
             self.lexicons = loaded
+            self.absentPersonalWords.removeAll()
             self.isResourceLoading = false
             self.loadTask = nil
         }
     }
 
     private func lexicon(_ language: Language) -> SpatialWordLexicon? { lexicons[language] }
+
+    /// Snapshot identity is stable throughout a word/generation. Corpus absence is independent
+    /// of evidence and cached for each selected-language set (at most three nonempty sets).
+    private func personalWords(_ personal: PersonalLexiconSnapshot, languages: Set<Language>,
+                               sources: [(Language, SpatialWordLexicon)]) -> [PersonalLexiconSnapshot.ScanList.Entry] {
+        if personalScan !== personal.scan {
+            personalScan = personal.scan
+            absentPersonalWords.removeAll()
+        }
+        if let cached = absentPersonalWords[languages] { return cached }
+        let words = personal.scan.entries.filter { entry in
+            sources.allSatisfy { $0.1.logPrior(for: entry.word) == nil }
+        }
+        absentPersonalWords[languages] = words
+        return words
+    }
 
     nonisolated private struct Trail {
         let parent: Int
@@ -426,31 +445,25 @@ final class SpatialWordDecoder {
         }
         // Personal scan is bounded independently of trie states; only normalized alphabet words
         // absent from ALL selected corpora participate. A one-edit fixed-word DP scores them.
-        let personalWords = personal.kept.union(personal.counts.keys.filter { (personal.counts[$0] ?? 0) >= 2 }).sorted()
-        let personalComplete = personalWords.count <= 2_000
-        for spelling in personalWords.prefix(2_000) {
-            let letters = Array(spelling)
-            guard spelling == PersonalLexiconSnapshot.normalize(spelling),
-                  (2...Self.maxLetters).contains(letters.count),
-                  abs(letters.count - count) <= (allowsEdits ? 1 : 0) else { continue }
-            let labels = letters.compactMap { alphabet.firstIndex(of: $0) }
-            guard labels.count == letters.count else { continue }
+        let personalComplete = personal.scan.complete
+        for entry in personalWords(personal, languages: languages, sources: sources) {
+            let labels = entry.labels
+            guard abs(labels.count - count) <= (allowsEdits ? 1 : 0) else { continue }
             // First letter can use tap 0, tap 1 (extra/transposition), or be missing.
             if !allowsEdits && !likelihoods[0][labels[0]].isFinite { continue }
             if allowsEdits && !likelihoods[0][labels[0]].isFinite && !likelihoods[1][labels[0]].isFinite
                 && (labels.count < 2 || !likelihoods[0][labels[1]].isFinite) { continue }
-            guard sources.allSatisfy({ $0.1.logPrior(for: spelling) == nil }),
-                  let reading = Self.reading(labels: labels, likelihoods: likelihoods,
-                                             stray: bestScores, allowsEdits: allowsEdits) else { continue }
-            retain(Candidate(word: spelling, language: nil,
-                             score: reading.spatial + reading.penalty + Self.priorWeight * floorPrior + personal.bonus(for: spelling),
+            guard let reading = Self.reading(labels: labels, likelihoods: likelihoods,
+                                            stray: bestScores, allowsEdits: allowsEdits) else { continue }
+            retain(Candidate(word: entry.word, language: nil,
+                             score: reading.spatial + reading.penalty + Self.priorWeight * floorPrior + entry.bonus,
                              spatialScore: reading.spatial, edit: reading.edit, alignment: reading.alignment))
         }
         var frontier = Frontier()
         // A subtree's best terminal prior and the snapshot's largest bonus tighten
         // the bound without changing the objective. Remaining tap densities include
         // stray taps and may be POSITIVE; future edit penalties are nonpositive.
-        let maxBonus = personal.counts.keys.map { personal.bonus(for: $0) }.max() ?? 0
+        let maxBonus = personal.scan.maxBonus
         for source in sources.indices {
             let bound = suffix[0] + Self.priorWeight * sources[source].1.bestLogPrior(at: 0) + maxBonus + Self.boundSlack
             frontier.push(State(source: source, node: 0, tap: 0, depth: 0, trail: -1,
