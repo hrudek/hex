@@ -1,7 +1,7 @@
 import UIKit
 
-/// The Typr key right of space. Warm session: an orange core, and a hold records here.
-/// Otherwise the mark is faded with ↗, and a hold leaves for Typr to start one.
+/// The Typr key right of space. Warm session: an orange mark, and a hold records here.
+/// Otherwise the mark shows ↗ (faded in light), and a hold leaves for Typr to start one.
 /// A tap types a space; sliding up opens the style menu and, with the switch key on,
 /// sliding down shows the compact dictation bar (`TyprKeyGesture`).
 @MainActor
@@ -161,12 +161,10 @@ final class TyprKeyControl: UIControl {
         if isWarm {
             TyprMarkPath.draw(in: context, rect: markRect, color: palette.textBase, coreColor: palette.warmCore)
         } else {
-            TyprMarkPath.draw(in: context, rect: markRect, color: palette.textMuted, coreColor: nil)
-            let config = UIImage.SymbolConfiguration(pointSize: 8.5, weight: .bold)
-            if let arrow = UIImage(systemName: "arrow.up.forward", withConfiguration: config)?
-                .withTintColor(palette.textMuted, renderingMode: .alwaysOriginal) {
-                arrow.draw(at: CGPoint(x: cap.maxX - 5 - arrow.size.width, y: cap.minY + 4))
-            }
+            // Dark matches the reference: a white mark and a thin white ↗.
+            let ink = palette.isDark ? palette.textBase : palette.textMuted
+            TyprMarkPath.draw(in: context, rect: markRect, color: ink, coreColor: nil)
+            TyprMarkPath.drawArrow(in: context, rect: TyprMarkPath.arrowFrame(in: cap), color: ink)
         }
     }
 }

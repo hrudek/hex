@@ -103,7 +103,8 @@ final class KeyboardStripView: UIView {
 
         let scale = max(1, traitCollection.displayScale)
         let hairline = 1 / scale
-        let lineH: CGFloat = min(22, bounds.height * 0.66)
+        // 18.5 pt dividers, as in the owner's 2026-11-11 reference.
+        let lineH: CGFloat = min(18.5, bounds.height * 0.56)
         let y = max(1, contentCenterY - lineH / 2)
         let slotW = bounds.width / 3
 

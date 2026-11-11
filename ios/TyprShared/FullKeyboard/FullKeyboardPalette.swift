@@ -1,9 +1,10 @@
 import SwiftUI
 import UIKit
 
-/// The full keyboard's colours, light and dark, calibrated against Apple's iOS 26
-/// Liquid Glass system keyboard. Dark is chosen by the field's `keyboardAppearance`
-/// first, then the host's interface style.
+/// The full keyboard's colours. Light is calibrated against Apple's iOS 26 Liquid
+/// Glass system keyboard; dark matches the owner's 2026-11-11 reference keyboard
+/// (opaque `#2D2D2D` keycaps on a `#171717` platter). Dark is chosen by the
+/// field's `keyboardAppearance` first, then the host's interface style.
 struct FullKeyboardPalette: Equatable {
     let isDark: Bool
 
@@ -28,28 +29,31 @@ struct FullKeyboardPalette: Equatable {
     }
 
     /// Stand-in for the system Liquid Glass platter, used only in standalone snapshot scenes.
-    var backdrop: UIColor { isDark ? Self.rgb(0x17181A) : Self.rgb(0xDFE1E6) }
+    var backdrop: UIColor { isDark ? Self.rgb(0x171717) : Self.rgb(0xDFE1E6) }
 
     var textBase: UIColor { isDark ? .white : .black }
     var textMuted: UIColor { isDark ? UIColor(white: 1, alpha: 0.56) : Self.rgb(0x525763) }
 
-    /// Unified iOS 26 Liquid Glass keycap fill across letters and modifiers:
-    /// `white @ 0.16` composites to `(61,61,63)` on dark `(23,24,26)` and `(94,94,96)` on dark-field `(64,64,66)`.
-    var keyFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.16) : .white }
-    var keyPressedFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.28) : Self.rgb(0xD8DCE4) }
+    /// One keycap fill across letters and modifiers. Dark is opaque so the keys
+    /// keep the reference colour regardless of the platter behind them.
+    var keyFill: UIColor { isDark ? Self.rgb(0x2D2D2D) : .white }
+    var keyPressedFill: UIColor { isDark ? Self.rgb(0x474747) : Self.rgb(0xD8DCE4) }
     /// Secondary fill for non-key chips and the recording panel's cancel pill.
-    var functionFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.09) : UIColor(white: 0, alpha: 0.065) }
+    var functionFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.07) : UIColor(white: 0, alpha: 0.065) }
     var keyShadow: UIColor { .clear }
 
-    /// Opaque so balloons and menus float cleanly over the strip and neighbouring keys.
-    var popupFill: UIColor { isDark ? Self.rgb(0x4E5056) : .white }
-    var popupBorder: UIColor { isDark ? UIColor(white: 1, alpha: 0.14) : UIColor(white: 0, alpha: 0.08) }
-    var popupShadow: UIColor { UIColor(white: 0, alpha: isDark ? 0.42 : 0.18) }
+    /// The joined space/Typr outline and seam (`#767676` in the dark reference).
+    var joinedOutline: UIColor { isDark ? Self.rgb(0x767676) : UIColor(white: 0, alpha: 0.24) }
 
-    var chipFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.11) : UIColor(white: 0, alpha: 0.065) }
-    var wellFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.055) : UIColor(white: 0, alpha: 0.045) }
+    /// Opaque so balloons and menus float cleanly over the strip and neighbouring keys.
+    var popupFill: UIColor { isDark ? Self.rgb(0x3A3A3A) : .white }
+    var popupBorder: UIColor { isDark ? UIColor(white: 1, alpha: 0.14) : UIColor(white: 0, alpha: 0.08) }
+    var popupShadow: UIColor { UIColor(white: 0, alpha: isDark ? 0.5 : 0.18) }
+
+    var chipFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.09) : UIColor(white: 0, alpha: 0.065) }
+    var wellFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.045) : UIColor(white: 0, alpha: 0.045) }
     var separator: UIColor { isDark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 0, alpha: 0.10) }
-    var selectFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.18) : UIColor(white: 0, alpha: 0.075) }
+    var selectFill: UIColor { isDark ? UIColor(white: 1, alpha: 0.15) : UIColor(white: 0, alpha: 0.075) }
     var selectText: UIColor { textBase }
 
     /// Apple system keyboard action blue (`#007AFF`).
@@ -61,20 +65,48 @@ struct FullKeyboardPalette: Equatable {
     static let cornerRadius: CGFloat = 8.5
 }
 
-/// The same outlined Typr wordmark used by SwiftUI and the app icon, optically
-/// centered like the icon because the keyboard key centers it on the keycap.
+/// The outlined Typr wordmark on the Typr key, sized and placed like the
+/// owner's 2026-11-11 reference: about 64 % of the key width, a little left of
+/// centre and slightly low, leaving the top-right corner for the ↗ hint.
 enum TyprMarkPath {
-    /// Unchanged pre-joined-key sizing and centering (baseline 055ccefc).
+    /// The wordmark's own width-to-height ratio (`TyprWordmark` bounds).
+    static let aspect: CGFloat = 1359.72 / 573
+
+    /// The tight wordmark bounds inside the Typr keycap.
     static func frame(in cap: CGRect) -> CGRect {
-        let size = min(cap.width - 8, cap.height * 0.82)
-        return CGRect(x: cap.midX - size / 2, y: cap.midY - size / 2, width: size, height: size)
+        let width = min(cap.width * 0.64, cap.height * 0.66)
+        let height = width / aspect
+        let center = CGPoint(x: cap.minX + cap.width * 0.43, y: cap.minY + cap.height * 0.54)
+        return CGRect(x: center.x - width / 2, y: center.y - height / 2, width: width, height: height)
     }
 
     static func draw(in context: CGContext, rect: CGRect, color: UIColor, coreColor: UIColor?) {
         context.saveGState()
         context.setFillColor((coreColor ?? color).cgColor)
-        context.addPath(TyprWordmark(opticallyCentered: true).path(in: rect).cgPath)
+        context.addPath(TyprWordmark().path(in: rect).cgPath)
         context.fillPath()
+        context.restoreGState()
+    }
+
+    /// The thin ↗ "opens Typr" hint in the keycap's top-right corner.
+    static func arrowFrame(in cap: CGRect) -> CGRect {
+        let size = min(5.8, cap.height * 0.14)
+        return CGRect(x: cap.maxX - 6.4 - size, y: cap.minY + cap.height * 0.16, width: size, height: size)
+    }
+
+    static func drawArrow(in context: CGContext, rect: CGRect, color: UIColor) {
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.move(to: CGPoint(x: rect.maxX - rect.width * 0.62, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.62))
+        path.lineWidth = 1.2
+        path.lineCapStyle = .square
+        path.lineJoinStyle = .miter
+        context.saveGState()
+        color.setStroke()
+        path.stroke()
         context.restoreGState()
     }
 }
@@ -84,6 +116,9 @@ struct JoinedSpaceKeycap {
     let space: CGRect
     let typr: CGRect
     let radius: CGFloat
+
+    /// Outline and seam width: 2 px at 3x, as in the reference.
+    static let lineWidth: CGFloat = 2.0 / 3.0
 
     init?(layout: KeyboardLayout) {
         guard let space = layout.key(.space), let typr = layout.key(.typr),
@@ -95,22 +130,36 @@ struct JoinedSpaceKeycap {
 
     var frame: CGRect { space.union(typr) }
 
-    /// A soft sloping seam, entirely decorative and independent of the touch boundary.
+    /// The reference's sloping S-shaped seam, as fractions of the key height
+    /// from the Typr keycap's left edge: it leaves the top edge just inside the
+    /// Typr key, rounds into a straight slant and rounds out into the bottom
+    /// edge well inside the space bar. Entirely decorative: the touch boundary
+    /// stays the straight edge between the original key frames.
+    static func seamPoints(cap: CGRect) -> (top: CGPoint, slantTop: CGPoint, slantBottom: CGPoint, bottom: CGPoint) {
+        let h = cap.height
+        return (
+            CGPoint(x: cap.minX + 0.05 * h, y: cap.minY),
+            CGPoint(x: cap.minX - 0.165 * h, y: cap.minY + 0.15 * h),
+            CGPoint(x: cap.minX - 0.32 * h, y: cap.minY + 0.83 * h),
+            CGPoint(x: cap.minX - 0.545 * h, y: cap.maxY)
+        )
+    }
+
     static func seam(cap: CGRect, radius: CGFloat) -> UIBezierPath {
+        let p = seamPoints(cap: cap)
+        let dx = p.slantBottom.x - p.slantTop.x
+        let dy = p.slantBottom.y - p.slantTop.y
+        // Where the straight slant, extended, meets the top and bottom edges.
+        let topCorner = CGPoint(x: p.slantTop.x - dx * (p.slantTop.y - cap.minY) / dy, y: cap.minY)
+        let bottomCorner = CGPoint(x: p.slantBottom.x + dx * (cap.maxY - p.slantBottom.y) / dy, y: cap.maxY)
+        func toward(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat = 0.6) -> CGPoint {
+            CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+        }
         let path = UIBezierPath()
-        // Start with the original small key's top-left corner. The flowing seam
-        // stays inside its existing left padding, not 17 pt into the space bar.
-        path.move(to: CGPoint(x: cap.minX + radius, y: cap.minY))
-        path.addQuadCurve(
-            to: CGPoint(x: cap.minX, y: cap.minY + radius),
-            controlPoint: CGPoint(x: cap.minX, y: cap.minY)
-        )
-        let bend: CGFloat = min(1.5, radius / 5)
-        path.addCurve(
-            to: CGPoint(x: cap.minX, y: cap.maxY),
-            controlPoint1: CGPoint(x: cap.minX + bend, y: cap.midY),
-            controlPoint2: CGPoint(x: cap.minX + bend, y: cap.maxY - radius)
-        )
+        path.move(to: p.top)
+        path.addCurve(to: p.slantTop, controlPoint1: toward(p.top, topCorner, 0.72), controlPoint2: toward(p.slantTop, topCorner, 0.72))
+        path.addLine(to: p.slantBottom)
+        path.addCurve(to: p.bottom, controlPoint1: toward(p.slantBottom, bottomCorner), controlPoint2: toward(p.bottom, bottomCorner))
         return path
     }
 
@@ -127,9 +176,10 @@ struct JoinedSpaceKeycap {
     }
 
     func draw(in context: CGContext, palette: FullKeyboardPalette, spacePressed: Bool, typrPressed: Bool) {
-        let outline = UIBezierPath(roundedRect: frame.insetBy(dx: 0.5, dy: 0.5), cornerRadius: radius)
+        let line = Self.lineWidth
+        let outline = UIBezierPath(roundedRect: frame.insetBy(dx: line / 2, dy: line / 2), cornerRadius: radius)
         context.saveGState()
-        outline.addClip()
+        UIBezierPath(roundedRect: frame, cornerRadius: radius).addClip()
         context.setFillColor((spacePressed ? palette.keyPressedFill : palette.keyFill).cgColor)
         context.fill(frame)
         if spacePressed || typrPressed {
@@ -143,12 +193,11 @@ struct JoinedSpaceKeycap {
             context.restoreGState()
         }
         context.restoreGState()
-        let ink = palette.isDark ? UIColor(white: 1, alpha: 0.42) : UIColor(white: 0, alpha: 0.24)
-        ink.setStroke()
-        outline.lineWidth = 0.8
+        palette.joinedOutline.setStroke()
+        outline.lineWidth = line
         outline.stroke()
-        let seam = Self.seam(cap: typr.insetBy(dx: 0, dy: 0.5), radius: radius)
-        seam.lineWidth = 0.8
+        let seam = Self.seam(cap: typr.insetBy(dx: 0, dy: line / 2), radius: radius)
+        seam.lineWidth = line
         seam.stroke()
     }
 }
