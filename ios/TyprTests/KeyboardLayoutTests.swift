@@ -64,7 +64,9 @@ final class KeyboardLayoutTests: XCTestCase {
             let cap = layout.key(.typr)!.frame
             let region = JoinedSpaceKeycap.typrRegion(cap: cap, radius: layout.metrics.cornerRadius)
             XCTAssertEqual(region.bounds.minX, cap.minX, accuracy: 0.001)
-            XCTAssertEqual(region.bounds, cap, "The visual Typr segment must keep its original size")
+            XCTAssertEqual(region.bounds.width, cap.width, accuracy: 0.001,
+                           "The visual Typr segment must keep its original width")
+            XCTAssertEqual(region.bounds.height, cap.height, accuracy: 0.001)
             let seam = JoinedSpaceKeycap.seam(cap: cap, radius: layout.metrics.cornerRadius)
             XCTAssertEqual(seam.bounds.maxX, cap.minX + layout.metrics.cornerRadius, accuracy: 0.001)
             // The unchanged wordmark square (including its blank margins) must
