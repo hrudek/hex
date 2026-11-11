@@ -32,8 +32,8 @@ For a prose token in a text field permitting autocorrection, precedence is:
 5. Spatial decoding may replace only after the completeness, margin and system
    validation checks below.
 6. Otherwise the existing cautious spelling fallback runs, German guesses first,
-   then English. Missing evidence or a missing selected-language resource permits
-   this fallback. An **incomplete search blocks inferred automatic replacement**.
+   then English. Missing evidence, a missing selected-language resource or word
+   data still loading permits this fallback. An **incomplete search blocks inferred automatic replacement**.
 
 Rejected typed→replacement pairs veto every automatic path. After a complete
 spatial refusal, the spelling fallback is blocked only when an above-literal
@@ -44,7 +44,9 @@ therefore coexist with a successful spelling-fallback decision. The dashboard ca
 these “Paths that declined to replace”, not reasons the final word stayed unchanged.
 Undo suppresses the original for the session and persists its rejected pair, with
 identity labels only for intact evidence; it never permanently keeps or counts the
-original. The explicit keep chip still permanently protects it, including while
+original. Rejected forms include straight/typographic apostrophes; text replacements
+with spaces, digits or other punctuation get session-only undo suppression (no saved pair).
+The explicit keep chip still permanently protects it, including while
 learning is off; off supplies no labels/counts.
 
 ## Evidence, scoring and bounded search
@@ -85,7 +87,10 @@ learning is off; off supplies no labels/counts.
   history. Resource-loading outcomes are not cached across readiness.
 - The personal scan considers at most 2,000 sorted kept or count≥2 words,
   retaining only those absent from all selected corpora and passing length/alphabet/
-  first-letter geometry filters. The model validates and enforces one combined
+  first-letter geometry filters. Normalization, sorting, alphabet labels and maximum
+  bonus are prepared once per immutable snapshot; corpus absence is cached per
+  snapshot/selected-language set. Per-decode scan work is length/geometry filtering
+  and scoring only the absent words. The model validates and enforces one combined
   kept ∪ counted bound of 2,000 words, evicting unkept counts before keeps. Thus
   personal snapshot size within that bound never invalidates completeness. An
   oversized externally supplied snapshot is still refused as incomplete, not

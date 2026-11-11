@@ -73,6 +73,27 @@ final class TypingModelTypesTests: XCTestCase {
         XCTAssertEqual(PersonalLexiconSnapshot.empty.bonus(for: "cat"), 0)
     }
 
+    func testPersonalScanPreparesSortedNormalizedAlphabetLabelsAndMaximumBonus() {
+        let snapshot = PersonalLexiconSnapshot(kept: ["hello", "HELLO", "word1", "über"],
+            counts: ["world": 2, "once": 1, "cat": 2], rejected: [])
+        XCTAssertEqual(snapshot.scan.entries.map(\.word), ["cat", "hello", "world", "über"])
+        for entry in snapshot.scan.entries {
+            XCTAssertEqual(String(entry.labels.map { SpatialWordLexicon.alphabet[$0] }), entry.word)
+            XCTAssertEqual(entry.bonus, snapshot.bonus(for: entry.word))
+        }
+        XCTAssertTrue(snapshot.scan.complete)
+        XCTAssertEqual(snapshot.scan.maxBonus, snapshot.bonus(for: "cat"))
+        let copy = snapshot
+        XCTAssertTrue(copy.scan === snapshot.scan)
+        let model = PersonalTypingModel()
+        model.keep("hello")
+        let first = model.lexicon
+        XCTAssertTrue(first.scan === model.lexicon.scan)
+        model.recordWord("world")
+        XCTAssertFalse(first.scan === model.lexicon.scan)
+        XCTAssertEqual(first.kept, model.lexicon.kept)
+    }
+
     func testRejectedPairNormalizationLookupAndCodable() throws {
         let pair = RejectedCorrection(typed: "Mu\u{0308}ller", replacement: "Straße")
         XCTAssertEqual(Array(pair.typed.unicodeScalars), Array("müller".unicodeScalars))

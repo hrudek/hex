@@ -137,8 +137,14 @@ an idle save; termination can lose unsaved RAM updates. Before load/decode, read
 check regular/non-symlink files and byte limits. Loading validates epoch, schema,
 finite/range values and collection limits. Wrong epoch means empty; invalid data
 is discarded and counted, without raw-data logs or quarantine copies. A later
-save replaces invalid data. Lock/read/write failure falls back to RAM-only.
-To meet the byte ceiling, saving can trim counts before keeps (oldest within each
+save replaces invalid data. Before saving, invalid key aggregates are dropped from
+RAM and counted once as a save failure; an unrecoverable validation failure stops
+persistence instead of failing on every flush. Lock/read failure before the first
+successful load temporarily uses RAM-only and retries on settings/appearance refresh
+while Full Access is allowed. A successful retry installs the authoritative saved
+snapshot, discarding provisional RAM learning/feedback rather than overwriting saved
+protections; a deferred-load episode counts once. Write failure stays RAM-only for
+the session. To meet the byte ceiling, saving can trim counts before keeps (oldest within each
 collection), then rejected pairs; this trims the **saved snapshot**, not the current bounded RAM model.
 
 Successful writes and resets post
@@ -182,10 +188,10 @@ The dictation-log archive and its separate retention/reset rules are unchanged.
 | Observed undo share | Linked immediate undos / recorded automatic replacements in the statistics period, displayed with numerator/denominator; spatial undo combines same-length/edit paths |
 | Keep / alternative / completion picks | Explicit suggestion events, not inferred approval; selecting a repeated center literal without a change is not an alternative |
 | Word decisions latency | Monotonic time inside the boundary decision/recording path; a reused cached decode need not run again |
-| Suggestions latency / suggestion searches | Actual uncached spatial decode calls triggered by suggestions, excluding detached word-data preparation; not all keystrokes, strip rendering, host callbacks or end-to-end input latency |
+| Suggestions latency / suggestion searches | Uncached spatial calls returning a search result, triggered by suggestions; excludes evidence/resource refusals, word data still loading and detached word-data preparation; not all keystrokes, strip rendering, host callbacks or end-to-end input latency |
 | Learning events | Words counted, keeps and rejections during the statistics period; not unique retained words/pairs |
 | Trusted/rejected labels | Diagnostics-owned source/reason counters since statistics reset; learning reset preserves them; reasons include outlier, nonfinite position, unknown key, layout mismatch and ambiguous alignment |
-| Save failures / invalid files discarded | Observed store failures / invalid payloads rejected; failures may remain only in RAM and be absent from the app snapshot |
+| Save failures / invalid files discarded / deferred learning loads | Observed save failures (including repaired invalid key statistics), invalid payloads rejected, and failed initial-load episodes counted once despite retries; failures may remain only in RAM and be absent from the app snapshot |
 
 Not every invalidated gesture yields a rejected-label counter: most are discarded
 before learning. `learningOff` counts labels actually submitted by explicit

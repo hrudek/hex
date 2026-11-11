@@ -159,6 +159,33 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(reloaded.diagnostics[.autoRule], 1, "Reload must not repeat the correction")
     }
 
+    func testPhraseTextReplacementUndoSuppressesOnlyForCurrentSession() throws {
+        let name = "KeyboardLearning-phrase-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let session = KeyboardLearningSession(store: KeyboardLearningStore(directory: directory, defaults: defaults),
+                                              defaults: defaults)
+        let (engine, target) = keyboard(session: session)
+        engine.autocorrect.loadLexiconEntries([(userInput: "omw", documentText: "On my way!")])
+        type("omw ", engine)
+        XCTAssertEqual(target.text, "On my way! ")
+        tap(.delete, engine)
+        XCTAssertEqual(target.text, "omw")
+        XCTAssertFalse(session.protections.isKept("omw"))
+        XCTAssertFalse(session.protections.isRejected(typed: "omw", replacement: "On my way!"))
+        tap(.space, engine)
+        XCTAssertEqual(target.text, "omw ", "Undo still suppresses for this session")
+        session.flush()
+        let reloaded = KeyboardLearningSession(store: KeyboardLearningStore(directory: directory, defaults: defaults),
+                                               defaults: defaults)
+        let (next, nextTarget) = keyboard(session: reloaded)
+        next.autocorrect.loadLexiconEntries([(userInput: "omw", documentText: "On my way!")])
+        type("omw ", next)
+        XCTAssertEqual(nextTarget.text, "On my way! ")
+    }
+
     func testSpellingUndoHasSeparateCounter() {
         let (engine, _) = keyboard(checker: Checker(answers: ["helo": ["hello"]]))
         type("helo ", engine)
