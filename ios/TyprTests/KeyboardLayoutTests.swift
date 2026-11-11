@@ -63,14 +63,13 @@ final class KeyboardLayoutTests: XCTestCase {
         for layout in everyLayout() where layout.field == .text {
             let cap = layout.key(.typr)!.frame
             let region = JoinedSpaceKeycap.typrRegion(cap: cap, radius: layout.metrics.cornerRadius)
-            XCTAssertEqual(region.bounds.minX, cap.minX - 2 * layout.metrics.cornerRadius, accuracy: 0.001)
+            XCTAssertEqual(region.bounds.minX, cap.minX, accuracy: 0.001)
+            XCTAssertEqual(region.bounds, cap, "The visual Typr segment must keep its original size")
             let seam = JoinedSpaceKeycap.seam(cap: cap, radius: layout.metrics.cornerRadius)
-            XCTAssertLessThanOrEqual(seam.bounds.maxX, cap.minX)
+            XCTAssertEqual(seam.bounds.maxX, cap.minX + layout.metrics.cornerRadius, accuracy: 0.001)
             // The unchanged wordmark square (including its blank margins) must
             // sit wholly to the right of the seam in every layout fixture.
-            let markSize = min(cap.width - 8, cap.height * 0.82)
-            let mark = CGRect(x: cap.midX - markSize / 2, y: cap.midY - markSize / 2,
-                              width: markSize, height: markSize)
+            let mark = TyprMarkPath.frame(in: cap)
             for x in [mark.minX, mark.midX, mark.maxX] {
                 for y in [mark.minY, mark.midY, mark.maxY] {
                     XCTAssertTrue(region.contains(CGPoint(x: x, y: y)))
@@ -81,6 +80,25 @@ final class KeyboardLayoutTests: XCTestCase {
             XCTAssertEqual(region.bounds.maxY, cap.maxY, accuracy: 0.001)
             XCTAssertTrue(region.contains(CGPoint(x: cap.maxX - layout.metrics.cornerRadius, y: cap.midY)))
         }
+    }
+
+    @MainActor
+    func testTyprKeyAndWordmarkMatchPreStyle393PointReference() {
+        // Captured from layout/artwork formulas at 055ccefc, before #108/#109.
+        // The owner's 1179 px reference is a 393 pt keyboard at 3x.
+        let layout = KeyboardLayout(width: 393, showsStrip: true)
+        let cap = layout.key(.typr)!.frame
+        XCTAssertEqual(cap.minX, 252.576, accuracy: 0.001)
+        XCTAssertEqual(cap.minY, 203, accuracy: 0.001)
+        XCTAssertEqual(cap.width, 43.684, accuracy: 0.001)
+        XCTAssertEqual(cap.height, 45, accuracy: 0.001)
+        let mark = TyprMarkPath.frame(in: cap)
+        XCTAssertEqual(mark.minX, 255.968, accuracy: 0.001)
+        XCTAssertEqual(mark.minY, 207.05, accuracy: 0.001)
+        XCTAssertEqual(mark.width, 36.9, accuracy: 0.001)
+        XCTAssertEqual(mark.height, 36.9, accuracy: 0.001)
+        XCTAssertEqual(mark.midX, cap.midX, accuracy: 0.001)
+        XCTAssertEqual(mark.midY, cap.midY, accuracy: 0.001)
     }
 
     @MainActor
