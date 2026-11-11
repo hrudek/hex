@@ -101,11 +101,12 @@ owner-approved privacy, retention and reset contract.
   - **Full keyboard Typr key (Settings › Keyboard › Full keyboard):** A quick tap
     types a space, exactly like the space bar (autocorrect, double-space
     period). A still hold of 0.35 s starts dictation in a warm session (or
-    opens Typr without one), with a haptic. Moving more than 10 pt before
-    then opens the style menu (up or sideways); releasing over a row picks
-    it, and releasing elsewhere leaves the menu open for taps. A mostly downward
-    slide always shows the compact
-    dictation bar instead (`TyprKeyGesture`). VoiceOver activation
+    opens Typr without one), with a haptic. Moving at least 60 pt before
+    then opens the style menu (up, sideways or diagonally); releasing over a row
+    picks it, and releasing elsewhere leaves the menu open for taps. A mostly
+    downward slide shows the compact dictation bar instead at 30 pt
+    (`TyprKeyGesture`). Distances are measured from touch-down; smaller movements
+    do not open either surface. Tap and hold behavior is unchanged. VoiceOver activation
     dictates; the **Space**, **Dictation styles** and **Show dictation bar**
     actions do the rest.
   - **Autocorrect (below Full keyboard):** **Deutsch** and **English** are

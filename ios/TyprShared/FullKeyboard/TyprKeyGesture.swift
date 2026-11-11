@@ -2,14 +2,15 @@ import CoreGraphics
 import Foundation
 
 /// The full keyboard's Typr key as a pure state machine. A tap (released before
-/// `holdDuration` without moving more than `slop`) types a space. A still hold of
-/// `holdDuration` fires the hold action (dictate, or open Typr). Moving more than `slop`
-/// before then opens the style menu, and the release picks the row under the finger;
-/// Typr: when the compact bar is allowed, a mostly downward move shows it instead.
+/// `holdDuration` without reaching a swipe threshold) types a space. A still hold of
+/// `holdDuration` fires the hold action (dictate, or open Typr). A 60 pt move before
+/// then opens the style menu, and the release picks the row under the finger.
+/// When the compact bar is allowed, a mostly downward move uses 30 pt and shows it instead.
 /// Once the hold fires or the bar is shown, moves and the release are ignored.
 nonisolated struct TyprKeyGesture: Equatable, Sendable {
     static let holdDuration: TimeInterval = 0.35
-    static let slop: CGFloat = 10
+    static let menuDistance: CGFloat = 60
+    static let compactBarDistance: CGFloat = 30
 
     enum State: Equatable, Sendable {
         case idle
@@ -42,8 +43,10 @@ nonisolated struct TyprKeyGesture: Equatable, Sendable {
         case .pressing:
             let dx = point.x - origin.x
             let dy = point.y - origin.y
-            guard hypot(dx, dy) > Self.slop else { return .ignored }
-            if allowsCompactBar && dy > abs(dx) {
+            let showsCompactBar = allowsCompactBar && dy > abs(dx)
+            let threshold = showsCompactBar ? Self.compactBarDistance : Self.menuDistance
+            guard hypot(dx, dy) >= threshold else { return .ignored }
+            if showsCompactBar {
                 state = .fired
                 return .showCompactBar
             }

@@ -23,7 +23,7 @@ final class TyprKeyGestureTests: XCTestCase {
     func testSlideUpOpensMenu() {
         var gesture = TyprKeyGesture()
         gesture.touchDown(at: CGPoint(x: 20, y: 20))
-        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 20, y: 9), allowsCompactBar: true), .openMenu)
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 20, y: -40), allowsCompactBar: true), .openMenu)
         XCTAssertEqual(gesture.holdElapsed(), .ignored, "the menu won, no dictation")
         XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 0, y: 40), allowsCompactBar: true), .dragMenu,
                        "once open, moving down drags in the menu")
@@ -34,13 +34,13 @@ final class TyprKeyGestureTests: XCTestCase {
     func testSlideSidewaysOpensMenu() {
         var gesture = TyprKeyGesture()
         gesture.touchDown(at: CGPoint(x: 20, y: 20))
-        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 5, y: 25), allowsCompactBar: true), .openMenu)
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: -40, y: 20), allowsCompactBar: true), .openMenu)
     }
 
     func testSlideDownShowsCompactBar() {
         var gesture = TyprKeyGesture()
         gesture.touchDown(at: CGPoint(x: 20, y: 20))
-        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 24, y: 32), allowsCompactBar: true), .showCompactBar)
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 20, y: 50), allowsCompactBar: true), .showCompactBar)
         XCTAssertEqual(gesture.holdElapsed(), .ignored, "no dictation")
         XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 24, y: 60), allowsCompactBar: true), .ignored)
         XCTAssertEqual(gesture.touchUp(), .ignored, "no space, no menu")
@@ -50,7 +50,63 @@ final class TyprKeyGestureTests: XCTestCase {
     func testSlideDownOpensMenuWithoutCompactBar() {
         var gesture = TyprKeyGesture()
         gesture.touchDown(at: CGPoint(x: 20, y: 20))
-        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 20, y: 40)), .openMenu, "switch key off: today's behaviour")
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 20, y: 80)), .openMenu, "without the compact bar, downward movement opens the menu at 60 pt")
+    }
+
+    func testDownwardThresholdIs30Points() {
+        for dx: CGFloat in [-18, 0, 18] {
+            var gesture = TyprKeyGesture()
+            gesture.touchDown(at: .zero)
+            // A 3:4:5 diagonal also measures distance from touch-down.
+            let dy: CGFloat = dx == 0 ? 30 : 24
+            XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: dx * 0.99, y: dy * 0.99),
+                                              allowsCompactBar: true), .ignored)
+            XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: dx, y: dy),
+                                              allowsCompactBar: true),
+                           .showCompactBar)
+        }
+    }
+
+    func testAllOtherDirectionsRequire60Points() {
+        let directions: [CGPoint] = [
+            CGPoint(x: 0, y: -60), CGPoint(x: -60, y: 0), CGPoint(x: 60, y: 0),
+            CGPoint(x: -36, y: -48), CGPoint(x: 36, y: -48),
+            CGPoint(x: -48, y: 36), CGPoint(x: 48, y: 36)
+        ]
+        for end in directions {
+            var gesture = TyprKeyGesture()
+            gesture.touchDown(at: .zero)
+            XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: end.x * 0.99, y: end.y * 0.99),
+                                              allowsCompactBar: true), .ignored)
+            XCTAssertEqual(gesture.touchMoved(to: end, allowsCompactBar: true), .openMenu)
+            XCTAssertEqual(gesture.touchUp(), .releaseMenu)
+        }
+    }
+
+    func testSubthresholdMovementStillTypesSpace() {
+        for end in [CGPoint(x: 59, y: 0), CGPoint(x: 0, y: -59), CGPoint(x: 0, y: 29)] {
+            var gesture = TyprKeyGesture()
+            gesture.touchDown(at: .zero)
+            XCTAssertEqual(gesture.touchMoved(to: end, allowsCompactBar: true), .ignored)
+            XCTAssertEqual(gesture.touchUp(), .tap)
+        }
+    }
+
+    func testDownwardMovementWithoutCompactBarRequires60Points() {
+        var gesture = TyprKeyGesture()
+        gesture.touchDown(at: .zero)
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 0, y: 30)), .ignored)
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 0, y: 59)), .ignored)
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 0, y: 60)), .openMenu)
+    }
+
+    func testSubthresholdMovementPreservesHold() {
+        var gesture = TyprKeyGesture()
+        gesture.touchDown(at: .zero)
+        XCTAssertEqual(gesture.touchMoved(to: CGPoint(x: 0, y: -59),
+                                          allowsCompactBar: true), .ignored)
+        XCTAssertEqual(gesture.holdElapsed(), .hold)
+        XCTAssertEqual(gesture.touchUp(), .ignored)
     }
 
     func testMoveAfterHoldDoesNothing() {
