@@ -238,8 +238,8 @@ GitHub run **42954810678**, `sim1.log` `TYPR-EVAL` output:
 **iOS simulator on GitHub macOS runner, synthetic taps, not iPhone**.
 The Apple SDK build succeeded; the full run executed 560 tests with three failed
 assertions in two decoder tests (deterministic ties and undo boundary labels).
-The evaluation tests themselves passed. P7 fixes those assertions' causes and
-adds Linux regression checks; a new Apple simulator run is still required.
+The evaluation tests themselves passed. Both causes were fixed; the final
+simulator run 42967899400 at `1c191b5a` executed 580 tests with 0 failures.
 
 The same tune/holdout seeds, noise, corpus-membership validity proxy, learning-off
 setting, 384 structural + 256 neighbor samples, 789 controls and 830 prefixes per
