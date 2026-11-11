@@ -84,6 +84,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.isAccessibilityElement = true
 
+        typrKey.onHighlightChanged = { [weak self] highlighted in self?.plane.typrPressed = highlighted }
         typrKey.onHold = { [weak self] in self?.typrKeyHeld() }
         typrKey.onTap = { [weak self] in self?.typrKeyTapped() }
         typrKey.onShowCompactBar = { [weak self] in self?.typrKeySlidDown() }
