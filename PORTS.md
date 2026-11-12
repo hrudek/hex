@@ -247,6 +247,21 @@ UIKit/Apple-checker/iPhone proof are documented in the keyboard references. All
 drawn-keycap points remain literal; synthetic hit-error reduction is not evidence
 of lower correction burden for real thumbs.
 
+## Personal next-word pairs (iikb, P4)
+
+Owner-approved new personal association storage, pinned to
+**`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, **MIT, © 2026 Bassim Shahidy**.
+The source and LICENSE were read only, never built/run. Historical pins and
+exclusions above remain; this narrowly supersedes the personal-context exclusion.
+
+| Source paths at this pin | Translated algorithms | Destination files | Exclusions |
+| --- | --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift` (follower counts/cleanup, lines 16–114), `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LanguageModel.swift` (discounted backoff, lines 61–82) | Single-word follower counts and .5-discount / Witten–Bell-style personal-over-corpus backoff. Typr adds stricter two-endpoint settlement, a two-sighting minimum for corpus-absent followers, spared newest edge on eviction, deterministic event-count halving, 512-type/8-follower/64 KiB bounds, schema 1/2→3 migration, all-reference deletion and epoch isolation; exact bounded mixture predictions and display-only rerank, no copied files | `ios/TyprShared/FullKeyboard/PersonalBigramModel.swift`, `PersonalTypingModel.swift`, `KeyboardLearningSession.swift`, `KeyboardLearningStore.swift`, `KeyboardContextModel.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`; `ios/Typr/KeyboardLearnedWordsView.swift`, `KeyboardDiagnosticsView.swift`, `KeyboardSettingsCard.swift`; Typr-authored tests/evaluation in `ios/TyprTests/PersonalTypingBigramTests.swift` and `PersonalTypingBigramEvaluationTests.swift` | No trigrams, sentences, app/host metadata, silent-auto/retype training, raw tap archive, upstream resources, neural weights, swipe typing, emoji, themes, layouts, clipboard, network or dictation changes |
+
+The existing full MIT notice in `THIRD_PARTY_NOTICES.md` was checked against this
+pin and is reused, not duplicated. No new resource or executable dependency.
+See [privacy, ageing and proof limits](ios/KEYBOARD_LEARNING.md#personal-next-word-pairs).
+
 ## Carried keyboard PR paths
 
 The second row's current destination paths are listed below. In the adopted

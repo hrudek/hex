@@ -123,7 +123,7 @@ final class KeyboardLearningStoreTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: object).write(to: file)
         let (loaded, diagnostics) = store.load()
         let migrated = try XCTUnwrap(loaded)
-        XCTAssertEqual(migrated.schemaVersion, 2)
+        XCTAssertEqual(migrated.schemaVersion, 3)
         XCTAssertEqual(migrated.kept, model.state.kept)
         XCTAssertEqual(migrated.counts, model.state.counts)
         XCTAssertEqual(migrated.rejected, model.state.rejected)

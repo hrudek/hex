@@ -222,26 +222,39 @@ nonisolated struct KeyboardContextModel: Sendable {
         let probability: Double
     }
 
-    /// Exact mixture top-three: all boosted followers, then descending unigram scans.
-    /// Strict bound preserves ties. At most 16,000 lexical keys and 32 boosts visited;
-    /// the seen set is request-local, never a history/cache. No fixed top-16 approximation.
+    /// Exact mixture top-three: personal followers (≤8), all boosted corpus followers, then
+    /// descending unigram scans. Personal evidence `P_personal(w|h)` (see `PersonalBigramModel`)
+    /// wraps the corpus mixture; every non-follower keeps `backoff × P_corpus`, so the corpus
+    /// stopping bound scaled by that weight stays exact. Strict bound preserves ties. At most
+    /// 16,000 lexical keys, 32 boosts and 8 personal seeds visited; the seen set is
+    /// request-local, never a history/cache. Learning off passes an empty personal model,
+    /// which reproduces the corpus-only ranking exactly.
     func suggestions(after context: String?, weightDE: Double, german: Bool = true, english: Bool = true,
-                     suppress: Set<String> = Self.suppressed) -> [Suggestion] {
+                     suppress: Set<String> = Self.suppressed,
+                     personal: PersonalBigramModel = .init()) -> [Suggestion] {
         guard supports(german: german, english: english) else { return [] }
         let d = german ? de : nil, e = english ? en : nil
         let a = german ? (english ? min(1, max(0, weightDE.isFinite ? weightDE : 0.5)) : 1) : 0
         let dd = d?.distribution(context) ?? Pack.Distribution(), ed = e?.distribution(context) ?? Pack.Distribution()
+        let row = personal.followers(after: context)
+        let backoff = personal.backoffWeight(after: context)
         var seen: Set<String> = [], best: [Suggestion] = []
         func visit(_ key: String) {
-            guard !suppress.contains(key), seen.insert(key).inserted else { return }
+            // Stock-name suppression and selected packs govern corpus words. A personal-only
+            // follower (OOV, other language's word or a suppressed name) needs repeated trust.
+            let corpusWord = !suppress.contains(key) && (d?.id(key) != nil || e?.id(key) != nil)
+            guard corpusWord || (row[key] ?? 0) >= PersonalBigramModel.novelFollowerMinimum,
+                  seen.insert(key).inserted else { return }
             let dp = a * (d?.probability(key, distribution: dd) ?? 0)
             let ep = (1 - a) * (e?.probability(key, distribution: ed) ?? 0)
-            let pack = dp >= ep && d?.id(key) != nil ? d! : e!
-            let id = pack.id(key)!
-            best.append(Suggestion(key: key, display: pack.word(id, display: true), probability: dp + ep))
+            let pack = dp >= ep && d?.id(key) != nil ? d : e
+            let display = pack.flatMap { p in p.id(key).map { p.word($0, display: true) } } ?? key
+            best.append(Suggestion(key: key, display: display,
+                                   probability: personal.probability(key, after: context, corpus: dp + ep)))
             best.sort { $0.probability == $1.probability ? $0.key.utf8.lexicographicallyPrecedes($1.key.utf8) : $0.probability > $1.probability }
             if best.count > 3 { best.removeLast() }
         }
+        for key in row.keys.sorted() { visit(key) }
         for boost in dd.boosts { visit(d!.word(boost.id)) }
         for boost in ed.boosts { visit(e!.word(boost.id)) }
         var pos = 0
@@ -251,7 +264,7 @@ nonisolated struct KeyboardContextModel: Sendable {
             pos += 1
             let db = d.flatMap { pos < $0.base.count ? $0.p0(Int($0.base[pos])) : nil } ?? 0
             let eb = e.flatMap { pos < $0.base.count ? $0.p0(Int($0.base[pos])) : nil } ?? 0
-            if best.count == 3, best[2].probability > a * dd.lambda * db + (1 - a) * ed.lambda * eb { break }
+            if best.count == 3, best[2].probability > backoff * (a * dd.lambda * db + (1 - a) * ed.lambda * eb) { break }
         }
         return best
     }
@@ -335,16 +348,23 @@ nonisolated struct KeyboardContextModel: Sendable {
     /// Unscored alternatives (system guesses/completions, contact terms) keep rank spacing.
     static let rankWeight = 0.2
 
-    /// Bounded, non-negative context evidence: clip(log(P_mix(w|h) / P_mix(w)), 0, log 20)
-    /// with the same language weights for both terms. Only retained followers of h can gain;
-    /// words with no corpus probability (names, compounds, OOV) and plain non-followers get 0.
-    func contextGain(_ word: String, context: Context, german: Bool, english: Bool) -> Double {
+    /// Bounded, non-negative context evidence: clip(log(P(w|h) / P_mix(w)), 0, log 20)
+    /// with the same language weights for both terms, where P(w|h) is the corpus mixture
+    /// wrapped by personal follower backoff (empty while learning is off). Only retained
+    /// corpus or personal followers of h can gain. Words without corpus probability (names,
+    /// compounds, OOV) gain only as a personal follower seen at least twice (denominator
+    /// floor 1e-12, still capped); otherwise they and plain non-followers get 0.
+    func contextGain(_ word: String, context: Context, german: Bool, english: Bool,
+                     personal: PersonalBigramModel = .init()) -> Double {
         guard context.canPredict, let previous = context.previous else { return 0 }
-        let weight = context.state.weightDE
-        let base = probability(word, after: nil, weightDE: weight, german: german, english: english)
-        guard base > 0 else { return 0 }
-        let p = probability(word, after: previous, weightDE: weight, german: german, english: english)
-        return min(Self.gainLimit, max(0, log(p / base)))
+        let weight: Double = context.state.weightDE
+        let base: Double = probability(word, after: nil, weightDE: weight, german: german, english: english)
+        let count: Int = personal.followers(after: previous)[Self.key(word)] ?? 0
+        guard base > 0 || count >= PersonalBigramModel.novelFollowerMinimum else { return 0 }
+        let corpus: Double = probability(word, after: previous, weightDE: weight, german: german, english: english)
+        let p: Double = personal.probability(word, after: previous, corpus: corpus)
+        let ratio: Double = max(p, 1e-12) / max(base, 1e-12)
+        return min(Self.gainLimit, max(0, log(ratio)))
     }
 
     /// Reorders an existing ordered display pool (at most 32 entries), only WITHIN each evidence
@@ -353,10 +373,10 @@ nonisolated struct KeyboardContextModel: Sendable {
     /// can never lift an unscored guess above a spatial reading or vice versa. Literal,
     /// automatic and explicit-revert slots are pinned by the caller. Ties keep original order.
     func rerank(_ candidates: [String], spatialScores: [String: Double] = [:], context: Context,
-                german: Bool, english: Bool) -> [String] {
+                german: Bool, english: Bool, personal: PersonalBigramModel = .init()) -> [String] {
         var pool = Array(candidates.prefix(Self.candidateLimit))
         guard context.canPredict, context.previous != nil else { return pool }
-        let gains = pool.map { Self.gainWeight * contextGain($0, context: context, german: german, english: english) }
+        let gains = pool.map { Self.gainWeight * contextGain($0, context: context, german: german, english: english, personal: personal) }
         guard gains.contains(where: { $0 > 0 }) else { return pool }
         for scored in [true, false] {
             let slots = pool.indices.filter { (spatialScores[pool[$0]] != nil) == scored }

@@ -159,6 +159,16 @@ against that revision's LICENSE and also covers these rewritten adaptations.
 No additional iikb word data, neural weights or dependencies are included;
 [PORTS.md](PORTS.md) records the exact paths, pin and exclusions.
 
+The P4 personal next-word layer additionally translates follower counts and cleanup
+from `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift`
+and discounted backoff from the adjacent `LanguageModel.swift` at
+**`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**. The same **MIT, Copyright (c)
+2026 Bassim Shahidy** notice above applies and was checked against that pin's LICENSE;
+it is not duplicated. Typr supplies its own stricter trust protocol, event-count
+ageing, bounds, schema migration and deletion UI. No upstream resources, app
+histories, trigrams, neural weights or executable dependency are adopted; exact
+paths/exclusions are in `PORTS.md`.
+
 The aggregate-aim extension additionally translates full covariance, pooled shrinkage,
 multiple-timescale aim, predictive fixed-share weighting and covariance-display/test
 ideas (rewritten with Typr's shared 40/8-label affine drift, not upstream per-key
