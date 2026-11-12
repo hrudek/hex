@@ -438,6 +438,7 @@ final class AutocorrectEngine {
             let text = spatialSpelling(candidate, token: token).text
             if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text) { continue }
             if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { pool.append(text) }
+            if candidate.isCompletion { completions.insert(text) }
         }
 
         // Prefix matches from Contacts / lexicon terms.
@@ -449,6 +450,34 @@ final class AutocorrectEngine {
                     completions.insert(candidate)
                 }
                 if pool.count >= 3 { break }
+            }
+        }
+
+        // Corpus prefixes and held-letter alternatives are display-only, independent of the
+        // correction result/cache. Hard caps keep this independently mergeable with the worker.
+        if isEnabled, pool.count < 2, let spatialDecoder {
+            var languages: Set<SpatialWordDecoder.Language> = []
+            if englishEnabled { languages.insert(.english) }
+            if german != nil { languages.insert(.german) }
+            // Trusted literals may extend exactly (or via a holder), but must not be
+            // displaced by a spatially reinterpreted prefix masquerading as a completion.
+            let prefixEvidence = protectsFromEditSuggestions(token) ? nil : evidence
+            let result = spatialDecoder.prefixSuggestions(token, languages: languages, evidence: prefixEvidence,
+                                                         calibration: prefixEvidence.flatMap { learning.calibration(for: $0.layout) })
+            for item in result.candidates {
+                var spelling = item.word
+                if item.language == .german, let german {
+                    // Lowercase corpus data cannot establish noun casing. Use the selected
+                    // system dictionary; never infer canonical capitalization from frequency.
+                    let title = spelling.prefix(1).uppercased() + spelling.dropFirst()
+                    if !german.isValid(spelling), german.isValid(title) { spelling = title }
+                }
+                let cased = Self.matchCase(of: token, onto: spelling)
+                guard !learning.protections.isRejected(typed: token, replacement: cased),
+                      !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) else { continue }
+                pool.append(cased)
+                if item.isCompletion { completions.insert(cased) }
+                if pool.count >= 2 { break }
             }
         }
 
@@ -489,7 +518,8 @@ final class AutocorrectEngine {
             KeyboardSuggestion(
                 displayText: first,
                 replacement: first,
-                kind: .primary(autoReplace: autoFix != nil),
+                kind: .primary(autoReplace: first == autoFix && !completions.contains(first)
+                               && !Self.isPrefixExtension(first, of: token)),
                 isCompletion: completions.contains(first) || Self.isPrefixExtension(first, of: token)
             )
         } else {
@@ -639,6 +669,11 @@ final class AutocorrectEngine {
     private func automatic(_ text: String, token: String, kind: CorrectionKind,
                            counter: KeyboardDiagnostics.Counter, alignment: [Int?]? = nil) -> Decision {
         guard text != token else { return Decision() }
+        // An inferred suffix is a manual completion, never an automatic boundary edit.
+        // Explicit text replacements and deterministic rules keep their existing authority.
+        if (kind == .autoSpatial || kind == .autoSpelling), Self.isPrefixExtension(text, of: token) {
+            return Decision(refusal: .refusedBelowMargin)
+        }
         guard !learning.protections.isRejected(typed: token, replacement: text) else {
             return Decision(refusal: .refusedProtected)
         }

@@ -80,7 +80,13 @@ Before updating, the model requires a supported text-field letter layout and
 lowercase intended key, finite coordinates and valid pitch, and Euclidean
 normalized distance ≤1.0 from the intended key's **static** center. Captured
 layout/context association is enforced by the tracker/integration. Current
-letter keys are a–z; popup umlauts/ß have no fabricated centers.
+letter keys are a–z; popup umlauts/ß have no fabricated centers. Inference now shares
+a/o/u/s density and calibration with ä/ö/ü/ß, respectively; this creates no new
+stored key or touch-label source. Prefix traversal keeps no history or persistent
+cache. Corpus and noisy-prefix completions are flagged at retrieval (including an
+exhausted-tap suffix from the edit decoder), supply a word count on explicit pick
+and never supply touch labels, even for the observed prefix. Valid homographs keep
+their existing automatic protection; deterministic `fuer → für` rules remain.
 
 ## What is stored and bounded
 

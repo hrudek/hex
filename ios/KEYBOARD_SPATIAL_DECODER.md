@@ -71,7 +71,8 @@ learning is off; off supplies no labels/counts.
   structural edit is allowed: missing candidate letter, extra observed tap, or
   adjacent transposition. Each costs `log(0.01)`. An extra tap contributes its
   best gated key density, without an intended-letter label. No split/join,
-  cross-word context, neural model, swipe or predictive decoder completion.
+  cross-word context, neural model or swipe. A missing final letter is flagged as
+  a manual completion; separate bounded prefix retrieval is described below.
 - One deterministic best-first heap interleaves both language tries. Shared caps:
   **6,000 pops, 12,000 generated states and 12,000 spelling-trail records**, depth
   at most 32; at most eight distinct above-literal alternatives. Subtree maximum
@@ -100,9 +101,10 @@ learning is off; off supplies no labels/counts.
   counts before keeps. Thus
   personal snapshot size within that bound never invalidates completeness. An
   oversized externally supplied snapshot is still refused as incomplete, not
-  silently truncated and called complete. Today's drawn keys
-  have no direct ä/ö/ü/ß centers: Unicode data is preserved, but no centers are
-  invented. Existing digraph rules and popup fallback remain responsible.
+  silently truncated and called complete. Today's drawn keys have no direct
+  ä/ö/ü/ß centers: these letters share a/o/u/s density and calibration through
+  `KeyboardLetterMap`, without invented popup centers. Popup gestures still
+  invalidate evidence; existing digraph rules retain precedence.
 
 `complete` certifies the exact top-eight distinct **above-literal** spellings
 under this bounded candidate universe and frozen max-path objective. Ordering uses
@@ -141,6 +143,86 @@ Every strict prefix extension is a completion regardless of retrieval source
 manualCompletionPick and a word count but no touch labels. Internal missing-letter
 alternatives such as `helo → hello` still use conservative alignment labels.
 Deleted/retyped words can retain decoding evidence but supply no labels or counts.
+
+## Prefix completions and physical letter holders
+
+`SpatialPrefixSearch` reuses the validated TSW1 tries and their existing
+max-descendant-count indexes; no new word data or resource limits. With
+Autocorrect enabled and selected data available, the strip can extend a **2–31
+letter** current prefix into a word of at most **32 letters**. Exact retrieval
+requires no touch evidence, including NFC-normalized accented prefixes. An
+intact word can additionally supply the decoder's same gated Gaussian densities
+for at most **one noisy physical-key substitution** in the prefix. There are no
+structural edits in this separate prefix search. A trusted valid/kept/contact
+literal permits exact/holder extensions but not noisy-prefix reinterpretation.
+
+The interleaved best-first queue ranks by relative prefix touch density plus
+`0.35 × log(count / language total)` and an explicit equal selected-source
+weight. Shared words retain their best component after deduplication; this is a
+ranking heuristic, not a calibrated bilingual posterior. The max-count index
+bounds the remaining suffix; terminal entries
+compete with subtree entries rather than taking the first DFS leaves. Results
+are deterministic, lowercase NFC/case-deduplicated across languages. At most
+**512 pops, 2,048 generated states (including terminals), eight results**;
+truncation is display-only best effort, unrelated to the authoritative decoder's
+`complete` proof. Equal-frequency subtrees use lexical tie ordering without
+expanding every tied subtree first. Requested bilingual data must all be present.
+
+The existing literal/keep slot and correction/contact priority remain. Up to two
+remaining alternatives can come from the corpus search before system guesses.
+German noun casing is established only by the selected system dictionary, never
+by lowercase frequency data. Completions, including noisy-prefix suffixes and a
+missing-final-letter edit candidate, are flagged as such, never auto-applied at
+Space/punctuation/Typr-key boundaries, and manual picks count the word without
+labeling **any** taps. Explicit text replacements and deterministic rules keep
+their authority. Same-length held-letter alternatives are manual alternatives,
+not completions. Valid `schon/schön`, `uber/über`, and bilingual controls remain
+protected from automatic changes; `fuer → für` and `Strasse → Straße` retain
+their existing dictionary/digraph gates. No popup positions, new learned keys,
+raw tap storage, layout/hit-target change, next-word prediction or network.
+
+The prefix arena has a derived **294,912-byte payload ceiling** on this Linux
+64-bit build (state values, heap indices and at most 64 UTF-8 spelling bytes per
+state); this excludes allocator metadata/capacity rounding and is **not RSS**.
+The mapped resources plus max-count indexes remain **3,924,496 bytes**. Prefix
+state is per-call only, with no history/cache. This standalone P2 integration
+runs bounded prefix retrieval in the existing suggestion assembly; its pure search
+and immutable shared resources can also be scheduled by the separate suggestion
+worker. It does not move resource preparation onto typing or alter FullKeyboardEngine.
+
+`SpatialPrefixSearchTests` covers exact/noisy/held prefixes, NFC, frequency and
+language-normalized order, equal-frequency broad tries, missing data, caps,
+capitalized nouns, homographs/digraphs, manual completion feedback and actual
+strip selection versus Typr-key Space. Its synthetic evaluation uses odd-index
+common fixture words of length ≥5 with two letters withheld, original data and
+an empty system-completion proxy, not a new independent lexical corpus. Printed
+`EVAL P2_*` lines report recall@1/@3, the existing correction-only retrieval
+baseline, work, wall time, controls and payload bounds. These measure retrieval,
+not guaranteed final strip rank or real human accuracy. Apple checker/casing,
+UIKit compilation, actual popup behavior, extension memory and iPhone latency
+still require Apple/device verification.
+
+Observed P2 Linux harness run (Swift **6.4.2**, debug, x86_64):
+
+| Retrieval group | n | Recall@1 | Recall@3 | Correction-only baseline@3 |
+| --- | ---: | ---: | ---: | ---: |
+| DE, centered-noise / noisy-symbol prefix | 49 each | 32 each | 45 each | 0 |
+| EN, centered-noise / noisy-symbol prefix | 39 each | 34 each | 38 each | 0 |
+| Both, centered-noise / noisy-symbol prefix | 88 each | 63 each | 81 each | 0 |
+
+Per-group prefix mean was **0.51–0.81 ms**, largest p95 **1.45 ms**, maximum
+**1.71 ms**; at most **95 pops / 148 states** on these fixtures. Ten broad
+prefixes without evidence averaged **0.68 ms**, max **54 pops / 207 states**.
+These exclude correction search, checker calls, UI assembly and resource loading.
+The new engine-level validity-proxy controls had **0/376** unwanted automatic
+changes, and two explicit completion picks supplied two counts and **zero** touch
+labels. The full harness executed **255 tests: 245 passed, 9 skipped, one known
+Linux backup-metadata failure** (`isExcludedFromBackup` reads nil). Existing typo
+recall@3 remained 318/384 tune and 341/384 holdout structural, 256/256 and 255/256
+neighbor; both seeds retained zero wrong/control autos. Accent competitors can
+increase ambiguity: neighbor correct-auto totals were 237 tune / 225 holdout,
+versus historical 243 / 227, not an asserted improvement. No iOS build or device
+performance/accuracy follows from this Linux run.
 
 ## Sources and checks
 

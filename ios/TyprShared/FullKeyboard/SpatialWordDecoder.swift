@@ -112,6 +112,12 @@ final class SpatialWordDecoder {
         let edit: Edit
         /// Candidate letter -> observed tap; missing letters have no tap.
         let alignment: [Int?]
+
+        /// Extending an exhausted tap prefix is a completion even when its prefix was noisy.
+        var isCompletion: Bool {
+            if case .missingLetter(let index) = edit { return index == alignment.count - 1 }
+            return false
+        }
     }
     enum Refusal: String, CaseIterable {
         case incompleteSearch, noCandidate, belowMargin, ambiguous, editNeedsInvalidLiteral
@@ -150,6 +156,7 @@ final class SpatialWordDecoder {
         func automaticDecision(literalIsValid: Bool) -> AutoDecision {
             guard complete else { return .refuse(.incompleteSearch) }
             guard let best = candidates.first else { return .refuse(.noCandidate) }
+            guard !best.isCompletion else { return .refuse(.belowMargin) }
             if best.edit != .none && literalIsValid { return .refuse(.editNeedsInvalidLiteral) }
             guard best.score - literalScore >= 3,
                   best.edit != .none || best.spatialScore - literalSpatialScore >= 2 else {
@@ -218,6 +225,13 @@ final class SpatialWordDecoder {
     }
 
     private func lexicon(_ language: Language) -> SpatialWordLexicon? { lexicons[language] }
+
+    /// Display-only bounded search. Never enters the authoritative correction result/cache.
+    func prefixSuggestions(_ prefix: String, languages: Set<Language>, evidence: KeyboardTouchWord?,
+                           calibration: SpatialTouchCalibration?) -> SpatialPrefixSearch.Result {
+        SpatialPrefixSearch.search(prefix, lexicons: lexicons, languages: languages,
+                                   evidence: evidence, calibration: calibration)
+    }
 
     /// The filtered entries track snapshot identity (including changed bonuses). Corpus absence
     /// depends only on installed resources and the language set, so its bounded RAM memo survives
@@ -366,51 +380,12 @@ final class SpatialWordDecoder {
             guard let source = lexicon(language) else { return .unavailable(.resource) }
             sources.append((language, source))
         }
-        let alphabet = SpatialWordLexicon.alphabet
-        var frames: [Int: CGRect] = [:]
-        for (index, letter) in alphabet.enumerated() {
-            if let key = word.layout.key(.character(String(letter))) { frames[index] = key.frame }
+        guard let emissions = KeyboardLetterMap.emissions(for: word, calibration: calibration) else {
+            return .unavailable(.evidence)
         }
-        var likelihoods: [[Double]] = []
-        var bestScores: [Double] = []
-        var literalSpatial = 0.0
-        for sample in word.samples {
-            guard sample.text.count == 1, sample.text.lowercased().count == 1,
-                  sample.key == word.layout.key(sample.key.kind),
-                  sample.key.character?.lowercased() == sample.text.lowercased(),
-                  sample.point.x.isFinite, sample.point.y.isFinite,
-                  let letter = sample.text.lowercased().first,
-                  let label = alphabet.firstIndex(of: letter), frames[label] != nil else {
-                return .unavailable(.evidence)
-            }
-            var scores = [Double](repeating: -.infinity, count: alphabet.count)
-            for index in alphabet.indices {
-                guard let frame = frames[index] else { continue }
-                let width = Double(frame.width + word.layout.metrics.gap)
-                let height = Double(frame.height + word.layout.metrics.rowGap)
-                guard frame.width > 0, frame.height > 0, width.isFinite, height.isFinite,
-                      width > 0, height > 0 else { return .unavailable(.evidence) }
-                let key = calibration?.keys[alphabet[index]]
-                let dx = Double(sample.point.x - frame.midX) / width - (key?.offsetX ?? 0)
-                let dy = Double(sample.point.y - frame.midY) / height - (key?.offsetY ?? 0)
-                let sx = key?.sigmaX ?? SpatialTouchCalibration.staticSigma
-                let sy = key?.sigmaY ?? SpatialTouchCalibration.staticSigma
-                // Density in pitch coordinates. The -log(2πσxσy) term is essential:
-                // omitting it would reward broader personal distributions unfairly.
-                if dx * dx + dy * dy <= 1.6 * 1.6 {
-                    scores[index] = -0.5 * (dx * dx / (sx * sx) + dy * dy / (sy * sy))
-                        - log(2 * Double.pi * sx * sy)
-                }
-            }
-            guard scores[label].isFinite, let best = scores.max(), best.isFinite else {
-                return .unavailable(.evidence)
-            }
-            // Literal is ungated by the relative six-log-unit candidate cutoff, and has no edits.
-            literalSpatial += scores[label]
-            bestScores.append(best)
-            for index in scores.indices where scores[index] < best - 6 { scores[index] = -.infinity }
-            likelihoods.append(scores)
-        }
+        let likelihoods = emissions.likelihoods
+        let bestScores = emissions.best
+        let literalSpatial = emissions.literal
         let floorPrior = sources.map { log(1 / $0.1.total) }.max() ?? 0
         let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
         let literalPrior = sources.map { _, source in
