@@ -263,8 +263,9 @@ See
 These are **suggestion-only**, with no automatic application at Space/punctuation/
 Typr-key boundaries. A manual pick replaces an owned suffix as one undoable step.
 Neither picking nor undoing a boundary hypothesis teaches touch labels, a phrase
-count, or constituent-word counts. No missing space is fabricated as a tap; joins
-retain no earlier-word touch evidence. The manual-alternative pick counter can
+count, or constituent-word counts. No missing space is fabricated as a tap. Exact
+joins need no geometry; spatial joins retain at most one previous fully observed word
+and the actual real Space tap in the bounded RAM window below. The manual-alternative pick counter can
 increase; boundary undo is not counted as an automatic-correction undo.
 
 Boundary phrase rejections use a **64-pair FIFO in session RAM only**, bounded to
@@ -277,6 +278,34 @@ ordinary learning-off retains them and kept-word protections. Boundary picks do
 not count as personal-word evidence while learning is either on or off. Persistent
 protections, individual deletion and Full Access rules for existing word learning
 remain unchanged. No personal next-word history, boundary-tap archive or network.
+
+### Spatial boundary evidence (P6)
+
+The same manual transaction/rejection rules cover `greatvday → great day`,
+`a out → about` and gratuitous-space joins. A RAM-only boundary window owns at most
+**32 combined taps including Space**, at most two nonempty words, and one changed
+boundary. No raw Space archive, new schema, personal context association or additional
+Full Access permission. Ordinary/learned letter densities participate, but the Space
+predictive density is static: Typr has no independent trusted Space labels and never
+trains Space from its own hypothesis. Learning off keeps geometry with static letter
+priors and retains keeps/rejections; it does not create personal evidence.
+
+A real Space whose tap is more likely as an adjacent bottom-row letter cancels the
+first fragment's pending literal feedback. Otherwise the next letter could count/train
+`a` before a user chooses `about`. Existing historical counts/keeps still veto boundary
+reinterpretations; a manual pick/undo never supplies labels or constituent counts.
+Normal centred Space retains the existing trusted-literal settlement protocol.
+Typr-key and programmatic spaces retain their typing/double-space behavior but never
+fabricate geometry. Every existing evidence discontinuity clears the window; rollover
+Space commits exactly once with its last actual coordinate. The element/string payload
+cap is 32,768 bytes per boundary snapshot, excluding container overhead/RSS. See
+[the capture contract](KEYBOARD_TOUCH_INPUT.md#spatial-boundary-window).
+
+Evaluation includes 72 valid-pair controls (DE/EN/mixed, normal and adversarial top-edge
+Space). There are **0 automatic boundary changes**, with one ambiguous English chip
+(`a out → about`) and zero DE/mixed boundary chips. This is a reason to retain the
+suggestion-only product policy, not calibrated automatic precision. Synthetic quality,
+byte/work bounds and Linux-only verification limits are in the spatial reference.
 
 ## Suggestion snapshot isolation
 

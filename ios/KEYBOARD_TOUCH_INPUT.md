@@ -1,4 +1,4 @@
-# Current-word touch evidence
+# Current-word and boundary touch evidence
 
 PR #95 preserved information that fixed key hit-testing otherwise discards.
 The tracker still changes no hit-testing, visible keys, gestures or dictation.
@@ -32,9 +32,10 @@ do not prevent tracking. Email/URL fields and missing document context do.
   or the word is reconstructed after deletion.
 - Word deletion, unsupported inserts and unalignable edits clear current evidence.
   Accepted suggestions and autocorrect undo capture any usable evidence **before**
-  clearing/replacing the current word. Space clears the tracker after the decision;
-  the engine can retain that word in one bounded pending-feedback transaction.
-  Earlier words are never restored from a touch history.
+  clearing/replacing the current word. An unchanged real Space can retain one completed
+  word and its actual tap in a separate, 32-combined-tap boundary window; Typr-key,
+  programmatic, corrected or second spaces clear it. The engine can separately retain
+  one pending-feedback transaction. No earlier words are restored from a history.
 - Popup accents and slides between keys still invalidate evidence; their positions
   are not ordinary tap labels. The decoder can now interpret an ordinary a/o/u/s tap
   as a held ä/ö/ü/ß using that physical key's existing density and calibration, not a
@@ -43,7 +44,7 @@ do not prevent tracking. Email/URL fields and missing document context do.
   noisy-prefix completion uses only an intact, fully observed word.
 - External text changes (including dictation/paste), selection changes, field
   preparation, keyboard dismissal, memory warnings, canceled gestures and layout
-  changes discard current and pending evidence. Held taps become unusable too,
+  changes discard current, boundary-window and pending evidence. Held taps become unusable too,
   so a late release cannot recreate an invalidated word.
 - After invalidation in the middle of a word, later letters cannot create evidence
   for just its suffix. Tracking resumes at a new, fully observed word.
@@ -54,9 +55,9 @@ and other non-prose contexts. Apostrophe sequences have no tap alignment path.
 
 ## Feedback and privacy boundary
 
-Current-word touch evidence and its single pending-feedback transaction stay
-**RAM-only**: no raw tap serialization, UserDefaults, file, log, export or network
-path. No surrounding field-text history is retained by the tracker. Its
+Current-word touch evidence, its single pending-feedback transaction and the bounded
+boundary window stay **RAM-only**: no raw tap serialization, UserDefaults, file, log, export or network
+path. No surrounding field-text history beyond that one owned boundary window is retained. Its
 `KeyboardTouchWord`/`TouchLabel` values are not Codable.
 
 Automatic corrections **alone never teach** touch labels or word counts. Explicit
@@ -115,15 +116,55 @@ window or personal history. Missing selected packs retain lexical-only split pol
 The automatic-split experiments failed name/product controls or had under 10% recall,
 so Space/punctuation/Typr remain unchanged.
 For spelling-preserving splits, observed-letter densities cancel against the literal;
-existing whole-word spatial readings remain competitors. Exact joins inspect only
-one adjacent textual suffix separated by one ASCII space, not a retained previous
-word/space-tap window. No missing-space position or boundary label is invented.
+existing whole-word spatial readings remain competitors. Exact joins need only
+one adjacent textual suffix separated by one ASCII space. The spatial extension below
+requires a fully observed previous-word/real-Space window. No missing-space position or boundary label is invented.
 Manual split/join choices and immediate undo teach **no taps or word counts**;
 acceptance still revalidates full ownership and the exact suffix before editing.
 The boundary retrieval cache is cleared on evidence invalidation. Current/pending
 raw taps, static hit-testing, Space/Typr gestures, double-space period and all
-existing capture invalidations remain unchanged. This is not spatial boundary-error
-recovery; see [the policy and limits](KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
+existing capture invalidations remain unchanged; see
+[the policy and limits](KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
+
+## Spatial boundary window
+
+`KeyboardBoundaryTouch` adds at most one previous fully observed word plus one actual
+Space tap to the current word: **32 combined taps including Space**, two nonempty
+words, one boundary reinterpretation. The single-word letter-as-Space case uses
+current evidence only. All points, keys and layouts are RAM-only, not Codable,
+logged, exported or persisted. Each value snapshot has a **32,768-byte element/string
+payload ceiling** (not RSS); the worker retains only its existing running/latest
+snapshots and compatible cache. Missing, mismatched, edited, oversized or discontinuous
+input falls back to the existing exact/spelling paths, never reconstructed geometry.
+
+Ordinary real Space release passes its actual point, key and captured layout.
+Rollover now commits a held real Space before the next key, just like a held letter,
+using its last observed point exactly once; the late release cannot insert it again
+or turn a committed Space into a trackpad. A quick Typr-key tap still types Space
+and participates in double-space-period, but supplies **no Space geometry**. Neither
+an accessibility/programmatic Space nor a chip-created separator fabricates a point.
+A second Space, correction, punctuation, backspace, trackpad, cancellation, layout/
+field/selection/lifecycle/memory-warning invalidation drops the boundary window.
+The old window is replaced, not extended, at a new Space.
+
+Space has a static predictive prior: uniform horizontal density across its actual
+bar and Gaussian vertical density (.35 row pitch), with a hard geometric gate.
+Typr has no independently trusted Space-label learning channel, so sparse/mature
+letter calibration does **not** invent a trained Space model. Existing frozen personal
+letter densities can participate when learning is enabled. Only c/v/b/n/m keys
+whose frames actually adjoin this layout's bar are considered; distant points and
+nonadjacent keys cannot be rescued by a wide covariance. On the 393-point fixture,
+n/m land over the Typr region rather than Space and deliberately abstain.
+
+A top-edge Space more likely as a bottom-row letter cancels the first fragment's
+pending literal feedback, so typing the next letter does not prematurely teach that
+fragment as an intended word. Manual boundary picks and undo still teach no inferred
+boundary/letter labels, phrase counts or constituent counts. Existing historical
+keeps/counts protect their words. All spatial hypotheses are **suggestion-only**:
+no automatic change at Space, punctuation or Typr. Two nonempty parts are required;
+leading/trailing Space reinterpretation deliberately abstains, preserving deliberate
+second Space/double-space-period. See the spatial reference for measured recall and
+ambiguous valid-pair chips, not an accuracy claim.
 
 ## Corpus context suggestions
 
