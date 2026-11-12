@@ -188,7 +188,8 @@ owner-approved privacy, retention and reset contract.
     activation and interruption resume try again for about 5.5 s before failing
     with *Another app is still using audio*. Every activation error is retried,
     so a lasting failure appears after that delay. A capture that starts during
-    a resume takes over the input and stops the resume. A microphone, capture or silence
+    a resume takes over the input and stops the resume; during a running
+    interruption (a call) a failed start keeps the session for the resume. A microphone, capture or silence
     failure keeps the prepared speech model: the next keyboard dictation starts
     without reloading it, and a warm start is no longer ignored after a failure.
   - **Audio-route startup safety:** `TyprAudioInput` owns the input graph in
