@@ -24,6 +24,17 @@ nonisolated struct KeyboardContextModel: Sendable {
         let base: [UInt16]
         var residentPayloadBytes: Int { data.count + base.count * 2 }
 
+        /// Check the bundled file before mapping (or Foundation's safe-copy fallback),
+        /// then validate the actual bytes again. A corrupt oversized resource must not
+        /// allocate its declared size on the extension's preparation path.
+        init?(contentsOf url: URL) {
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true, let size = values.fileSize,
+                  (64...KeyboardContextModel.maxPackBytes).contains(size),
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+            self.init(data: data)
+        }
+
         init?(data input: Data) {
             // Rebase sliced Data before any indexed access.
             let data = input.startIndex == 0 ? input : Data(input)
@@ -87,9 +98,12 @@ nonisolated struct KeyboardContextModel: Sendable {
             }
         }
 
-        private static func validWord(_ s: String, apostrophes: Bool) -> Bool {
+        fileprivate static func validWord(_ s: String, apostrophes: Bool) -> Bool {
             guard s.count <= 32, s.utf8.count <= 128, s.first?.isLetter == true,
-                  s.last?.isLetter == true else { return false }
+                  s.last?.isLetter == true,
+                  !s.unicodeScalars.contains(where: {
+                      $0.properties.generalCategory == .control || $0.properties.generalCategory == .format
+                  }) else { return false }
             let characters = Array(s)
             for (i, ch) in characters.enumerated() where !ch.isLetter {
                 guard apostrophes, ch == "'", i > 0, i + 1 < characters.count,
@@ -273,8 +287,7 @@ nonisolated struct KeyboardContextModel: Sendable {
         var atSentenceBoundary = false
         func flush() {
             guard !token.isEmpty else { return }
-            if token.count <= 32, token.utf8.count <= 128, token.first?.isLetter == true,
-               token.last?.isLetter == true, token.allSatisfy({ $0.isLetter || $0 == "'" }) {
+            if Pack.validWord(token, apostrophes: true) {
                 let key = Self.key(token)
                 result.state.consume(key, model: self); result.previous = key
                 result.canPredict = true; atSentenceBoundary = false
@@ -292,7 +305,12 @@ nonisolated struct KeyboardContextModel: Sendable {
             for segment in line.split(whereSeparator: { $0.isWhitespace }) {
                 // Non-prose spans are barriers, including their punctuation (not a fake BOS
                 // inside a URL/email/identifier/number). Ordinary comma/quotes separate words.
-                if segment.contains(where: { $0.isNumber || "@/:_#-\\\\".contains($0) }) {
+                let invalidScalar = segment.unicodeScalars.contains {
+                    $0.properties.generalCategory == .format
+                        || ($0.properties.generalCategory == .control
+                            && !CharacterSet.whitespacesAndNewlines.contains($0))
+                }
+                if invalidScalar || segment.contains(where: { $0.isNumber || "@/:_#-\\\\".contains($0) }) {
                     result.previous = nil; result.canPredict = false
                     continue
                 }
@@ -371,7 +389,7 @@ final class KeyboardContextResources {
         task = Task { [weak self] in
             let model = await Task.detached(priority: .utility) {
                 let packs = urls.map { url in
-                    url.flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }.flatMap(KeyboardContextModel.Pack.init)
+                    url.flatMap { KeyboardContextModel.Pack(contentsOf: $0) }
                 }
                 return KeyboardContextModel(de: packs[0], en: packs[1])
             }.value

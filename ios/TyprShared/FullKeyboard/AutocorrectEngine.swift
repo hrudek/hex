@@ -482,10 +482,13 @@ final class AutocorrectEngine {
         let evidence = touchInput.evidence(beforeInput: beforeInput)
         guard field == .text, autocorrectionType != .no else { return [] }
         let activeToken = Self.currentToken(in: beforeInput)
-        let context = contextResources.model?.context(before: beforeInput, currentToken: activeToken)
+        let contextModel = isEnabled ? contextResources.model.flatMap {
+            $0.supports(german: german != nil, english: englishEnabled) ? $0 : nil
+        } : nil
+        let context = contextModel?.context(before: beforeInput, currentToken: activeToken)
         guard let token = activeToken else {
             guard canPredictNextWord(after: beforeInput), let context, context.canPredict,
-                  let model = contextResources.model else { return [] }
+                  let model = contextModel else { return [] }
             let words = model.suggestions(after: context.previous, weightDE: context.state.weightDE,
                                           german: german != nil, english: englishEnabled)
             // Most likely word in the centre slot, like the current-word strip; never automatic.
@@ -502,7 +505,9 @@ final class AutocorrectEngine {
         var pool: [String] = []
         var completions: Set<String> = []
         var spatialScores: [String: Double] = [:]
-        let poolLimit = isEnabled && contextResources.model != nil ? 8 : 2
+        // Widen retrieval only when context can actually contribute. At a document
+        // start/barrier or without every selected pack, retain the old checker work.
+        let poolLimit = context?.canPredict == true ? 8 : 2
 
         if let pair = reversibleRejection, pair.typed == PersonalLexiconSnapshot.normalize(token) {
             // Rejected protections suppress automatic decisions, not the immediate explicit revert.
@@ -578,7 +583,7 @@ final class AutocorrectEngine {
 
         // Context only reorders display alternatives. The automatic choice or explicit revert
         // stays first (Space and its highlight must still describe the unchanged decision).
-        if isEnabled, let context, let model = contextResources.model {
+        if let context, let model = contextModel {
             pool = Array(pool.prefix(pinnedCount)) + model.rerank(Array(pool.dropFirst(pinnedCount)),
                                                                   spatialScores: spatialScores, context: context,
                                                                   german: german != nil, english: englishEnabled)

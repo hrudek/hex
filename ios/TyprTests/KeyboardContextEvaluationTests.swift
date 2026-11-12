@@ -3,6 +3,14 @@ import XCTest
 @testable import Typr
 
 final class KeyboardContextEvaluationTests: XCTestCase {
+    nonisolated private static var timingPlatform: String {
+        #if os(Linux)
+        "Linux_XCTest"
+        #else
+        "Apple_XCTest"
+        #endif
+    }
+
     func testSyntheticNextWordsMixtureLatencyAndPayload() throws {
         let model = try XCTUnwrap(KeyboardContextModelTests.model)
         // Independently authored synthetic sequences, not private text or a claim of
@@ -220,7 +228,7 @@ final class KeyboardContextEvaluationTests: XCTestCase {
             return String(format: "mean_ms=%.3f p95_ms=%.3f max_ms=%.3f", sorted.reduce(0, +) / Double(sorted.count),
                           sorted[Int(Double(sorted.count - 1) * 0.95)], sorted.last!)
         }
-        print("EVAL context_noisy_heldout_latency calls=\(milliseconds[1].count) baseline_\(summary(milliseconds[0])) context_\(summary(milliseconds[1])) timing=Linux_debug")
+        print("EVAL context_noisy_heldout_latency calls=\(milliseconds[1].count) baseline_\(summary(milliseconds[0])) context_\(summary(milliseconds[1])) timing=\(Self.timingPlatform)")
         XCTAssertLessThan(milliseconds[1].max()!, 2_000)
     }
 
@@ -354,6 +362,58 @@ final class KeyboardContextEvaluationTests: XCTestCase {
     }
 
     @MainActor
+    func testPredictionOwnershipRejectsChangedContextLanguageAndField() async throws {
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        let ac = AutocorrectEngine(checker: Checker(valid: [], guesses: []), spatialDecoder: nil,
+                                   contextResources: .init(model: model))
+        let target = FixtureTextTarget(text: "i am ")
+        let engine = FullKeyboardEngine(target: target, autocorrect: ac)
+        engine.configureForField()
+        await engine.waitForSuggestions()
+        let old = try XCTUnwrap(engine.suggestions.first)
+        // A host edit without textDidChange must not append a stale next word.
+        target.insertText("going ")
+        let edited = target.text
+        engine.acceptSuggestion(old)
+        XCTAssertEqual(target.text, edited)
+        await engine.waitForSuggestions()
+        let new = try XCTUnwrap(engine.suggestions.first)
+        // Settings and field protection are rechecked even without a UI refresh.
+        ac.englishEnabled = false
+        engine.acceptSuggestion(new)
+        XCTAssertEqual(target.text, edited)
+        await engine.waitForSuggestions()
+        XCTAssertTrue(engine.suggestions.isEmpty)
+        ac.englishEnabled = true
+        engine.refreshSuggestions()
+        await engine.waitForSuggestions()
+        let prose = try XCTUnwrap(engine.suggestions.first)
+        target.keyboardType = .URL
+        engine.acceptSuggestion(prose)
+        XCTAssertEqual(target.text, edited)
+        await engine.waitForSuggestions()
+        XCTAssertTrue(engine.suggestions.isEmpty)
+        XCTAssertTrue(ac.learning.model.lexicon.counts.isEmpty)
+        XCTAssertEqual(ac.learning.diagnostics.acceptedLabels, 0)
+    }
+
+    @MainActor
+    func testNoContextKeepsOriginalCheckerWork() throws {
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        let checker = Checker(valid: [], guesses: ["glaube", "bin", "habe"])
+        let ac = AutocorrectEngine(checker: checker, spatialDecoder: nil, contextResources: .init(model: model))
+        for text in ["ha", "123 ha"] {
+            _ = ac.suggestions(beforeInput: text, field: .text, autocorrectionType: .default)
+        }
+        XCTAssertEqual(checker.completionCalls, 0)
+        _ = ac.suggestions(beforeInput: "ich ha", field: .text, autocorrectionType: .default)
+        XCTAssertEqual(checker.completionCalls, 1)
+        ac.isEnabled = false
+        _ = ac.suggestions(beforeInput: "ich ha", field: .text, autocorrectionType: .default)
+        XCTAssertEqual(checker.completionCalls, 1)
+    }
+
+    @MainActor
     func testDetachedResourcePreparationAndReadinessCallback() async throws {
         let resources = KeyboardContextResources(bundle: Bundle.main)
         XCTAssertNil(resources.model)
@@ -365,15 +425,16 @@ final class KeyboardContextEvaluationTests: XCTestCase {
         let elapsed = start.duration(to: .now).components
         let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
         XCTAssertLessThan(milliseconds, 10_000)
-        print(String(format: "EVAL context_prepare elapsed_ms=%.3f payload_bytes=694793 mapping=if_safe timing=Linux_debug", milliseconds))
+        print(String(format: "EVAL context_prepare elapsed_ms=%.3f payload_bytes=694793 mapping=if_safe timing=%@", milliseconds, Self.timingPlatform))
     }
 
     @MainActor private final class Checker: TextChecking {
         let valid: Set<String>
         let answers: [String]
+        private(set) var completionCalls = 0
         init(valid: Set<String>, guesses: [String]) { self.valid = valid; answers = guesses }
         func isWordValid(_ word: String) -> Bool { valid.contains(word) }
         func guesses(for word: String) -> [String] { answers }
-        func completions(for prefix: String) -> [String] { [] }
+        func completions(for prefix: String) -> [String] { completionCalls += 1; return [] }
     }
 }

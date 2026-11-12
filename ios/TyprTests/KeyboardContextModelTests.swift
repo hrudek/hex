@@ -56,6 +56,27 @@ final class KeyboardContextModelTests: XCTestCase {
         XCTAssertNil(KeyboardContextModel.Pack(data: Data(repeating: 0, count: 1_048_577)))
     }
 
+    func testFileReaderBoundsBeforeMappingAndSlicedData() throws {
+        let data = try XCTUnwrap(Self.model?.de?.data)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("context.tbg")
+        XCTAssertNil(KeyboardContextModel.Pack(contentsOf: url))
+        XCTAssertNil(KeyboardContextModel.Pack(contentsOf: directory))
+        try data.write(to: url)
+        let mapped = try XCTUnwrap(KeyboardContextModel.Pack(contentsOf: url))
+        XCTAssertEqual(mapped.data, data)
+        var prefixed = Data([0xff]); prefixed.append(data)
+        let slice = prefixed.dropFirst()
+        XCTAssertNotEqual(slice.startIndex, 0)
+        XCTAssertEqual(KeyboardContextModel.Pack(data: slice)?.data, data)
+        for size in [63, KeyboardContextModel.maxPackBytes + 1] {
+            try Data(repeating: 0, count: size).write(to: url)
+            XCTAssertNil(KeyboardContextModel.Pack(contentsOf: url), "size=\(size)")
+        }
+    }
+
     func testNormalizedBackoffAndSingleLanguageSelection() throws {
         let model = try XCTUnwrap(Self.model), de = try XCTUnwrap(model.de), en = try XCTUnwrap(model.en)
         for pack in [de, en] {
@@ -104,6 +125,15 @@ final class KeyboardContextModelTests: XCTestCase {
         for input: String? in [nil, "", "   ", "123 ", "ich 123 ", "https://example.com ", "x@y.com ", "camel_case "] {
             XCTAssertFalse(model.context(before: input, currentToken: nil).canPredict, "\(input ?? "nil")")
         }
+        for barrier in ["x\u{0001}y", "ha\u{200b}be", "rock''n", "'", "a/b", "a_b", "x@y.com", "12.5"] {
+            XCTAssertFalse(model.context(before: "ich \(barrier) ", currentToken: nil).canPredict, barrier)
+            XCTAssertEqual(model.context(before: "ich \(barrier) habe ", currentToken: nil).previous, "habe")
+        }
+        XCTAssertEqual(model.context(before: "I don’t ", currentToken: nil).previous, "don't")
+        XCTAssertEqual(model.context(before: "ich\thabe ", currentToken: nil).previous, "habe")
+        let hugeGrapheme = "a" + String(repeating: "\u{0301}", count: 5_000)
+        XCTAssertEqual(model.context(before: hugeGrapheme + " ich habe ", currentToken: nil).previous, "habe")
+        XCTAssertFalse(model.context(before: hugeGrapheme + " ", currentToken: nil).canPredict)
         let long = String(repeating: "english ", count: 1000) + "ich habe "
         XCTAssertEqual(model.context(before: long, currentToken: nil).previous, "habe")
         XCTAssertEqual(model.context(before: nil, currentToken: nil).state.value, 0)

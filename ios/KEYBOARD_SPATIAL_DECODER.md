@@ -556,8 +556,9 @@ coverage, physical grip recovery and extension latency/memory remain unverified.
 `KeyboardContextModel` adds **suggestion-only** corpus context, not a new
 correction objective or personal context learner. At a trailing space the strip
 can show three next words; tapping inserts that word plus the existing separator.
-No keep chip or automatic highlight is used for predictions. While typing, up to
-eight existing spatial/spelling/completion alternatives enter a bounded rerank;
+No keep chip or automatic highlight is used for predictions. While typing with usable
+context and all selected packs, up to eight existing spatial/spelling/completion
+alternatives enter a bounded rerank;
 the literal slot and existing automatic/explicit-revert first choice stay pinned.
 Every strict prefix extension still carries completion provenance (no tap labels).
 No second spelling engine or new switch is introduced. Autocorrect off, no selected
@@ -567,7 +568,8 @@ Missing selected sidecars abstain, never quietly prefer the other language.
 The [TBG1 sidecars and notices](TyprShared/FullKeyboard/WordData/README.md#corpus-context-sidecars-tbg1)
 are independent Common Voice CC0 + Tatoeba CC BY 2.0 FR statistics: 8,000 lexical
 words/language, K=3 retained followers, min-count=10, **662,793 bytes combined**.
-Off-main-actor preparation maps-if-safe and validates every header, CRC, UTF-8
+Off-main-actor preparation checks regular-file type and byte size before mapping
+(or Foundation's safe-copy fallback), then validates every header, CRC, UTF-8
 spelling, sorted row, offset and count before installation. Two UInt16 unigram
 orders add **32,000 bytes**. File+index payload is **694,793 bytes**, not actual
 resident pages, allocator overhead, high-water RSS or an extension footprint.
@@ -595,30 +597,48 @@ followers**; request-local seen keys are capped by the two 8,000-word vocabulari
 not a growing cache. Returned top-three storage is fixed size. Strings are ≤128
 UTF-8 bytes/32 characters. No approximation is described as the exact oracle.
 
-Current-token display candidates use original rank score `-.2*rank` plus the
-bounded additive log term `.10*max(-15, log(max(P_mix, exp(-15))))` in [-1.5,0].
-At most 32 candidates may enter the pure reranker (integration retains eight).
-This deliberately weak ranker cannot authorize any replacement: `decide`, spatial
-scores/completeness, German casing validation, protections, margins and Space/
-punctuation/undo transactions are unchanged. Names and productive compounds remain
-protected from automatic frequency chasing.
+Current-token display candidates gain `.35 * clip(log(P_mix(w|h)/P_mix(w)), 0, log(20))`,
+at most **+1.05 nats**, with the same language weights in numerator/denominator.
+OOV names/compounds and non-followers receive zero gain, not a frequency penalty.
+Spatial readings use `candidate.score + gain`; unscored spelling/completion alternatives
+use `-.2*rank + gain`. Each evidence kind is sorted **only within its existing slots**,
+never across kinds; ties retain original order. The .35 coefficient matches the spatial
+decoder's language-prior scale. At most 32 candidates may enter the pure reranker
+(integration retains eight). Without usable context, with Autocorrect off, or without
+every selected pack, retrieval keeps the old two-alternative/checker-work budget.
+This ranker cannot authorize any replacement: `decide`, automatic spatial scores/
+completeness, German casing validation, protections, margins and Space/punctuation/
+undo transactions are unchanged. Names and productive compounds remain protected
+from automatic frequency chasing.
 
 Only the last **256 characters / 2,048 UTF-8 bytes** before the caret are
 read in RAM; the active token is excluded from completed-word evidence. A clipped first word is discarded. The state is recomputed from that
 suffix on each request (no repeated-word double consumption, retained cross-field
 posterior, checkpoint history, schema, file, log or network). Long fields therefore
 use a bounded approximate history, not all earlier words. Unknown/empty fields
-are not invented BOS. URL/email/identifier/number spans are conservative barriers.
-Resource readiness requests a strip refresh; while loading, old spelling behavior
-continues. Context scoring is in the existing suggestion finish path, **never**
-in `replacementOnSpace`; PR #113 can defer that finish without changing the model.
+are not invented BOS. URL/email/identifier/number spans, malformed apostrophes and
+non-whitespace control/format scalars are conservative barriers; ordinary tabs separate
+words and newlines start sentences. Resource readiness requests a strip refresh;
+while loading, old spelling behavior continues. Context scoring runs on MainActor in
+the existing deferred suggestion **finish**, not on key insertion or in
+`replacementOnSpace`. The serial worker still owns spatial ranking; no new queue or
+checker adapter is added. Predictions inherit its revision/field/settings ownership,
+including rejecting stale picks after a host edit without a callback.
 
 ### Observed P3 Linux checks and limits
 
-Swift 6.4.2 debug Linux harness: nine new context tests passed, all 47 D3b vector
-events reproduce state/weights and both top-three variants to **1e-12**. A full run
-had **244 passed, one known Linux backup-metadata failure, nine skips**. The new
-128-sentence CC0 global-test fixture measured DE R@3 **14.06%** versus unigram
+Swift 6.4.2 debug Linux harness (12 November 2026): **14 context tests passed**;
+all 47 D3b vector events reproduce state/weights and both top-three variants to
+**1e-12**. All **20 worker tests** also pass, including a new blocked-current-word →
+after-space prediction job/undo test. Original continuation-gated worker-policy
+fixtures explicitly omit corpus context, so asynchronous resource readiness and the
+new legitimate after-space job cannot contaminate their frozen pre-context contract.
+The full run executed **298 tests: 288 passed, one known Linux
+backup-metadata failure, nine skips**. File preflight/sliced data, malformed input,
+large Unicode suffixes, prediction ownership and no-context checker-work guards
+are included. The local harness additionally redirects the exact bundled context
+resource initializer to its SwiftPM resource bundle; no algorithm/assertion/skip
+adaptation was added. The new 128-sentence CC0 global-test fixture measured DE R@3 **14.06%** versus unigram
 **4.91%** (448 lexical pairs), EN **17.74%** versus **6.68%** (434 pairs); truncated
 MRR@3 **.0967 / .1359**. This tiny, SHA-ordered held-out fixture is digest-disjoint
 from training, not author/template-independent or natural messaging. Runtime
@@ -636,15 +656,37 @@ this checks integration/nonregression, not production precision or a ranking gai
 A controlled `ich ha` completion test demonstrates promotion while Space leaves
 `ha` unchanged. Existing larger spatial evaluations remain unchanged.
 
-41 warm prediction calls measured mean **.342 ms**, p95 **.671 ms**, max **1.000 ms**
+An additional integrated evaluation synthesizes one-/two-neighbour typos for held-out
+CC0 words in their left contexts, with both languages selected. DE/EN/mixed recall@1
+and strip recall@3 remain **688/722, 669/686, 717/746**, respectively, identical to
+no-context. The centre first choice is pinned whenever automatic policy chooses it;
+only two DE strips changed their other slots. There is **no measured noisy-touch
+recall improvement**, and no automatic-policy change. All 2,154 typo decisions and
+1,077 correctly typed controls match baseline; wrong/unwanted autos are zero in both
+variants under the injected held-out-vocabulary validity proxy. Serial call latency
+(suggestions + cold per-engine spatial/checker path, excluding the boundary call)
+mean/p95/max is **11.712/20.620/29.963 ms** baseline and
+**12.668/21.690/30.620 ms** context. This is not key-handler latency or an Apple checker.
+
+Alternating held-out DE↔EN sentences (417 pairs, both selected) measure posterior
+recall@3 **15.11%** versus **13.43%** neutral and **15.11%** hard switch. Wrong-language
+slots are **3.12% / 27.74% / 2.00%**; the first three predictions after a switch are
+**6.42%** wrong versus **25.17%** neutral. The hard-switch comparison uses the same
+corpus-ratio proxy and can still make code-switched words unreachable; no human
+multilingual accuracy claim follows.
+
+41 warm prediction calls measured mean **.342 ms**, p95 **.664 ms**, max **.983 ms**
 on this Linux debug run; a generous 500 ms maximum test guard is not a phone
-latency target. Detached preparation/cold mapping/checksum work is excluded; a separate detached
-readiness test measured **882 ms** with filesystem pages potentially warm.
-The production offline compiler freshly rebuilt both packs and credits from all
-six hash-pinned raw inputs, then independently recounted/compiled byte-identically.
-No UIKit compile, simulator, iPhone, system dictionaries, natural code-switch
-quality, content-safety/DRM review, actual RSS or main-thread key latency was
-verified here. Those remain owner/Apple checks, including PR #113 merge behavior.
+latency target. Detached preparation/cold mapping/checksum work is excluded; a separate
+detached readiness test measured **867 ms** with filesystem pages potentially warm.
+The production offline compiler freshly rebuilt both packs, the owner roster and
+credits from all six hash-pinned raw inputs, then independently recounted/compiled
+byte-identically. The generated CC0 fixture also matches byte-for-byte.
+No UIKit compile, simulator, iPhone, system dictionaries, natural code-switch quality,
+content-safety/DRM review, actual RSS or main-thread key latency was verified here.
+Those remain owner/Apple checks. PR #113 is already in this task's base; newer
+origin/main changes (including #115 prefixes/held letters) require the orchestrator's
+later merge and rerun.
 
 ## Required owner iPhone checks
 
