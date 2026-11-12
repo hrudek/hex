@@ -130,6 +130,10 @@ owner-approved privacy, retention and reset contract.
     automatic replacement requires complete search, margins and system validation.
     Below-literal edit candidates are manual suggestions only. Missing evidence/resources
     permit cautious spelling fallback; incomplete search never authorizes inferred replacement.
+    Suggestions use a serial spatial/personal-scan worker with revision-checked main-actor
+    checker completion, rather than ranking during ordinary insertion. Stale chips cannot edit
+    a newer field/token. Space/punctuation keep authoritative bounded synchronous fallback
+    and never await the worker; see the correction-path reference for bounds/proof limits.
     Dictation, visible keys, gestures and static hit-testing are unchanged.
   - **[Personal typing learning and diagnostics](KEYBOARD_LEARNING.md):** default-on
     **Learn from my typing** uses trusted unchanged literals and explicit feedback, never

@@ -75,6 +75,33 @@ store text-free counters/histograms. With real keyboard Full Access these files
 are local, protected and excluded from backup; otherwise session-only. This is
 not a persistent typing log and does not change the dictation-log exception.
 
+## Deferred suggestions
+
+The [suggestion worker](KEYBOARD_SPATIAL_DECODER.md#suggestion-worker-and-boundary-authority)
+may hold a frozen copy of current-word evidence for one running job and one
+replaceable latest request. These bounded snapshots are Sendable, RAM-only,
+never Codable/persisted/exported, and not an ordered tap/text history. Their
+captured layout and learning generation/epoch must still match before use. Frozen
+calibration includes the complete covariance and aggregate affine-aim prediction;
+trusted updates or actual fast resets invalidate the old ranking. Snapshot reads
+and repeated empty resets do not themselves change learning ownership.
+Cancellation drops queued copies immediately; an already running bounded search
+may finish, but cannot publish, edit text or teach after invalidation. Discarding
+geometry while visible (layer/layout change, key slide, trackpad, selection callback
+or canceled touch) republishes current-token chips without taps; invalidation must
+not leave the strip blank. Host resign/activate only suspends/resumes suggestions,
+not the field: it preserves touches, caps lock/layer and immediate undo. Real
+dismissal or an external text/selection callback still discards evidence as above.
+A key touch or keyboard-originated edit resumes after a missed activation notice.
+
+Rollover still commits a held letter synchronously exactly once. It only schedules
+suggestions; neither the touch tracker nor insertion awaits ranking. Space retains
+evidence through its existing authoritative synchronous decision, using an exact
+ready cache if available. Accepting a chip revalidates its token/field/revision
+before capturing evidence for feedback. Delayed completion, suspension, blocked
+worker and overlapping-held-tap tests live in `KeyboardSuggestionWorkerTests`;
+Linux does not prove real host callback/lifecycle ordering or iPhone latency.
+
 ## Proof limits
 
 `KeyboardTouchInputTests` covers geometry, rollover, deletion/retyping, undo,

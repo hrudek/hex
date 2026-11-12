@@ -245,8 +245,11 @@ final class PersonalTypingModel {
     private var fastLayout: String?
     private var fastDrift = TouchAimDrift()
 
-    func resetFastAim() {
+    @discardableResult
+    func resetFastAim() -> Bool {
+        guard fastLayout != nil else { return false }
         fastLayout = nil; fastDrift = TouchAimDrift()
+        return true
     }
 
     private func activateAim(_ signature: KeyboardLayoutSignature) {
@@ -346,11 +349,10 @@ final class PersonalTypingModel {
     func calibration(for layout: KeyboardLayout) -> SpatialTouchCalibration? {
         guard isLearningEnabled, layout.layer == .letters, layout.field == .text,
               layout.width.isFinite, (8...4096).contains(layout.width),
-              let stats = state.layouts[KeyboardLayoutSignature(layout).id] else {
-            resetFastAim()
-            return nil
-        }
-        activateAim(stats.signature)
+              let stats = state.layouts[KeyboardLayoutSignature(layout).id] else { return nil }
+        // Snapshot reads never mutate aim behind the session's generation. Integration resets
+        // on layout discontinuities; learning a different layout also activates a fresh field.
+        let drift = fastLayout == stats.signature.id ? fastDrift : TouchAimDrift()
         // Migration does not invent an ordered global stream from old per-key data.
         // Until 20 new pooled labels, legacy keys retain their per-key threshold.
         let pooledReady = (stats.global?.n ?? 0) >= 20
@@ -362,7 +364,7 @@ final class PersonalTypingModel {
                   pooledReady || (stats.keys[letter]?.n ?? 0) >= 20 else { continue }
             let slow = Self.slowKey(letter, in: stats)
             // The shared drift reaches every key immediately, including rare and unseen keys.
-            keys[character] = Self.tempered(features[character].map { fastDrift.prediction(slow: slow, features: $0) } ?? slow)
+            keys[character] = Self.tempered(features[character].map { drift.prediction(slow: slow, features: $0) } ?? slow)
         }
         return keys.isEmpty ? nil : SpatialTouchCalibration(keys: keys)
     }

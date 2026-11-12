@@ -101,7 +101,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
             XCTAssertNotNil(engine.autocorrect.touchInput.evidence(beforeInput: "hello"))
             if choice == 0 { type(" w", engine) }
             else {
-                engine.acceptSuggestion(KeyboardSuggestion(displayText: choice == 1 ? "hello" : "help",
+                engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: choice == 1 ? "hello" : "help",
                     replacement: choice == 1 ? "hello" : "help", kind: choice == 1 ? .keepLiteral : .secondary))
             }
             let session = engine.autocorrect.learning
@@ -215,7 +215,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
             let (engine, target) = keyboard()
             if alreadyKept { engine.autocorrect.learning.keep("helo") }
             type("helo", engine)
-            engine.acceptSuggestion(.init(displayText: "helo", replacement: "helo", kind: .keepLiteral))
+            engine.acceptOwnedFixtureSuggestion(.init(displayText: "helo", replacement: "helo", kind: .keepLiteral))
             XCTAssertTrue(engine.autocorrect.learning.protections.isKept("helo"))
             tap(.delete, engine)
             XCTAssertEqual(target.text, "helo")
@@ -224,11 +224,12 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         }
     }
 
-    func testPickingReplacementImmediatelyRevertsNewRejection() {
+    func testPickingReplacementImmediatelyRevertsNewRejection() async {
         let (engine, target) = keyboard()
         type("teh ", engine)
         tap(.delete, engine)
         XCTAssertTrue(engine.autocorrect.learning.protections.isRejected(typed: "teh", replacement: "the"))
+        await engine.waitForSuggestions()
         let replacement = engine.suggestions.first { $0.replacement == "the" }
         XCTAssertNotNil(replacement, "The replacement must remain explicitly available after undo")
         if let replacement { engine.acceptSuggestion(replacement) }
@@ -243,7 +244,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         type("teh ", engine)
         tap(.delete, engine)
         type("x", engine)
-        engine.acceptSuggestion(.init(displayText: "the", replacement: "the", kind: .secondary))
+        engine.acceptOwnedFixtureSuggestion(.init(displayText: "the", replacement: "the", kind: .secondary))
         XCTAssertTrue(engine.autocorrect.learning.protections.isRejected(typed: "teh", replacement: "the"))
 
         let ac = AutocorrectEngine(checker: Checker(), spatialDecoder: nil)
@@ -271,14 +272,14 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
     func testManualAlternativeUsesOnlyUniqueAlignmentAndCompletionUsesNoTaps() {
         let (engine, _) = keyboard()
         type("helo", engine)
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary))
         let session = engine.autocorrect.learning
         // Repeated l's are ambiguous; h, e and o remain uniquely aligned.
         XCTAssertEqual(session.diagnostics.acceptedBySource["manualPick"], 3)
         XCTAssertEqual(session.model.lexicon.counts["hello"], 1)
         XCTAssertEqual(session.diagnostics[.manualAlternativePick], 1)
         type("wor", engine)
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "world", replacement: "world", kind: .secondary,
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "world", replacement: "world", kind: .secondary,
                                                    isCompletion: true))
         XCTAssertEqual(session.diagnostics.acceptedBySource["manualPick"], 3)
         XCTAssertEqual(session.model.lexicon.counts["world"], 1)
@@ -288,7 +289,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
     func testManualAlignmentDropsDistantSubstitutionAndCountsRejection() {
         let (engine, _) = keyboard()
         type("pello", engine)
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary))
         let session = engine.autocorrect.learning
         XCTAssertEqual(session.diagnostics.acceptedBySource["manualPick"], 4)
         XCTAssertEqual(session.diagnostics.rejectedByReason["outlier"], 1)
@@ -356,7 +357,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
                 engine.touchEnded(id: 1, at: end)
             }
             type("he", engine)
-            engine.acceptSuggestion(KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary))
+            engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary))
             XCTAssertEqual(engine.autocorrect.learning.diagnostics.acceptedLabels, 0)
         }
     }
@@ -371,9 +372,9 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         type("hello w", engine)
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertTrue(session.model.lexicon.counts.isEmpty)
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "w", replacement: "w", kind: .keepLiteral))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "w", replacement: "w", kind: .keepLiteral))
         type("teh", engine)
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
         XCTAssertTrue(session.model.lexicon.isKept("teh"))
         XCTAssertEqual(session.diagnostics[.keepChip], 2)
         XCTAssertEqual(session.diagnostics[.boundaries], 1)
@@ -395,7 +396,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertFalse(session.protections.isKept("teh"))
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertTrue(session.model.lexicon.counts.isEmpty)
-        engine.acceptSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
         XCTAssertTrue(session.protections.isKept("teh"), "Keep chip remains permanent while learning is off")
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertTrue(session.model.lexicon.counts.isEmpty)

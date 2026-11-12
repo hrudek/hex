@@ -165,6 +165,40 @@ The word bonus is
 `min(1.0, .25 × log2(1 + count))` log units. These bounds limit influence; they
 are not evidence of calibration quality or improved typing.
 
+## Suggestion snapshot isolation
+
+The [suggestion worker](KEYBOARD_SPATIAL_DECODER.md#suggestion-worker-and-boundary-authority)
+receives immutable Sendable calibration/personal-prior values. All live learning,
+protection/rejection mutations, diagnostics and pending feedback stay on MainActor;
+worker output alone never teaches. Results and chips must match learning generation
+**and** feedback/reset epoch, including a statistics-only reset. Switching learning
+off or deleting/resetting saved data invalidates older results rather than letting
+their ranking/protection state cross that change. If acceptance itself observes a new
+learning state, it refuses the old chip without editing/learning and refreshes once
+so the next tap uses live ownership. The existing settings poll also detects stale
+published ownership after a deferred load, reset or resource installation, even if
+an earlier sync consumed the transition. A compatible completed decode is reused on
+unchanged refreshes without another search or another suggestion-search counter.
+
+At most one running job and one replaceable latest request can retain bounded
+current-word evidence/context in RAM; no worker field is Codable or written.
+Context is a whole-character suffix capped at 256 characters / 2,048 UTF-8 bytes,
+token at 64 characters / 256 bytes, alongside existing tap/personal bounds. A large
+Unicode prefix does not remove the current word's literal chip. There is no new file,
+permission, setting, ordered context history or data collection.
+Suggestion-search diagnostics record accepted uncached worker decode duration
+on MainActor; queue wait, lazy snapshot preparation, checker finish and rendering
+are excluded, so the histogram is still not end-to-end keystroke latency.
+
+The calibration value includes all bounded xx/xy/yy terms and the moment-matched
+stable/40/8 affine-aim prediction, not a reference to live memories. Snapshot reads
+are side-effect-free: reading another layout cannot silently reset aim outside
+learning generation. Trusted updates and actual fast-state resets advance that
+generation; repeated resets of already-empty fast state do not. A stale aim result
+is rejected before checker/cache/diagnostic mutation, and the ownership-aware poll
+refreshes once for the changed generation. Applied manual choices invalidate their
+word/revision but preserve the fast aggregate aim just trained by trusted feedback.
+
 ## Files, saves and reset
 
 The existing App Group (`group.dev.rudek.typr`) contains:

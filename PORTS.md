@@ -100,7 +100,7 @@ reference was inspected, never built or executed; no dependency or resource was 
 
 | Source paths at this pin | Translated algorithm | Destination files |
 | --- | --- | --- |
-| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TouchModel.swift` (`Touches`, `Spread`, `KeyTouches`, `Drift`, `Posterior`) | Full xy sufficient statistics, within-key pooling/shrinkage, prequential predictive weighting, fixed-share recovery and moment matching. Typr replaces upstream per-key 30/3 memories with shared stable/40/8 affine residual drift (ridge [1,2,2], .02 share), tempered bounded Gaussian density rather than NIW/Student-t. Typr-specific frozen inverse scoring plus length-span/next-child admissible search bounds preserve the objective. Only slow statistics persist, schema 1→2 migration retains words/protections. | `ios/TyprShared/FullKeyboard/PersonalTypingModel.swift`, `TouchAimDrift.swift`, `TypingModelTypes.swift`, `SpatialWordDecoder.swift`, `KeyboardLearningStore.swift` (all latter paths in the same FullKeyboard directory); `KeyboardLearningSession.swift`, `AutocorrectEngine.swift` reset fast state on discontinuities |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TouchModel.swift` (`Touches`, `Spread`, `KeyTouches`, `Drift`, `Posterior`) | Full xy sufficient statistics, within-key pooling/shrinkage, prequential predictive weighting, fixed-share recovery and moment matching. Typr replaces upstream per-key 30/3 memories with shared stable/40/8 affine residual drift (ridge [1,2,2], .02 share), tempered bounded Gaussian density rather than NIW/Student-t. Typr-specific frozen inverse scoring plus length-span/next-child admissible search bounds preserve the objective. Only slow statistics persist, schema 1→2 migration retains words/protections. | `ios/TyprShared/FullKeyboard/PersonalTypingModel.swift`, `TouchAimDrift.swift`, `TypingModelTypes.swift`, `SpatialWordDecoder.swift`, `SpatialWordRanking.swift`, `KeyboardLearningStore.swift` (all latter paths in the same FullKeyboard directory); `KeyboardLearningSession.swift`, `AutocorrectEngine.swift` reset fast state on discontinuities |
 | `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Aim.swift`, `Tap.swift` | Pitch-to-point full-covariance ellipse; independent intended labels stay ephemeral and retain Typr's static-distance/alignment gates | `ios/Typr/KeyboardDiagnosticsModel.swift`, `KeyboardTouchModelView.swift`; label/calibration types in `ios/TyprShared/FullKeyboard/TypingModelTypes.swift` |
 | `Packages/KeyboardModules/Tests/KeyboardCoreTests/TypingModelTests.swift` | Rewritten covariance, pooled/rare-key, shift/return and switching regression scenarios; Typr-specific frozen-score oracle, migration, trust and bounded synthetic DE/EN/mixed ablation | `ios/TyprTests/PersonalTypingAimTests.swift`, `PersonalTypingAimEvaluationTests.swift`, `PersonalTypingModelTests.swift`, `SpatialWordDecoderTests.swift`, `KeyboardLearningStoreTests.swift` |
 
@@ -113,6 +113,36 @@ three weights), never Codable. No raw points or upstream files were copied. P7b'
 shared affine ridge field, covariance tempering and search indexes are Typr-specific
 adaptations; tests distinguish their contribution from the old diagonal contract.
 The existing full MIT notice is retained once in `THIRD_PARTY_NOTICES.md`.
+
+## Deferred keyboard suggestions (iikb)
+
+Owner-approved P1 translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
+**MIT, © 2026 Bassim Shahidy**; this pin does not replace the historical pins above.
+The read-only reference was inspected, never built or executed.
+
+| Source path at this pin | Translated algorithm | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+
+The P1 review follow-up keeps this same pin/scope: current-token republication after
+evidence/learning/resource invalidation, state-preserving suggestion resume, completed
+decode reuse on unchanged refresh and direct accessibility activation are Typr-specific
+integration fixes in the destinations above, not additional upstream UI adoption.
+
+P1 extracted the existing Typr search/scoring algorithm unchanged into
+`SpatialWordRanking`, not replaced by iikb's scorer. The aggregate-aim adoption
+above now extends that same serial-owner core with frozen full covariance and
+tighter admissible bounds for both worker and boundary; it does not duplicate the scorer. UIKit checkers and all live
+learning/diagnostics mutation stay on MainActor. Space/punctuation never await a
+job: a missing/stale cache runs the existing bounded synchronous decision.
+The existing MIT notice in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) covers
+this adaptation without duplicating it.
+
+Excluded: swipe, emoji, themes, layouts, clipboard, network, neural weights,
+dictation changes, upstream resources/dependencies, contextual learning, new
+automatic policies and upstream controller/UI implementations. No file is copied
+wholesale from iikb. Frozen-fixture equivalence and device-proof limits are
+documented in [KEYBOARD_SPATIAL_DECODER.md](ios/KEYBOARD_SPATIAL_DECODER.md).
 
 ## Carried keyboard PR paths
 

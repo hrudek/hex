@@ -150,6 +150,14 @@ MIT, Copyright (c) 2026 Bassim Shahidy. The same full MIT notice above applies;
 [PORTS.md](PORTS.md) lists exact paths and exclusions. No upstream recent-tap
 reservoir, executable dependency, neural weights, or language resource is adopted.
 
+The deferred suggestion pipeline additionally translates snapshot/job/revision-checked
+finish and compatible-cache adoption from
+[AVGVSTVS96/iikb at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765),
+`TypingEngine+Words.swift` and `FullKeyboardViewController.swift`. The existing
+**MIT, Copyright (c) 2026 Bassim Shahidy** notice above also covers this rewritten
+adaptation; [PORTS.md](PORTS.md#deferred-keyboard-suggestions-iikb) records exact
+paths and exclusions. No upstream controller, resources or neural weights are bundled.
+
 The bundled `keyboard-de.words` and `keyboard-en.words` are derived from **Hermit Dave /
 FrequencyWords**, revision `525f9b560de45753a5ea01069454e72e9aa541c6`, 2018 DE/EN
 50k lists, originating from **OpenSubtitles 2018 / OpenSubtitles**. **Their content

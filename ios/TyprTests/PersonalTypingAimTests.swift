@@ -106,7 +106,12 @@ final class PersonalTypingAimTests: XCTestCase {
         // The returned snapshot is immutable even if labels arrive later.
         model.learn(Array(repeating: label("e", -0.24, 0), count: 30), layout: grid, source: .keep)
         XCTAssertEqual(frozen?.keys["z"], returned)
-        _ = model.calibration(for: KeyboardLayout(width: 430))
+        let beforeOtherLayoutRead = model.calibration(for: grid)
+        let other = KeyboardLayout(width: 430)
+        _ = model.calibration(for: other)
+        XCTAssertEqual(model.calibration(for: grid), beforeOtherLayoutRead, "Snapshot reads cannot silently reset aim")
+        let e = try XCTUnwrap(other.key(.character("e"))).frame
+        model.learn([.init(point: CGPoint(x: e.midX, y: e.midY), letter: "e")], layout: other, source: .keep)
         XCTAssertEqual(model.calibration(for: grid), PersonalTypingModel(state: model.state).calibration(for: grid))
     }
 
