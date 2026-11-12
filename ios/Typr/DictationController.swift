@@ -714,6 +714,7 @@ final class DictationController {
                 try await activateAudio(isCurrent: { self.jobGeneration == requestGen }) {
                     try self.audio.startKeepalive(allowBluetooth: self.allowBluetoothMic)
                 }
+                noteAudioActivated()
                 enableWarmSessionBookkeeping()
                 phase = .ready
                 startKeyboardSessionLoop()
@@ -947,6 +948,7 @@ final class DictationController {
                     try? fileManager.removeItem(at: captureURL)
                     return
                 }
+                noteAudioActivated()
 
                 let startedAt = now()
                 var cleanupJob: CleanupJob?
@@ -1519,6 +1521,13 @@ final class DictationController {
     /// A keyboard activation or capture now owns the input: stop a pending resume. While the
     /// interruption itself is still running (a call), the session stays suspended so a failed
     /// attempt does not end it and `.interruptionEnded` still resumes it.
+    /// Typr's input runs again, so any interruption is over for Typr. iOS does not always send
+    /// `.interruptionEnded`; a later one must neither restart this input nor end the session.
+    private func noteAudioActivated() {
+        interruptionInProgress = false
+        suspendedWarmSessionOnInterruption = false
+    }
+
     private func takeOverInterruptionResume() {
         interruptionResumeTask?.cancel()
         interruptionResumeTask = nil
