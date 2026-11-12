@@ -182,6 +182,13 @@ owner-approved privacy, retention and reset contract.
     and resume warm keepalive when iOS signals `.shouldResume`. Bluetooth HFP
     input is opt-in (**Use Bluetooth headphones**, default off) so AirPods stay
     in full-fidelity output by default.
+  - **Brief audio refusals:** For about five seconds after another app's audio
+    ends an interruption (observed with WhatsApp voice messages), iOS refuses
+    Typr's session activation (*Cannot start playing*). Keyboard starts, warm
+    activation and interruption resume try again for about 5.5 s before failing
+    with *Another app is still using audio*. A microphone, capture or silence
+    failure keeps the prepared speech model: the next keyboard dictation starts
+    without reloading it, and a warm start is no longer ignored after a failure.
   - **Audio-route startup safety:** `TyprAudioInput` owns the input graph in
     Objective-C. A start creates a fresh engine after session activation and uses
     the native tap format (`nil`), avoiding a pinned format from an old route.

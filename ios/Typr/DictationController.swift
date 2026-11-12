@@ -16,6 +16,13 @@ final class DictationController {
     private static let minCaptureDuration: TimeInterval = 0.30
     private static let maxCaptureDuration: TimeInterval = 60.0
     private static let resultDeliveryTTL: TimeInterval = 30.0
+    /// Waits before each further microphone activation attempt. After another app ends an audio
+    /// interruption (observed: WhatsApp voice messages), iOS refuses Typr's activation for about
+    /// five seconds ("Cannot start playing"); later attempts succeed. About 5.5 s in total.
+    nonisolated static let audioActivationRetryDelays: [Duration] = [
+        .milliseconds(500), .seconds(1), .milliseconds(1500), .milliseconds(2500),
+    ]
+    nonisolated static let audioBusyMessage = "Another app is still using audio. Try again in a moment."
 
     enum Phase: Equatable {
         case modelRequired
@@ -33,6 +40,10 @@ final class DictationController {
             default:
                 false
             }
+        }
+
+        var isFailure: Bool {
+            if case .failed = self { true } else { false }
         }
     }
 
@@ -135,6 +146,11 @@ final class DictationController {
     private var pendingHandoff: PendingKeyboardHandoff?
     private var keyboardSessionExpiresAt: TimeInterval = 0
     private var suspendedWarmSessionOnInterruption = false
+    @ObservationIgnored private var interruptionResumeTask: Task<Void, Never>?
+    private let audioRetryDelays: [Duration]
+    /// Set when a transcription failed in a way that may come from the engine itself. Other
+    /// failures (microphone, silence) keep the prepared model for the next dictation.
+    private var modelNeedsReload = false
 
     private(set) var phase = Phase.modelRequired
     private(set) var isModelReady = false
@@ -202,8 +218,10 @@ final class DictationController {
         cleanup: TranscriptCleanupDependencies? = nil,
         dictationLog: DictationLogStore? = nil,
         languageSettings: TyprSettings = TyprSettings(),
-        engineProvider: (any SpeechEngineProviding)? = nil
+        engineProvider: (any SpeechEngineProviding)? = nil,
+        audioActivationRetryDelays: [Duration] = DictationController.audioActivationRetryDelays
     ) {
+        self.audioRetryDelays = audioActivationRetryDelays
         let resolvedBridge = keyboardBridge ?? KeyboardBridge()
         let resolvedAudio = audio ?? SystemAudioManager()
         let initialTranscriber = transcriber ?? ParakeetTranscriber()
@@ -497,6 +515,8 @@ final class DictationController {
             }
         }
 
+        interruptionResumeTask?.cancel()
+        interruptionResumeTask = nil
         keyboardSessionEnabled = false
         keyboardSessionRemaining = 0
         keyboardSessionExpiresAt = 0
@@ -585,6 +605,11 @@ final class DictationController {
         }
 
         switch phase {
+        case .failed where canReusePreparedModel:
+            // A microphone or capture failure leaves the prepared model usable. Reloading it
+            // here only made the next dictation wait for preparation again.
+            phase = .ready
+            activateWarmSessionAndRunHandoff()
         case .modelRequired, .failed:
             prepareModel()
         case .ready:
@@ -651,6 +676,10 @@ final class DictationController {
         let requestGen = jobGeneration
         phase = .requestingPermission
         keyboardMessage = nil
+        // This activation replaces a pending resume after an interruption.
+        interruptionResumeTask?.cancel()
+        interruptionResumeTask = nil
+        suspendedWarmSessionOnInterruption = false
 
         Task {
             let granted = await audio.requestPermission()
@@ -682,15 +711,18 @@ final class DictationController {
             }
 
             do {
-                try audio.startKeepalive(allowBluetooth: allowBluetoothMic)
+                try await activateAudio(isCurrent: { self.jobGeneration == requestGen }) {
+                    try self.audio.startKeepalive(allowBluetooth: self.allowBluetoothMic)
+                }
                 enableWarmSessionBookkeeping()
                 phase = .ready
                 startKeyboardSessionLoop()
                 publishKeyboardSnapshot()
                 maybeAutoReturnAfterActivation(allowed: handoff?.attemptAutoReturn ?? false)
             } catch {
+                guard self.jobGeneration == requestGen else { return }
                 audio.deactivateSession()
-                phase = .failed(error.localizedDescription)
+                phase = .failed(Self.audioFailureMessage(for: error))
                 publishKeyboardSnapshot()
             }
         }
@@ -749,6 +781,7 @@ final class DictationController {
         // This is also called by handoff/intents and tests, not just the settings button.
         guard canChangeEngine else { return }
         pendingAppleLanguageChange = false
+        modelNeedsReload = false
         modelPrepGeneration &+= 1
         let prepGen = modelPrepGeneration
         phase = .preparingModel
@@ -899,11 +932,13 @@ final class DictationController {
                 .appendingPathExtension("wav")
 
             do {
-                let capture = try audio.beginCapture(
-                    at: captureURL,
-                    maxDuration: Self.maxCaptureDuration,
-                    allowBluetooth: allowBluetoothMic
-                )
+                let capture = try await activateAudio(isCurrent: { self.jobGeneration == captureGeneration }) {
+                    try self.audio.beginCapture(
+                        at: captureURL,
+                        maxDuration: Self.maxCaptureDuration,
+                        allowBluetooth: self.allowBluetoothMic
+                    )
+                }
                 guard self.jobGeneration == captureGeneration else {
                     capture.stop()
                     try? fileManager.removeItem(at: captureURL)
@@ -960,9 +995,11 @@ final class DictationController {
                 }
             } catch {
                 try? fileManager.removeItem(at: captureURL)
+                guard self.jobGeneration == captureGeneration else { return }
+                let message = Self.audioFailureMessage(for: error)
                 activeKeyboardJobID = nil
-                keyboardMessage = keyboardJobID == nil ? nil : error.localizedDescription
-                phase = .failed(error.localizedDescription)
+                keyboardMessage = keyboardJobID == nil ? nil : message
+                phase = .failed(message)
                 restoreAudioAfterCapture()
                 publishKeyboardSnapshot()
             }
@@ -1138,6 +1175,9 @@ final class DictationController {
                     return
                 }
                 recording?.failASR(error, milliseconds: dictationLogMilliseconds(from: asrStarted))
+                if !Self.transcriptionFailureKeepsModel(error) {
+                    self.modelNeedsReload = true
+                }
                 self.recordingDuration = 0
                 self.activeKeyboardJobID = nil
                 self.liveActivity.endImmediately()
@@ -1285,7 +1325,10 @@ final class DictationController {
 
         switch command.kind {
         case .start:
-            guard phase == .ready, activeKeyboardJobID == nil else { return }
+            // After a failure the warm input and prepared model can still serve this dictation.
+            let canStart = phase == .ready
+                || (phase.isFailure && canReusePreparedModel && audio.isKeepaliveRunning)
+            guard canStart, activeKeyboardJobID == nil else { return }
             setStyle(command.style)
             startRecording(
                 keyboardJobID: command.jobID,
@@ -1399,6 +1442,8 @@ final class DictationController {
     func handleAudioSystemEvent(_ event: AudioSystemEvent) {
         switch event {
         case .interruptionBegan:
+            interruptionResumeTask?.cancel()
+            interruptionResumeTask = nil
             suspendedWarmSessionOnInterruption = keyboardSessionEnabled
             if phase == .recording {
                 // Save spoken audio if >= 300ms; otherwise cancel cleanly so "Listening" never sticks during a call.
@@ -1416,19 +1461,15 @@ final class DictationController {
 
         case .interruptionEnded(let shouldResume):
             guard suspendedWarmSessionOnInterruption else { return }
-            suspendedWarmSessionOnInterruption = false
             guard keyboardSessionEnabled, keyboardSessionExpiresAt > now() else {
+                suspendedWarmSessionOnInterruption = false
                 endWarmSession()
                 return
             }
             if shouldResume || UIApplication.shared.applicationState == .active {
-                do {
-                    try audio.startKeepalive(allowBluetooth: allowBluetoothMic)
-                    publishKeyboardSnapshot()
-                } catch {
-                    endWarmSession()
-                }
+                resumeWarmSessionAfterInterruption()
             } else {
+                suspendedWarmSessionOnInterruption = false
                 endWarmSession()
             }
 
@@ -1468,6 +1509,74 @@ final class DictationController {
                 }
             }
         }
+    }
+
+    /// Resumes the warm input after an interruption. The input stays marked as suspended while
+    /// iOS still refuses activation, so the session loop does not end the session meanwhile.
+    private func resumeWarmSessionAfterInterruption() {
+        interruptionResumeTask?.cancel()
+        interruptionResumeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.activateAudio(isCurrent: {
+                    self.suspendedWarmSessionOnInterruption && self.keyboardSessionEnabled
+                        && self.keyboardSessionExpiresAt > self.now()
+                }) {
+                    try self.audio.startKeepalive(allowBluetooth: self.allowBluetoothMic)
+                }
+                self.suspendedWarmSessionOnInterruption = false
+                self.interruptionResumeTask = nil
+                self.publishKeyboardSnapshot()
+            } catch {
+                // Cancelled by a new interruption, a keyboard activation or the session ending.
+                guard !Task.isCancelled, self.suspendedWarmSessionOnInterruption else { return }
+                self.suspendedWarmSessionOnInterruption = false
+                self.interruptionResumeTask = nil
+                self.endWarmSession()
+            }
+        }
+    }
+
+    /// Runs one microphone activation, trying again while iOS briefly refuses it after another
+    /// app's audio. Stops with `CancellationError` once `isCurrent` turns false.
+    private func activateAudio<T>(isCurrent: () -> Bool, _ attempt: () throws -> T) async throws -> T {
+        var lastError: (any Error)?
+        for delay in [Duration.zero] + audioRetryDelays {
+            if delay > .zero {
+                try await Task.sleep(for: delay)
+            }
+            guard isCurrent() else { throw CancellationError() }
+            do {
+                return try attempt()
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? CancellationError()
+    }
+
+    /// AVAudioSession refusals while another app holds audio: cannot start playing ('!pla'),
+    /// insufficient priority ('!pri'), cannot interrupt others ('!int').
+    nonisolated static func isAudioBusy(_ error: any Error) -> Bool {
+        [0x2170_6C61, 0x2170_7269, 0x2169_6E74].contains((error as NSError).code)
+    }
+
+    nonisolated static func audioFailureMessage(for error: any Error) -> String {
+        isAudioBusy(error) ? audioBusyMessage : error.localizedDescription
+    }
+
+    /// Silence and cancellation say nothing about the engine; other failures reload it.
+    nonisolated static func transcriptionFailureKeepsModel(_ error: any Error) -> Bool {
+        switch DictationLogASRFailure.classify(error) {
+        case .noSpeech, .cancelled:
+            true
+        case .modelNotReady, .other:
+            (error as? WhisperTranscriber.TranscriberError) == .emptyTranscript
+        }
+    }
+
+    private var canReusePreparedModel: Bool {
+        isModelReady && !modelNeedsReload && !pendingAppleLanguageChange
     }
 
     private func wireSystemIntentBus() {
