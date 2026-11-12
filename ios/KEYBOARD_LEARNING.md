@@ -3,14 +3,16 @@
 Typr's full keyboard can retain bounded personal touch statistics, word choices
 and text-free diagnostic counters on this iPhone. This owner-approved storage
 replaces the old kept-word store; it is **not RAM-only**. It is not a typed-text
-history, raw tap archive, contextual language model or accuracy measurement.
+history, raw tap archive or accuracy measurement. It now includes a small personal
+next-word model: sensitive aggregate counts of which word followed which.
 The keyboard never accesses the microphone, speech model or network.
 
 The separate [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions)
 uses bundled public DE/EN statistics for after-space predictions and display-only
 reranking. It reads at most a 256-character/2,048-byte field suffix in RAM,
 recomputes a bounded language-evidence state per request, and stores **no personal
-context, pair counts, posterior or history**. It adds no learning schema or switch;
+context, pair counts, posterior or history of its own**. The separately approved
+[personal word-pair layer](#personal-next-word-pairs) adds bounded follower counts; no new switch.
 Autocorrect and its selected languages govern it, independently of Learn from my
 typing. Picking a next-word prediction has no aligned current-token evidence and
 teaches no touch labels or personal count. Ordinary typed-prefix completion picks
@@ -36,8 +38,10 @@ The switch is `TyprSettings.personalLearning`, App Group defaults key
 - **On:** trusted events can update touch aggregates and word counts; frozen
   personal calibration and bounded word bonuses can influence spatial scores, and
   [personal completion ranking](#personal-completion-ranking) can reorder completions.
+  Independently settled adjacent words can update personal next-word pairs, used
+  above the corpus for predictions and bounded display-only context ranking.
 - **Off:** no new touch labels or word counts, no personal calibration/count priors,
-  personal-only candidate scan or personal completion ranking (completions keep
+  personal word-pair updates/influence, personal-only candidate scan or personal completion ranking (completions keep
   exactly today's system/corpus order). Previously stored aggregates are retained,
   not erased. Explicit keeps and rejected-correction protections still work and
   can be stored; diagnostics counting remains independent. Off does not mean
@@ -106,9 +110,11 @@ their existing automatic protection; deterministic `fuer → für` rules remain.
 Touch evidence for the current word and its one pending-feedback transaction
 stays **RAM-only**. Only slow aggregated per-key and all-key touch statistics are serialized;
 there is no sample reservoir, point sequence, field text, ordered word stream,
-context/bigram/trigram history, host-app history, transcript or audio in these
+sentence/trigram history, host-app history, transcript or audio in these
 learning/diagnostic files. The personal lexicon **does contain word strings**
-and rejected word pairs: it is sensitive personal data, not anonymized data.
+and rejected word pairs, plus which word followed which (aggregate next-word pairs
+only, no sentences or app/host information): it is sensitive personal data, not
+anonymized data. Even isolated word pairs can reveal private associations.
 
 | Stored learning state | Bound and retention |
 | --- | --- |
@@ -116,6 +122,7 @@ and rejected word pairs: it is sensitive personal data, not anonymized data.
 | Slow touch statistics | Up to 26 keys plus one global aggregate/layout: capped effective count, mean x/y offset and full xx/xy/yy covariance in pitch units; layout last-update time, no raw points |
 | Fast aim (never stored) | One active layout, two shared affine ridge regressions (~40/~8 trusted-label decay) plus three predictive weights; 24 sufficient sums, no per-key fast banks or point reservoir |
 | Kept words and trusted word counts | **One combined bound: kept ∪ counted ≤2,000 words**; normalized lowercase NFC, 2–32 letters, ≤256 UTF-8 bytes; keeps have priority. Evict unkept counts by lowest count then oldest update, then oldest keeps (with their counts); spelling breaks timestamp ties. Keeps store last-kept time; counts saturate at 10,000 and store last-update time |
+| Next-word pairs | ≤512 pair types, ≤8 followers/context, count ≤255; normalized lowercase NFC, 1–32 letters / ≤128 UTF-8 bytes per word, ä/ö/ü/ß remain distinct; ≤64 KiB conservative encoded byte bound inside the unchanged whole-store limit. All counts halve every 256 valid pair events; zeros disappear; weakest counts then lexically greatest context/follower are evicted deterministically |
 | Rejected typed→replacement pairs | At most 512 unique normalized pairs, FIFO; repeated rejection does not refresh order |
 | Diagnostics (separate statistics epoch) | Fixed known counters, accepted labels by source (`literalValid`, `keep`, `undo`, `manualPick`), rejected labels by reason, since/updated dates and two seven-bucket latency histograms; each count saturates at Int32.max |
 
@@ -220,8 +227,8 @@ pending intervals; no keystroke scans all 2,000 words. The index stores no extra
 beyond the snapshot's words (payload below 192 KiB in tests; not RSS). The corpus and
 personal lookups run on the suggestion worker; the main actor only calls the checker,
 merges at most 72 baseline and 8 personal candidates and applies casing. Nothing new
-is persisted by personal completion ranking; it has no personal next-word prediction
-or context history. The separate corpus next-word/display ranker is independent of
+is persisted by personal completion ranking itself; the separate word-pair layer
+below provides personal next-word prediction. The separate corpus next-word/display ranker is independent of
 Learn from my typing: **off removes all personal completion/count/calibration influence,
 not public-corpus context gain**. Off with retained counts and off with empty counts
 produce identical context-ranked completions (keeps/rejected protections remain
@@ -248,6 +255,71 @@ remain EVAL diagnostics only; deterministic entry/result and byte bounds gate
 regressions rather than noisy shared-runner timing. The same applies to aim
 snapshot/trusted-label update timings; numeric/encoded byte limits remain asserted.
 See [evaluation regression gates](KEYBOARD_SPATIAL_DECODER.md#evaluation-regression-gates).
+
+## Personal next-word pairs
+
+Owner-approved P4 adds a small personal follower model above the public corpus.
+There is **one previous trusted word in RAM** and no sequence archive. Unchanged
+valid/kept literals still settle only on the next unambiguous letter with their
+suffix intact. A pair is counted only once both endpoints independently settle,
+and the current field suffix ends exactly in `previous + " " + word + " "`.
+No pair is reconstructed from existing field text. Manual kept/alternative/prefix
+choices can supply a pair endpoint, but wait for that same next-letter settlement;
+the existing immediate unigram/label rules are unchanged. Prediction picks have no
+typed word/evidence and teach neither endpoint nor pair. Automatic output, undo,
+in-word deletion/retyping, second separators, Return and punctuation do not teach
+pairs. A failed settlement breaks adjacency; a later valid word may start a new chain.
+Field, selection, layout/lifecycle/ambiguous-input discontinuities, selected-language
+changes, learning toggle, authoritative reload, either reset and Full Access
+revocation clear the RAM predecessor/pending pair choice. Ordinary word boundaries
+and applied manual choices alone do not. A clipped/missing proxy suffix abstains.
+
+For a retained context row, let `N=sum(counts)`, `T=number of followers`, `c=count(h,w)`:
+
+`P_personal(w|h) = (max(c-.5,0) + 1.5*T*P_corpus(w|h)) / (N+T)`.
+
+This is absolute discount .5 plus Witten–Bell-style backoff translated from iikb;
+unknown contexts use the corpus exactly. Repeated personal words can outrank corpus
+followers. Top-three prediction is exact for this mixture: seed all ≤8 personal
+followers alongside corpus boosts and multiply the corpus unseen-word stopping
+bound by `1.5*T/(N+T)`. Personal-only names may join (corpus stock-name suppression
+does not suppress an independently trusted personal follower). Selected corpus
+packs remain required; German/English/mixed use the same NFC lowercase keys, with
+no stored language classification or hard personal-language partition. Personal
+prediction casing uses the selected dictionaries to restore nouns/proper names.
+Picking a prediction applies host sentence/word/all-character auto-capitalization
+when appropriate (first letter after `. ! ?`, or field start); German capitals are
+never lowercased. This does not invent predictions at empty/unknown fields.
+
+Display reranking substitutes this mixture into the existing `.35 * clip(log(P/base),
+0, log(20))` gain, retaining its cap, evidence-kind slots and pinned automatic,
+literal, revert and contact entries. Only a retained personal follower can receive
+an OOV gain (denominator floor `1e-12`); other OOV words still receive zero. It never
+changes automatic decisions, completeness, margins, validation or undo. Learning
+off supplies an empty personal model for both prediction and ranking and disables
+pair updates, but retains saved counts. Corpus context remains active.
+
+Pair counts halve (integer division, dropping zeros) **before every 256th valid
+adjacent event is inserted**; the modulo counter persists. This is event ageing,
+not wall-clock expiry: unused data remains until eviction/deletion/reset or further
+pair events. Rows/totals are derived after ageing so no stale totals survive.
+Keep/rejection protections never age. Per-row and global eviction remove the
+lowest count, then lexically greatest follower (context first globally). A new
+weak follower can lose immediately to eight stronger ones. Each update temporarily
+has ≤513 edges and ≤9 followers in one row; bounded eviction scans can remove at
+most 513 edges, never an unbounded history. Logical string+counter payload is also
+bounded by the conservative ≤64 KiB JSON bound; Swift dictionaries, COW snapshots,
+allocator overhead and encoding transients are extra, not measured RSS. The whole
+store still caps at 256 KiB and trims pairs before unigram/protection entries.
+
+`PersonalTypingBigramTests` covers settlement and forbidden sources, discontinuities,
+manual choice/undo, migration, reset/delete races, revocation, learning-off isolation,
+Unicode/mixed pairs, ageing/caps/bytes, exact mixture top-three against exhaustive
+union and sentence/noun casing. Synthetic repeated-session and DE/EN/mixed noisy-touch
+evaluations print `EVAL P4_*`; timings are report-only, never wall-clock assertions.
+These are not natural typing benefit, Apple dictionary or extension memory proof.
+Only a real iPhone can prove protected persistence/backup policy, Full Access
+callbacks, management refresh in a live keyboard, UIKit/host ordering and latency/RSS.
 
 ## Suggestion snapshot isolation
 
@@ -291,15 +363,19 @@ The existing App Group (`group.dev.rudek.typr`) contains:
 - `<AppGroup>/Typr/Keyboard/diagnostics-v1.json` — at most **64 KiB** encoded.
 - `learning.lock` — coordination only, not a data archive.
 
-The learning **value schema is now 2**, retaining the `learning-v1.json` filename
+The learning **value schema is now 3**, retaining the `learning-v1.json` filename
 so reset/locking and existing byte limits remain authoritative. Schema 1 migrates
 in memory with xy=0 and no invented global stream; keeps, counts, rejected pairs,
-layout dates and diagonal statistics survive. The next save writes schema 2. Missing
-global data stays absent until new labels arrive. Unknown future versions fail closed;
-older Typr builds that only understand schema 1 discard schema 2 rather than guess.
+layout dates and diagonal statistics survive. Missing global data stays absent
+until new labels arrive. Unknown future versions fail closed.
 Invalid/non-PSD/nonfinite covariance fails load validation; save-time repair drops
 only invalid key/global aggregates and preserves unrelated lexicon data. No migration
-persists fast memories or reconstructs raw taps.
+persists fast memories or reconstructs raw taps. Schemas 1/2 migrate to empty
+next-word counts (no invented observations),
+retaining all previous state; the next save writes 3. Schema-1/2 clients reject 3
+through their existing version validation, not reinterpret it. This follows the
+existing fail-closed downgrade convention; an old client can subsequently replace
+an unsupported snapshot with its empty model, so downgrades can lose learning.
 
 Each JSON envelope has a reset epoch and schema-versioned value. Only the
 keyboard writes learning/diagnostic snapshots; the app reads summaries,
@@ -331,7 +407,7 @@ Successful writes and resets post
 on appearance, notification, foreground and pull-to-refresh, not every tap.
 
 **Typing diagnostics → Reset learning** clears calibration, keeps, word counts,
-and rejected pairs. Statistics, including accepted/rejected label totals, remain.
+next-word pairs and rejected pairs. Statistics, including accepted/rejected label totals, remain.
 **Reset statistics** clears decision/feedback/store and learning-event counters
 (including accepted-by-source/rejected-by-reason totals) and latency buckets,
 starting a new `since` period; learning remains. Each has a destructive confirmation.
@@ -361,13 +437,17 @@ dialogs; their independent reset behavior is unchanged.
 ## Manage learned words
 
 **Keyboard → Manage learned words**, directly below Typing diagnostics and also linked
-inside diagnostics, loads saved kept words, rejected `typed → replacement` pairs and
-frequent-word counts only after an explicit tap. The search field filters all three
+inside diagnostics, loads saved kept words, rejected `typed → replacement` pairs,
+frequent-word counts and the words participating in next-word pairs only after an
+explicit tap. Deleting a kept/count word also purges every incoming/outgoing
+next-word pair; the **Words in next-word pairs** section makes pair-only words
+deletable without displaying associations. Reset learning clears all pairs. The search field filters all three
 categories by partial word, ignoring case and diacritics, and searches both sides of
 rejected corrections. An empty search shows everything; no matches get an explicit
 message. Deletion while searching targets only the selected visible entry.
 Swipe or Edit deletes one entry; keeps and counts are separate entries even when
-they share a word. No context, typed history, raw taps or per-word dates are shown.
+they share a word, but either deletion purges that word's next-word associations.
+No pair association, sentence history, raw taps or per-word dates are shown.
 The dashboard and exports do not include this list. Without saved data the page
 explains that Full Access may be off or nothing has been saved; the app cannot
 inspect the keyboard's current permission or RAM-only learning.

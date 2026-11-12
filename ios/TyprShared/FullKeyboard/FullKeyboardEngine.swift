@@ -354,7 +354,15 @@ final class FullKeyboardEngine {
         let keepWasNew = token.map { !autocorrect.learning.protections.kept.contains(PersonalLexiconSnapshot.normalize($0)) } ?? false
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
+        } else {
+            // Prediction picks have no independently typed current word.
+            autocorrect.discardFeedback()
         }
+        let capitalizePrediction = token == nil && AutoCapitalization.shouldCapitalize(
+            mode: AutoCapitalization.Mode(target.autocapitalizationType), before: before, hasText: target.hasText)
+        let replacement = capitalizePrediction
+            ? suggestion.replacement.prefix(1).uppercased() + suggestion.replacement.dropFirst()
+            : suggestion.replacement
         invalidateTouchEvidence(resetFastAim: false)
         if let token {
             for _ in 0..<token.count {
@@ -362,7 +370,7 @@ final class FullKeyboardEngine {
             }
         }
         autocorrect.clearPendingUndo()
-        insert(suggestion.replacement + " ")
+        insert(replacement + " ", keepsFeedback: token != nil)
         if suggestion.kind == .keepLiteral, let token {
             autocorrect.recordAppliedKeep(token, wasNew: keepWasNew)
         }
@@ -722,8 +730,9 @@ final class FullKeyboardEngine {
         // Keep evidence through replacementOnSpace, then discard the completed word.
         _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         defer { autocorrect.touchInput.clear() }
-        // A second separator (including double-space-period) is not trusted feedback.
-        autocorrect.discardFeedback()
+        // Preserve the predecessor only for a new word's boundary, never a second separator.
+        autocorrect.discardFeedback(preservingTrustedContext:
+            AutocorrectEngine.currentToken(in: target.documentContextBeforeInput) != nil)
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
             autocorrect.clearPendingUndo()

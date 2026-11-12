@@ -154,9 +154,15 @@ final class AutocorrectEngine {
     let checker: TextChecking
     let learning: KeyboardLearningSession
     var isEnabled = true { didSet { invalidateDecode() } }
-    var englishEnabled = true { didSet { invalidateDecode() } }
+    var englishEnabled = true { didSet {
+        if oldValue != englishEnabled { discardFeedback() }
+        invalidateDecode()
+    } }
     /// Typr: German layer; `nil` keeps today's behaviour exactly.
-    var german: GermanAutocorrect? { didSet { invalidateDecode() } }
+    var german: GermanAutocorrect? { didSet {
+        if (oldValue == nil) != (german == nil) { discardFeedback() }
+        invalidateDecode()
+    } }
     private(set) var lexiconShortcuts: [String: String] = [:]
     private var lexiconTerms: [String] = []
     private var lexiconTermKeys: Set<String> = []
@@ -164,6 +170,8 @@ final class AutocorrectEngine {
     private var reversibleRejection: RejectedCorrection?
     private(set) var lastCorrection: AppliedCorrection?
     private(set) var pendingFeedback: PendingFeedback?
+    /// Manual choices also wait until the next unambiguous letter before pair training.
+    private var pendingPairChoice: (word: String, epoch: Int)?
     private var observedResets: Int
     private var observedFeedbackEpoch: Int
     private var decodeCache: DecodeCache?
@@ -339,6 +347,8 @@ final class AutocorrectEngine {
         if observedFeedbackEpoch != learning.feedbackEpoch {
             observedFeedbackEpoch = learning.feedbackEpoch
             pendingFeedback = nil
+            pendingPairChoice = nil
+            learning.breakWordSequence()
             lastCorrection = nil
             reversibleRejection = nil
         }
@@ -352,7 +362,10 @@ final class AutocorrectEngine {
     /// Cursor, field, layout or host text changed: no tap, decode or pending word survives.
     /// Only an applied manual word choice preserves the just-trained fast aggregate aim.
     func discardEvidence(resetFastAim: Bool = true) {
-        if resetFastAim { learning.resetFastAim() }
+        if resetFastAim {
+            learning.resetFastAim()
+            pendingPairChoice = nil
+        }
         touchInput.clear()
         decodeCache = nil
         completionCache = nil
@@ -360,9 +373,11 @@ final class AutocorrectEngine {
         reversibleRejection = nil
     }
 
-    func discardFeedback() {
+    func discardFeedback(preservingTrustedContext: Bool = false) {
         pendingFeedback = nil
+        pendingPairChoice = nil
         reversibleRejection = nil
+        if !preservingTrustedContext { learning.breakWordSequence() }
     }
 
     private func invalidateDecode() {
@@ -378,19 +393,33 @@ final class AutocorrectEngine {
     /// if it is still intact right before the cursor.
     func settleFeedback(beforeInput: String?, insertedLetter: String, afterInput: String?) {
         reversibleRejection = nil
+        if let choice = pendingPairChoice {
+            pendingPairChoice = nil
+            let suffix = choice.word + " "
+            if choice.epoch == learning.feedbackEpoch, let beforeInput,
+               beforeInput.hasSuffix(suffix), insertedLetter.count == 1, insertedLetter.first?.isLetter == true,
+               afterInput == beforeInput + insertedLetter {
+                learning.settleTrustedWord(choice.word, beforeInput: beforeInput)
+            } else { learning.breakWordSequence() }
+        }
         guard let pending = pendingFeedback else { return }
         pendingFeedback = nil
         guard pending.learnable, pending.epoch == learning.feedbackEpoch,
               insertedLetter.count == 1, insertedLetter.first?.isLetter == true,
               afterInput?.hasSuffix(pending.suffix + insertedLetter) == true,
               let evidence = pending.evidence, let beforeInput, beforeInput.hasSuffix(pending.suffix),
-              beforeInput.dropLast(pending.suffix.count).last?.isLetter != true else { return }
+              beforeInput.dropLast(pending.suffix.count).last?.isLetter != true else {
+            learning.breakWordSequence(); return
+        }
+        learning.settleTrustedWord(pending.literal, beforeInput: beforeInput)
         learnIdentity(evidence, literal: pending.literal, source: .literalValid)
         learning.recordWord(pending.literal)
     }
 
     /// Backspace restored the typed word right after an automatic replacement.
     func recordUndo(_ undo: AppliedCorrection) {
+        pendingPairChoice = nil
+        learning.breakWordSequence()
         if let wasNew = undo.keptWordWasNew {
             pendingFeedback = nil
             if wasNew {
@@ -434,6 +463,11 @@ final class AutocorrectEngine {
         reversibleRejection = nil
         let evidence = evidence?.text == literal ? evidence : nil
         let mayLearn = touchInput.isLearningIntact && evidence?.learningIntact != false
+        pendingPairChoice = nil
+        if mayLearn, learning.isLearningEnabled,
+           PersonalBigramModel.validWord(PersonalLexiconSnapshot.normalize(suggestion.replacement)) {
+            pendingPairChoice = (suggestion.replacement, learning.feedbackEpoch)
+        } else { learning.breakWordSequence() }
         // The center slot repeats the typed word when nothing else applies: not an alternative.
         guard suggestion.kind == .keepLiteral || suggestion.replacement != literal else { return }
         if suggestion.kind == .keepLiteral {
@@ -532,12 +566,15 @@ final class AutocorrectEngine {
             guard canPredictNextWord(after: beforeInput), let context, context.canPredict,
                   let model = contextModel else { return [] }
             let words = model.suggestions(after: context.previous, weightDE: context.state.weightDE,
-                                          german: german != nil, english: englishEnabled)
+                                          german: german != nil, english: englishEnabled,
+                                          personal: learning.personalBigrams)
             // Most likely word in the centre slot, like the current-word strip; never automatic.
             return KeyboardContextModel.stripOrder(words).map { word in
-                KeyboardSuggestion(displayText: word.display, replacement: word.display,
-                                   kind: word == words.first ? .primary(autoReplace: false) : .secondary,
-                                   isCompletion: true)
+                let display = learning.personalBigrams.followers(after: context.previous)[word.key] != nil
+                    ? personalSpelling(word.display, token: word.display) : word.display
+                return KeyboardSuggestion(displayText: display, replacement: display,
+                                          kind: word == words.first ? .primary(autoReplace: false) : .secondary,
+                                          isCompletion: true)
             }
         }
 
@@ -678,7 +715,8 @@ final class AutocorrectEngine {
             // Contacts retain #115's precedence too, even with a stronger corpus follower.
             let slots = pool.indices.filter { $0 >= pinnedCount && !contactPicks.contains(pool[$0]) }
             let ranked = model.rerank(slots.map { pool[$0] }, spatialScores: spatialScores, context: context,
-                                      german: german != nil, english: englishEnabled)
+                                      german: german != nil, english: englishEnabled,
+                                      personal: learning.personalBigrams)
             for (slot, word) in zip(slots, ranked) { pool[slot] = word }
         }
 

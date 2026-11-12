@@ -112,8 +112,13 @@ The [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-co
 reads only a short RAM field suffix, separately from this touch tracker. It neither
 extends the tap window nor stores personal contexts. Reordering current-token
 suggestions preserves their completion provenance; after-space predictions have
-no current token/tap alignment and teach no touch labels or word counts. Automatic
-correction and all conservative evidence invalidation above are unchanged.
+no current token/tap alignment and teach no touch labels, word counts or word pairs.
+P4's [personal next-word layer](KEYBOARD_LEARNING.md#personal-next-word-pairs)
+counts only adjacent independently settled words (including deferred manual choices),
+never silent automatic output or retyped/undone words. Its single RAM predecessor
+resets on evidence/field/selection/language discontinuities; raw taps remain RAM-only.
+Only bounded aggregate word pairs may persist with Full Access, never sentences or
+app/host information. Automatic correction and conservative invalidation are unchanged.
 
 ## Proof limits
 
