@@ -29,6 +29,23 @@ final class KeyboardLearningSession {
     private var lastChange = ContinuousClock.now
     private var saveTask: Task<Void, Never>?
     private var observer: KeyboardLearningObserver?
+    /// One trusted predecessor in RAM, never serialized or restored from field text.
+    private(set) var previousTrustedWord: String?
+    var personalBigrams: PersonalBigramModel { isLearningEnabled ? model.state.bigrams ?? .init() : .init() }
+
+    func breakWordSequence() { previousTrustedWord = nil }
+
+    /// Both words must have independently settled, with exactly one intervening space.
+    func settleTrustedWord(_ word: String, beforeInput: String) {
+        guard isLearningEnabled, PersonalBigramModel.validWord(PersonalLexiconSnapshot.normalize(word)) else {
+            breakWordSequence(); return
+        }
+        if let previousTrustedWord, beforeInput.hasSuffix(previousTrustedWord + " " + word + " ") {
+            model.recordPair(word, after: previousTrustedWord)
+            modelChanged()
+        }
+        previousTrustedWord = word
+    }
 
     /// - Parameters:
     ///   - store: A persistent store, or `nil` for a RAM-only session.
@@ -77,14 +94,17 @@ final class KeyboardLearningSession {
 
     /// Fast aim never crosses host/field/layout/lifecycle discontinuities. Slow state stays.
     func resetFastAim() {
+        breakWordSequence()
         // Repeated evidence invalidation/polls with no active fast state are no-ops.
         if model.resetFastAim() { generation &+= 1 }
     }
 
     /// Keyboard appearance and settings sync: switch value and app reset epochs.
     func refresh() {
+        if isPersistent && !allowsPersistence() { stopPersistence() }
         let enabled = TyprSettings(defaults: defaults).personalLearning
         if model.isLearningEnabled != enabled {
+            breakWordSequence()
             model.isLearningEnabled = enabled
             generation &+= 1
             feedbackEpoch &+= 1
@@ -98,6 +118,7 @@ final class KeyboardLearningSession {
                 store = pendingLoad
                 self.pendingLoad = nil
                 isPersistent = true
+                breakWordSequence()
                 model = PersonalTypingModel(state: result.0 ?? .init(), isLearningEnabled: enabled)
                 diagnostics = result.1
                 if loadWasDeferred { diagnostics.increment(.storeLoadDeferred) }
@@ -112,6 +133,7 @@ final class KeyboardLearningSession {
         }
         let current = store.currentEpochs
         guard current != epochs else { return }
+        breakWordSequence()
         // Neither feedback nor undo attribution may cross either reset's counting period.
         feedbackEpoch &+= 1
         var loaded: (PersonalTypingModel.State?, KeyboardDiagnostics)?
@@ -157,6 +179,8 @@ final class KeyboardLearningSession {
 
     /// Full Access went away or the store failed to load: keep learning in RAM only.
     func stopPersistence() {
+        breakWordSequence()
+        feedbackEpoch &+= 1
         saveTask?.cancel()
         saveTask = nil
         pendingLoad = nil

@@ -38,7 +38,7 @@ struct KeyboardDiagnosticsView: View {
             Button("Reset learning", role: .destructive) { model.resetLearning() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Deletes touch calibration, kept words, word counts and rejected corrections. Statistics stay. The keyboard clears its matching session data before its next save.")
+            Text("Deletes touch calibration, kept words, word counts, next-word pairs and rejected corrections. Statistics stay. The keyboard clears its matching session data before its next save.")
         }
         .confirmationDialog("Reset statistics?", isPresented: $confirmStatisticsReset, titleVisibility: .visible) {
             Button("Reset statistics", role: .destructive) { model.resetStatistics() }
@@ -115,15 +115,15 @@ struct KeyboardDiagnosticsView: View {
         section("Learning") {
             metric("Learn from my typing", model.learningEnabled ? "On" : "Off")
             note(model.learningEnabled
-                ? "Adapts to where you tap and to words you keep. Without Full Access, learning lasts for the keyboard session only; that session cannot be shown here."
-                : "No new touch learning or personal word-count influence. Retained aggregates stay; explicit keep protection still works.")
+                ? "Adapts to where you tap, words you keep and which word followed which. Without Full Access, learning lasts for the keyboard session only; that session cannot be shown here."
+                : "No new touch, word-count or word-pair learning, and no personal influence. Retained aggregates stay; explicit keep protection still works.")
             metric("Storage", snapshot.isPersistent ? "Shared storage available" : "This session only")
             note("Saved on this iPhone when the keyboard has Full Access. Shared storage availability in the app does not prove keyboard access.")
             DisclosureGroup("Trusted touch labels by source") {
                 ForEach(TouchLabelSource.allCases, id: \.rawValue) { source in
                     metric(Presentation.sourceLabel(source), (snapshot.diagnostics.acceptedBySource[source.rawValue] ?? 0).formatted())
                 }
-                note("Automatic replacements alone never teach touch labels or word counts.")
+                note("Automatic replacements alone never teach touch labels, word counts or word pairs.")
             }
             DisclosureGroup("Rejected touch labels") {
                 ForEach(TouchLabelRejection.allCases, id: \.rawValue) { reason in
@@ -134,6 +134,8 @@ struct KeyboardDiagnosticsView: View {
             note("The event counts above cover the statistics period. Retained learning below may cover a different period and is bounded.")
             metric("Retained counted words", snapshot.model.countedWords.formatted())
             metric("Retained word-count total", snapshot.model.wordCountTotal.formatted())
+            metric("Retained next-word pairs", snapshot.model.storedPairs.formatted())
+            metric("Next-word pair storage (bound)", Presentation.fileSize(snapshot.model.pairByteBound))
             NavigationLink("Manage learned words", value: SettingsDestination.keyboardLearnedWords)
             metric("Retained kept words", snapshot.model.keptWords.formatted())
             metric("Retained rejected corrections", snapshot.model.rejectedCorrections.formatted())
@@ -167,8 +169,8 @@ struct KeyboardDiagnosticsView: View {
 
     private var storage: some View {
         section("Stored data & reset") {
-            note("Aggregated counters, per-key offset statistics, kept words, word counts and rejected corrections. No typed text history and no raw taps.")
-            note("Kept words, word counts and rejected word pairs are personal data. They never leave this iPhone and are excluded from backup.")
+            note("Aggregated counters, per-key offset statistics, kept words, word counts, next-word pairs and rejected corrections. Word pairs only: no sentences, apps, websites or raw taps.")
+            note("Kept words, word counts, next-word pairs and rejected word pairs are personal data. They never leave this iPhone and are excluded from backup.")
             metric("Learning file", Presentation.fileSize(snapshot.learningFile.bytes))
             metric("Statistics file", Presentation.fileSize(snapshot.diagnosticsFile.bytes))
             note("Location: Typr's shared app group on this iPhone.")

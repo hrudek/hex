@@ -23,6 +23,8 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertEqual(Set(state.kept.keys), ["swift", "typr"])
         XCTAssertEqual(state.rejected, [.init(typed: "teh", replacement: "the")])
         XCTAssertEqual(state.counts["hello"]?.count, 12)
+        // Synthetic aggregate pair only; the page lists its words, never the association.
+        XCTAssertEqual(state.bigrams?.followers(after: "hello"), ["world": 3])
         XCTAssertEqual(SettingsDestination.snapshotDestination(arguments:
             ["Typr", "--snap-state", "settings-keyboard-learned-words"]), .keyboardLearnedWords)
     }
@@ -39,11 +41,14 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertEqual(all.kept, state.kept.keys.sorted())
         XCTAssertEqual(all.pairs, state.rejected)
         XCTAssertEqual(all.counts, ["hello", "other"])
+        XCTAssertEqual(all.pairWords, ["hello", "world"])
 
         let partial = Results(state: state, query: "  ELL  ")
         XCTAssertEqual(partial.kept, ["hello"])
         XCTAssertEqual(partial.counts, ["hello"])
         XCTAssertTrue(partial.pairs.isEmpty)
+        XCTAssertEqual(partial.pairWords, ["hello"])
+        XCTAssertEqual(Results(state: state, query: "WORL").pairWords, ["world"])
         XCTAssertEqual(Results(state: state, query: "munchen").kept, ["München"])
         XCTAssertEqual(Results(state: state, query: "TEH").pairs, state.rejected)
         XCTAssertEqual(Results(state: state, query: "THE").pairs, state.rejected)
@@ -52,6 +57,7 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertTrue(none.kept.isEmpty)
         XCTAssertTrue(none.pairs.isEmpty)
         XCTAssertTrue(none.counts.isEmpty)
+        XCTAssertTrue(none.pairWords.isEmpty)
         XCTAssertEqual(state.counts["hello"]?.count, 12)
         XCTAssertEqual(state.kept.count, 4)
     }

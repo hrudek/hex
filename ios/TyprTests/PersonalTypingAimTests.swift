@@ -217,7 +217,7 @@ final class PersonalTypingAimTests: XCTestCase {
         object["layouts"] = layouts
         let legacy = try JSONDecoder().decode(PersonalTypingModel.State.self, from: JSONSerialization.data(withJSONObject: object))
         let migrated = try XCTUnwrap(legacy.validated())
-        XCTAssertEqual(migrated.schemaVersion, 2)
+        XCTAssertEqual(migrated.schemaVersion, 3)
         XCTAssertEqual(migrated.kept, model.state.kept)
         XCTAssertEqual(migrated.counts, model.state.counts)
         XCTAssertEqual(migrated.rejected, model.state.rejected)

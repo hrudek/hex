@@ -25,13 +25,14 @@ struct KeyboardLearnedWordsView: View {
         state.kept = ["typr": KeyboardDiagnosticsFixture.now, "swift": KeyboardDiagnosticsFixture.now]
         state.rejected = [.init(typed: "teh", replacement: "the")]
         state.counts = ["hello": .init(count: 12, lastUpdated: KeyboardDiagnosticsFixture.now)]
+        for _ in 0..<3 { state.bigrams?.record("world", after: "hello") }
         return state
     }
 
     var body: some View {
         List {
             Section {
-                Text("Only saved words and correction pairs are shown. No typed-text history, context or per-word dates. Swipe to delete an entry.")
+                Text("Typr stores kept words, word counts, rejected corrections and which word followed which. Word pairs only: no sentences, apps or websites, and no typed-text history or per-word dates. Deleting a word here removes every pair containing it; Reset learning in Typing diagnostics clears all pairs. Swipe to delete an entry.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.red) }
             }
@@ -54,7 +55,11 @@ struct KeyboardLearnedWordsView: View {
                     }
                     .onDelete { offsets in delete(offsets.map { .count(counts[$0]) }) }
                 }
-                if kept.isEmpty && pairs.isEmpty && counts.isEmpty {
+                Section("Words in next-word pairs") {
+                    ForEach(results.pairWords, id: \.self) { Text($0) }
+                        .onDelete { offsets in delete(offsets.map { .pairWord(results.pairWords[$0]) }) }
+                }
+                if kept.isEmpty && pairs.isEmpty && counts.isEmpty && results.pairWords.isEmpty {
                     Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                          ? "No saved words or corrections."
                          : "No matching words or corrections.")
@@ -86,6 +91,7 @@ struct KeyboardLearnedWordsView: View {
         let kept: [String]
         let pairs: [RejectedCorrection]
         let counts: [String]
+        let pairWords: [String]
 
         init(state: PersonalTypingModel.State, query: String) {
             let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,6 +102,7 @@ struct KeyboardLearnedWordsView: View {
             pairs = state.rejected.filter { matches($0.typed) || matches($0.replacement) }
                 .sorted { ($0.typed, $0.replacement) < ($1.typed, $1.replacement) }
             counts = state.counts.keys.filter { matches($0) }.sorted()
+            pairWords = (state.bigrams?.words ?? []).filter { matches($0) }.sorted()
         }
     }
 
@@ -108,8 +115,13 @@ struct KeyboardLearnedWordsView: View {
         for entry in entries {
             if fixture {
                 switch entry {
-                case .kept(let word): state?.kept.removeValue(forKey: word)
-                case .count(let word): state?.counts.removeValue(forKey: word)
+                case .kept(let word):
+                    state?.kept.removeValue(forKey: word)
+                    state?.bigrams?.purge(word)
+                case .count(let word):
+                    state?.counts.removeValue(forKey: word)
+                    state?.bigrams?.purge(word)
+                case .pairWord(let word): state?.bigrams?.purge(word)
                 case .rejected(let pair): state?.rejected.removeAll { $0 == pair }
                 }
             } else if !KeyboardLearningStore().deleteLearnedEntry(entry) {

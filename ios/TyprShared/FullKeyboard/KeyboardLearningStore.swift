@@ -125,7 +125,8 @@ final class KeyboardLearningStore {
                 var modelData = try JSONEncoder().encode(Saved(epoch: loadedEpochs.learning, value: bounded))
                 while modelData.count > Self.maximumLearningBytes {
                     // Batches avoid quadratic re-encoding at the largest allowed word collections.
-                    let batch = max(1, (bounded.kept.count + bounded.counts.count + bounded.rejected.count) / 16)
+                    let batch = max(1, (bounded.kept.count + bounded.counts.count + bounded.rejected.count
+                                        + (bounded.bigrams?.pairCount ?? 0)) / 16)
                     guard bounded.dropOldestLexiconEntries(batch) else { throw CocoaError(.fileWriteOutOfSpace) }
                     modelData = try JSONEncoder().encode(Saved(epoch: loadedEpochs.learning, value: bounded))
                 }
@@ -158,7 +159,7 @@ final class KeyboardLearningStore {
     func learnedWords() -> PersonalTypingModel.State? { load().0 }
 
     enum LearnedEntry {
-        case kept(String), count(String), rejected(RejectedCorrection)
+        case kept(String), count(String), rejected(RejectedCorrection), pairWord(String)
     }
 
     /// Edit the authoritative snapshot under the reset lock, then advance its epoch.
@@ -174,8 +175,13 @@ final class KeyboardLearningStore {
                     limit: Self.maximumLearningBytes, epoch: epochs.learning, corrupt: &corrupt),
                     var state = saved.validated() else { throw CocoaError(.fileReadCorruptFile) }
                 switch entry {
-                case .kept(let word): state.kept.removeValue(forKey: word)
-                case .count(let word): state.counts.removeValue(forKey: word)
+                case .kept(let word):
+                    state.kept.removeValue(forKey: word)
+                    state.bigrams?.purge(word)
+                case .count(let word):
+                    state.counts.removeValue(forKey: word)
+                    state.bigrams?.purge(word)
+                case .pairWord(let word): state.bigrams?.purge(word)
                 case .rejected(let pair): state.rejected.removeAll { $0 == pair }
                 }
                 let next = epochs.learning == Int.max ? 0 : epochs.learning + 1

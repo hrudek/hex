@@ -414,7 +414,8 @@ whole-word rules/corrections keep their precedence and automatic policy.
   A chip carries its exact original suffix as well as the existing full
   field/context/revision ownership. Acceptance rechecks both before one suffix edit.
   One immediate Backspace restores the entire original suffix, including a join's
-  original space. No constituent-word counts or tap labels are inferred from a pick.
+  original space. No constituent-word counts, tap labels or personal word pairs are
+  inferred from a pick; it also breaks the RAM next-word predecessor.
 
 Undo records a **session-only FIFO of at most 64 boundary rejection pairs**. These
 phrases cannot enter the existing letter/apostrophe-only persistent pair schema;
@@ -863,8 +864,14 @@ coverage, physical grip recovery and extension latency/memory remain unverified.
 
 ## Offline corpus context suggestions
 
+P4 additionally layers [trusted personal word-pair counts](KEYBOARD_LEARNING.md#personal-next-word-pairs)
+over this corpus distribution for predictions and bounded display reranking.
+The mixture, schema 3, privacy/deletion, trust gates and bounds live in that
+reference. Prediction picks honor sentence auto-capitalization without lowercasing
+German nouns. Automatic correction is unchanged.
+
 `KeyboardContextModel` adds **suggestion-only** corpus context, not a new
-correction objective or personal context learner. At a trailing space the strip
+correction objective. The corpus layer itself does not learn personal contexts. At a trailing space the strip
 can show three next words; tapping inserts that word plus the existing separator.
 No keep chip or automatic highlight is used for predictions. While typing with usable
 context and all selected packs, existing spatial/spelling/completion alternatives
@@ -922,13 +929,15 @@ completions from context scoring. Personal promotions keep #115's count/keep ord
 as their baseline; completion provenance and personal-pick diagnostics survive the
 rerank. **Learn from my typing off supplies no personal candidates, calibration or
 count influence**; the public-corpus context gain remains active independently of
-that switch. No personal context is learned or stored. Without usable context, with Autocorrect off, or without
+that switch. The corpus layer itself stores no personal context; P4's separate
+approved follower counts participate only while learning is on. Without usable context, with Autocorrect off, or without
 every selected pack, retrieval keeps the old two-alternative/checker-work budget.
 This ranker cannot authorize any replacement: `decide`, automatic spatial scores/
 completeness, German casing validation, protections, margins and Space/punctuation/
 undo transactions are unchanged. Names and productive compounds remain protected
 from automatic frequency chasing.
 
+Corpus context extraction remains independent of stored personal follower counts.
 Only the last **256 characters / 2,048 UTF-8 bytes** before the caret are
 read in RAM; the active token is excluded from completed-word evidence. A clipped first word is discarded. The state is recomputed from that
 suffix on each request (no repeated-word double consumption, retained cross-field

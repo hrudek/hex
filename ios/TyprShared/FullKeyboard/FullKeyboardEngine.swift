@@ -293,7 +293,8 @@ final class FullKeyboardEngine {
                   result.request.ownership == ownership,
                   self.suggestionOwnership == ownership, self.showsStrip else { return }
             let next = self.autocorrect.finishSuggestions(result).map { suggestion in
-                var owned = suggestion
+                // After-space predictions show (and insert) the host's auto-capitalization.
+                var owned = ownership.token == nil ? self.casedPrediction(suggestion, before: ownership.context) : suggestion
                 owned.ownership = ownership
                 return owned
             }
@@ -360,7 +361,13 @@ final class FullKeyboardEngine {
         let keepWasNew = token.map { !autocorrect.learning.protections.kept.contains(PersonalLexiconSnapshot.normalize($0)) } ?? false
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
+        } else {
+            // Prediction picks have no independently typed word: no unigram, label or pair.
+            autocorrect.discardFeedback()
         }
+        // Idempotent with the published chip: a prediction at a sentence start is capitalized.
+        let replacement = token == nil && suggestion.boundary == nil
+            ? casedPrediction(suggestion, before: before).replacement : suggestion.replacement
         invalidateTouchEvidence(resetFastAim: false)
         if let original {
             for _ in 0..<original.count {
@@ -368,7 +375,7 @@ final class FullKeyboardEngine {
             }
         }
         autocorrect.clearPendingUndo()
-        insert(suggestion.replacement + " ")
+        insert(replacement + " ", keepsFeedback: token != nil && suggestion.boundary == nil)
         if let boundary = suggestion.boundary {
             autocorrect.recordAppliedBoundary(boundary, replacement: suggestion.replacement)
         } else if suggestion.kind == .keepLiteral, let token {
@@ -376,6 +383,27 @@ final class FullKeyboardEngine {
         }
         // The suggestion's separator counts as the first space of double-space period.
         lastSpaceAt = clock()
+    }
+
+    /// Host auto-capitalization for a next-word prediction: first letter after `. ! ?`, a line
+    /// break or at the field start (sentences/words modes), every letter for all-characters.
+    /// Never lowercases, so dictionary-cased German nouns and names keep their capitals.
+    static func casedPrediction(_ word: String, mode: AutoCapitalization.Mode, before: String?, hasText: Bool) -> String {
+        guard AutoCapitalization.shouldCapitalize(mode: mode, before: before, hasText: hasText) else { return word }
+        return mode == .allCharacters ? word.uppercased() : word.prefix(1).uppercased() + word.dropFirst()
+    }
+
+    private func casedPrediction(_ suggestion: KeyboardSuggestion, before: String?) -> KeyboardSuggestion {
+        guard suggestion.boundary == nil else { return suggestion } // Owns an exact original suffix.
+        let mode = AutoCapitalization.Mode(target.autocapitalizationType)
+        let replacement = Self.casedPrediction(suggestion.replacement, mode: mode, before: before, hasText: target.hasText)
+        guard replacement != suggestion.replacement else { return suggestion }
+        var cased = KeyboardSuggestion(
+            displayText: Self.casedPrediction(suggestion.displayText, mode: mode, before: before, hasText: target.hasText),
+            replacement: replacement, kind: suggestion.kind, isCompletion: suggestion.isCompletion)
+        cased.ownership = suggestion.ownership
+        cased.isPersonal = suggestion.isPersonal
+        return cased
     }
 
     // MARK: - Touches
@@ -730,8 +758,9 @@ final class FullKeyboardEngine {
         // Keep evidence through replacementOnSpace, then discard the completed word.
         _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         defer { autocorrect.touchInput.clear() }
-        // A second separator (including double-space-period) is not trusted feedback.
-        autocorrect.discardFeedback()
+        // Preserve the predecessor only for a new word's boundary, never a second separator.
+        autocorrect.discardFeedback(preservingTrustedContext:
+            AutocorrectEngine.currentToken(in: target.documentContextBeforeInput) != nil)
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
             autocorrect.clearPendingUndo()

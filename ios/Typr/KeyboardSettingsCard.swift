@@ -48,7 +48,7 @@ struct KeyboardSettingsCard: View {
                         .buttonStyle(.plain)
                     }
                     SettingsDivider()
-                    SettingsToggle(title: "Learn from my typing", detail: "Adapts to where you tap and to words you keep.", isOn: $personalLearning)
+                    SettingsToggle(title: "Learn from my typing", detail: "Adapts to where you tap, words you keep and which word follows which.", isOn: $personalLearning)
                         .onChange(of: personalLearning) { _, enabled in
                             TyprSettings().personalLearning = enabled
                         }
