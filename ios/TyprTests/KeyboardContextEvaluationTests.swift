@@ -157,8 +157,13 @@ final class KeyboardContextEvaluationTests: XCTestCase {
         let de = try XCTUnwrap(sentences["de"]), en = try XCTUnwrap(sentences["en"])
         // Validity proxy: every held-out spelling is "valid" (not Apple's dictionary).
         let vocabulary = Set((de + en).flatMap { $0 }.flatMap { [$0, $0.lowercased()] })
-        let mixed = (0..<min(de.count, en.count)).map { k in
-            k % 2 == 0 ? (de[k] + ["."] + en[k], de[k].count + 1) : (en[k] + ["."] + de[k], en[k].count + 1)
+        let pairCount: Int = min(de.count, en.count)
+        let mixed: [([String], Int)] = (0..<pairCount).map { (k: Int) -> ([String], Int) in
+            let first: [String] = k % 2 == 0 ? de[k] : en[k]
+            let second: [String] = k % 2 == 0 ? en[k] : de[k]
+            let words: [String] = first + ["."] + second
+            let start: Int = first.count + 1
+            return (words, start)
         }
         let groups: [(String, [([String], Int)])] = [("de", de.map { ($0, 1) }), ("en", en.map { ($0, 1) }), ("mixed", mixed)]
         var ordinal = 0

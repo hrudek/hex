@@ -80,10 +80,16 @@ final class KeyboardSuggestionEvaluationTests: XCTestCase {
         let sources = try resources()
         // One worker per resource facade; resources are immutable and identical throughout this test.
         let worker = KeyboardSuggestionWorker()
+        let germanWords: [String] = SpatialTypoEvaluationFixtures.german
+        let englishWords: [String] = SpatialTypoEvaluationFixtures.english
+        let mixedWords: [String] = germanWords + englishWords
+        let germanOnly: Set<Decoder.Language> = [.german]
+        let englishOnly: Set<Decoder.Language> = [.english]
+        let bothLanguages: Set<Decoder.Language> = [.german, .english]
         let modes: [(String, Set<Decoder.Language>, [String])] = [
-            ("DE", [.german], SpatialTypoEvaluationFixtures.german),
-            ("EN", [.english], SpatialTypoEvaluationFixtures.english),
-            ("mixed", [.german, .english], SpatialTypoEvaluationFixtures.german + SpatialTypoEvaluationFixtures.english)
+            ("DE", germanOnly, germanWords),
+            ("EN", englishOnly, englishWords),
+            ("mixed", bothLanguages, mixedWords)
         ]
         for (name, languages, words) in modes {
             var n = 0, recall1 = 0, recall3 = 0, automatic = 0, wrong = 0, baselineWrong = 0
