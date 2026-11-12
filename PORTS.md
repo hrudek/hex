@@ -149,7 +149,15 @@ The read-only reference was inspected, never built or executed.
 
 | Source path at this pin | Translated algorithm | Destination files |
 | --- | --- | --- |
-| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy; Typr-authored F2 regressions gate deterministic work/bytes and blocked-worker independence, retaining timing as EVAL diagnostics only | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+
+F2 keeps this same pin/scope and existing MIT notice (© 2026 Bassim Shahidy):
+`AutocorrectEngine.swift` now preserves the automatic highlight for explicit
+prefix-extending `.autoRule` text replacements, with a Typr-authored regression in
+`ios/TyprTests/SpatialPrefixSearchTests.swift`. This is a local policy/UI fix, not
+another upstream algorithm/test adoption. No new source, data or dependency is
+imported; all exclusions below remain, including swipe typing, emoji, themes,
+layouts, clipboard, network, neural weights and dictation changes.
 
 The P1 review follow-up keeps this same pin/scope: current-token republication after
 evidence/learning/resource invalidation, state-preserving suggestion resume, completed

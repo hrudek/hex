@@ -515,7 +515,8 @@ final class AutocorrectEngine {
         guard let token = Self.currentToken(in: beforeInput) else { return [] }
 
         let lower = token.lowercased()
-        let autoFix = isEnabled ? decide(token, evidence: evidence, forSuggestions: true).text : nil
+        let decision = isEnabled ? decide(token, evidence: evidence, forSuggestions: true) : nil
+        let autoFix = decision?.text
         let spatial = spatialResult(for: token, evidence: evidence, forSuggestions: true)
         var pool: [String] = []
         var completions: Set<String> = []
@@ -627,8 +628,9 @@ final class AutocorrectEngine {
             KeyboardSuggestion(
                 displayText: first,
                 replacement: first,
-                kind: .primary(autoReplace: first == autoFix && !completions.contains(first)
-                               && !Self.isPrefixExtension(first, of: token)),
+                // Explicit rules (including prefix-extending text replacements) still apply at Space.
+                kind: .primary(autoReplace: first == autoFix && (decision?.kind == .autoRule
+                               || (!completions.contains(first) && !Self.isPrefixExtension(first, of: token)))),
                 isCompletion: completions.contains(first) || Self.isPrefixExtension(first, of: token),
                 isPersonal: personalPicks.contains(first)
             )

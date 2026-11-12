@@ -282,8 +282,10 @@ by lowercase frequency data. Completions, including noisy-prefix suffixes and a
 missing-final-letter edit candidate, are flagged as such, never auto-applied at
 Space/punctuation/Typr-key boundaries, and manual picks count the word without
 labeling **any** taps. Explicit text replacements and deterministic rules keep
-their authority. Same-length held-letter alternatives are manual alternatives,
-not completions. Valid `schon/schön`, `uber/über`, and bilingual controls remain
+their authority, including the center chip's auto-replace highlight when a text
+replacement extends its shortcut (`sig → signature`). The highlight uses the
+actual decision kind: `.autoRule` is exempt from inferred-completion exclusions.
+Same-length held-letter alternatives are manual alternatives, not completions. Valid `schon/schön`, `uber/über`, and bilingual controls remain
 protected from automatic changes; `fuer → für` and `Strasse → Straße` retain
 their existing dictionary/digraph gates. No popup positions, new learned keys,
 raw tap storage, layout/hit-target change, next-word prediction or network.
@@ -612,10 +614,12 @@ P7b adds length/next-child pruning, cheap finite-mask rejection and once-per-key
 inverse/normalizer preparation. The performance evaluation prints mean/p95/max,
 visits, completeness and ratios against both static and slow-diagonal legacy
 paths on identical evidence; no incomplete result authorizes replacement.
-Tests bound outside-B mean visits to old +10%, A to old +10%+8 pops, and control
-mean latency to old ×1.20 +.5 ms (generous Linux-debug/CI tolerance, not a device
-budget). The original total/spatial/runner-up margins are retained only with these
-quality/safety ablations and the oracle; they are not posterior probabilities.
+Tests bound outside-B mean visits to old +10% and A to old +10%+8 pops, with
+per-call visit/generated-state caps. Control latency ratios remain diagnostic
+EVAL output only; the former old ×1.20 +.5 ms assertion was sensitive to shared
+simulator scheduling rather than deterministic decode work. The original
+total/spatial/runner-up margins are retained only with these quality/safety
+ablations and the oracle; they are not posterior probabilities.
 
 Observed Swift 6.4.2 Linux x86_64 debug control timings, same run (ms):
 
@@ -645,6 +649,23 @@ RSS, and loading/validation transients are extra. Four populated layouts encode 
 **260 tests: 250 passed, 9 baseline skips, 1 known Linux-only backup-exclusion
 metadata failure**; no new failure. No harness adaptation was needed. Apple SDK compilation, simulator, actual dictionaries, real feedback
 coverage, physical grip recovery and extension latency/memory remain unverified.
+
+## Evaluation regression gates
+
+Keyboard evaluations introduced with #113–#115 gate deterministic work and behavior,
+not shared-runner wall time. Aim/control and worker comparisons assert decoder
+visits/generated states (6,000/12,000 caps); prefix tests assert 512/2,048 caps,
+including broad prefixes. Existing recall, unwanted-change, complete-search,
+learning/trust, exact worker equivalence and byte-bound assertions remain.
+Deferred insertion asserts zero checker calls; a continuation-gated worker stays
+blocked while Space completes and undo remains linked, proving boundary independence
+without a one-second deadline. Personal completion tests retain result/2,000-entry
+and payload bounds. Timing samples, percentiles and same-process ratios are still
+printed in `EVAL` lines, including aim snapshot/update timings, but are not test
+pass/fail criteria. Async readiness timeouts are synchronization safeguards, not
+latency budgets. This avoids runner pauses failing a quality/work regression test;
+actual latency and peak memory still require measured iPhone acceptance checks.
+No settings, resources, storage, learning policy or privacy contract changed.
 
 ## Required owner iPhone checks
 

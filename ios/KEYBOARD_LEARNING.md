@@ -221,7 +221,11 @@ replacement differences, automatic completions and highlighted personal chips we
 **0**. With a full 2,000-word snapshot, the index build took **0.68 ms**, a lookup
 averaged **0.014 ms** (max 0.026 ms) and strip assembly **0.13 ms** on versus **0.07 ms**
 off, with a **90,904-byte** index payload. These are synthetic Linux numbers, not
-iPhone latency, real typing benefit or Apple checker behavior.
+iPhone latency, real typing benefit or Apple checker behavior. Latency measurements
+remain EVAL diagnostics only; deterministic entry/result and byte bounds gate
+regressions rather than noisy shared-runner timing. The same applies to aim
+snapshot/trusted-label update timings; numeric/encoded byte limits remain asserted.
+See [evaluation regression gates](KEYBOARD_SPATIAL_DECODER.md#evaluation-regression-gates).
 
 ## Suggestion snapshot isolation
 
