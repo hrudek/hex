@@ -90,8 +90,8 @@ Space replacement are separate from these immediate-insertion metrics.
 
 These are deterministic **development** fixtures, not an untouched distribution,
 population harm estimate, human-benefit claim or proof of all names/compounds.
-Focused Linux map-call p95 was **.290 ms**, max **.426 ms**; existing insertion p95
-**1.04–1.08 ms**, max **1.29 ms**, report-only and excluding asynchronous ranking.
+Final full Linux run map-call p95 was **.283 ms**, max **.343 ms**; insertion p95
+**.79–1.17 ms**, max **1.67 ms**, report-only and excluding asynchronous ranking.
 Map element payload remains **4,160 bytes**, plus a ≤64-byte policy and one RAM
 recovery bit; new two-pack continuation indexes **1,962,224 bytes**, full personal
 index **112,392 bytes**. Existing indexes and mapped bytes are additional; TSW1
@@ -99,6 +99,15 @@ total **7,358,388 bytes** before context/runtime overhead, not RSS. No wall-cloc
 assertions, new resources, persistence schema, switch, network or dictation changes.
 UIKit compilation, Apple checker/traits, actual thumb gaps/grip changes, learning
 coverage, correction burden and extension footprint still require real iPhone proof.
+
+Final P8b full Linux harness (Swift 6.4.2, debug): **385 cases, 375 passed,
+nine skipped, one known Foundation backup-metadata failure** (`isExcludedFromBackup`
+reads nil). All **15 attribution tests** pass, including complete/partial-word
+same-spot backspace/retyping, repeated retries and preservation of ordinary intact
+real-Space boundary windows. Source status and input hashes remained unchanged.
+Python repository/dictation/word/context checks passed **76/25/4/7** cases; shell
+syntax, ShellCheck, Actionlint and diff checks passed. Scratch Swift warning build
+passed with no P8 slow-expression warnings. These are Linux checks, not an iOS build.
 
 ## One boundary, one decision
 
