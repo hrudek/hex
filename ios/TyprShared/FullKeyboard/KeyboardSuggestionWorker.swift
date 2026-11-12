@@ -60,9 +60,14 @@ final class KeyboardSuggestionWorker {
         var completion: KeyboardCompletionJob?
         /// The main actor already holds this job's retrieval; it is not re-run.
         var completionReady: KeyboardCompletionRetrieval?
+        /// Exact split/join work is display-only and independent of touch evidence.
+        var boundary: KeyboardBoundaryDecoder.Job?
+        var boundaryReady: KeyboardBoundaryDecoder.Retrieval?
+        /// Shared immutable corpus maps (COW); no per-request copy of their byte payload.
+        var boundaryModel: KeyboardContextModel?
 
         /// Nothing left for the ranker: the held decode and completion retrieval are reused.
-        var isSatisfied: Bool { ready != nil && (completion == nil || completionReady != nil) }
+        var isSatisfied: Bool { ready != nil && (completion == nil || completionReady != nil) && (boundary == nil || boundaryReady != nil) }
     }
 
     nonisolated struct Result: Sendable {
@@ -71,6 +76,7 @@ final class KeyboardSuggestionWorker {
         let seconds: Double
         /// `nil` (injected rankers, no eligible token) makes the finish step retrieve synchronously.
         var completion: KeyboardCompletionRetrieval? = nil
+        var boundary: KeyboardBoundaryDecoder.Retrieval? = nil
     }
 
     /// One actor owns all suggestion-only mutable search memos. The boundary has its own core.
@@ -91,10 +97,15 @@ final class KeyboardSuggestionWorker {
             // Bounded (512 pops, eight results; ≤17 personal range queries), off the main actor.
             let completion = request.completionReady
                 ?? request.completion.map { KeyboardCompletionRetrieval($0, lexicons: request.lexicons) }
+            let boundary = request.boundaryReady ?? request.boundary.map {
+                KeyboardBoundaryDecoder.retrieve($0, lexicons: request.lexicons, whole: outcome,
+                                                 model: request.boundaryModel)
+            }
             let elapsed = start.duration(to: .now).components
             return Result(request: request, outcome: outcome,
                           seconds: Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18,
-                          completion: completion)
+                          completion: completion,
+                          boundary: boundary)
         }
     }
 
@@ -132,7 +143,7 @@ final class KeyboardSuggestionWorker {
                 let result: Result
                 if request.isSatisfied, let ready = request.ready {
                     result = Result(request: request, outcome: ready, seconds: 0,
-                                    completion: request.completionReady)
+                                    completion: request.completionReady, boundary: request.boundaryReady)
                 } else {
                     result = await self.rank(request)
                 }

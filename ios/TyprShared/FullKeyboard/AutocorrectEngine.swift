@@ -18,6 +18,8 @@ nonisolated struct KeyboardSuggestion: Equatable, Sendable {
     var ownership: KeyboardSuggestionOwnership?
     /// Placed by personal completion ranking (#101); counted separately when picked, text-free.
     var isPersonal = false
+    /// Manual-only exact suffix replacement; never trains tap labels or phrase counts.
+    var boundary: KeyboardBoundaryDecoder.Candidate?
 
     var willAutoReplace: Bool {
         if case .primary(let auto) = kind { return auto }
@@ -104,6 +106,7 @@ final class AutocorrectEngine {
         let insertedText: String
         var kind: CorrectionKind = .autoRule
         var keptWordWasNew: Bool? = nil
+        var boundary: KeyboardBoundaryDecoder.Candidate? = nil
     }
 
     /// One completed word awaiting trust: RAM only, never persisted, logged or exported.
@@ -168,6 +171,11 @@ final class AutocorrectEngine {
     private var lexiconTermKeys: Set<String> = []
     private var suppressedInSession: Set<String> = []
     private var reversibleRejection: RejectedCorrection?
+    /// Phrase pairs never enter the letter/apostrophe-only persistent rejection schema.
+    private var boundaryRejections: [RejectedCorrection] = []
+    private var reversibleBoundary: KeyboardBoundaryDecoder.Candidate?
+    static let boundaryRejectionLimit = 64
+    var boundaryRejectionCount: Int { boundaryRejections.count }
     private(set) var lastCorrection: AppliedCorrection?
     private(set) var pendingFeedback: PendingFeedback?
     /// Manual choices also wait until the next unambiguous letter before pair training.
@@ -178,6 +186,13 @@ final class AutocorrectEngine {
     private var spellingCache: SpellingCache?
     /// The latest bounded prefix retrieval (worker or synchronous), reused only for an equal job.
     private var completionCache: KeyboardCompletionRetrieval?
+    private struct BoundaryCache {
+        let retrieval: KeyboardBoundaryDecoder.Retrieval
+        let evidence: KeyboardTouchWord?
+        let generation: Int
+        let resources: Int
+    }
+    private var boundaryCache: BoundaryCache?
     private(set) var suggestionConfiguration = 0
 
     var suggestionLanguages: Set<SpatialWordDecoder.Language> {
@@ -218,6 +233,9 @@ final class AutocorrectEngine {
             request.ready = cache.outcome
             request.completion = completion
             request.completionReady = held
+            request.boundary = boundaryJob(beforeInput: ownership.context)
+            request.boundaryModel = contextResources.model
+            request.boundaryReady = request.boundary.flatMap { heldBoundary($0, evidence: rawEvidence) }
             return request
         }
         var request = KeyboardSuggestionWorker.Request(
@@ -227,7 +245,33 @@ final class AutocorrectEngine {
             lexicons: spatialDecoder?.resourceSnapshot ?? [:])
         request.completion = completion
         request.completionReady = held
+        request.boundary = boundaryJob(beforeInput: ownership.context)
+        request.boundaryModel = contextResources.model
+        request.boundaryReady = request.boundary.flatMap { heldBoundary($0, evidence: rawEvidence) }
         return request
+    }
+
+    /// Checker-free snapshot of the current token and one adjacent prose token.
+    private func boundaryJob(beforeInput: String?) -> KeyboardBoundaryDecoder.Job? {
+        guard isEnabled, let beforeInput, let token = Self.currentToken(in: beforeInput),
+              KeyboardBoundaryDecoder.isEligible(token) else { return nil }
+        let head = beforeInput.dropLast(token.count)
+        let previous = head.last == " " ? Self.currentToken(in: String(head.dropLast().suffix(66))) : nil
+        let model = contextResources.model.flatMap {
+            $0.supports(german: german != nil, english: englishEnabled) ? $0 : nil
+        }
+        let context = model?.context(before: beforeInput, currentToken: token)
+        return .init(token: token, previous: previous, languages: suggestionLanguages,
+                     personal: learning.personalPriors, kept: learning.protections.kept,
+                     context: context.map { .init(previous: $0.previous, weightDE: $0.state.weightDE) })
+    }
+
+    private func heldBoundary(_ job: KeyboardBoundaryDecoder.Job,
+                              evidence: KeyboardTouchWord?) -> KeyboardBoundaryDecoder.Retrieval? {
+        guard let cache = boundaryCache, cache.retrieval.job == job, cache.evidence == evidence,
+              cache.generation == learning.generation,
+              cache.resources == (spatialDecoder?.resourceRevision ?? -1) else { return nil }
+        return cache.retrieval
     }
 
     /// Display-only prefix inputs for `token`; checker-free, so worker preparation stays so.
@@ -269,7 +313,8 @@ final class AutocorrectEngine {
         }
         let suggestions = suggestions(beforeInput: result.request.ownership.context,
                                       field: result.request.ownership.field,
-                                      autocorrectionType: result.request.ownership.permitsCorrection ? .default : .no)
+                                      autocorrectionType: result.request.ownership.permitsCorrection ? .default : .no,
+                                      boundaryRetrieval: result.boundary)
         // A loading refusal must not survive installation of resources.
         if spatialDecoder?.isResourceLoading == true { decodeCache = nil }
         return suggestions
@@ -330,6 +375,11 @@ final class AutocorrectEngine {
                                            kind: pendingFeedback?.kind ?? .autoRule)
     }
 
+    func recordAppliedBoundary(_ candidate: KeyboardBoundaryDecoder.Candidate, replacement: String) {
+        lastCorrection = AppliedCorrection(original: candidate.original, insertedText: replacement + " ",
+                                           boundary: candidate)
+    }
+
     func consumePendingUndo() -> AppliedCorrection? {
         defer { lastCorrection = nil }
         return lastCorrection
@@ -351,10 +401,13 @@ final class AutocorrectEngine {
             learning.breakWordSequence()
             lastCorrection = nil
             reversibleRejection = nil
+            reversibleBoundary = nil
         }
         guard observedResets != learning.resets else { return }
         observedResets = learning.resets
         suppressedInSession = []
+        boundaryRejections = []
+        reversibleBoundary = nil
         lastCorrection = nil
         pendingFeedback = nil
     }
@@ -369,14 +422,17 @@ final class AutocorrectEngine {
         touchInput.clear()
         decodeCache = nil
         completionCache = nil
+        boundaryCache = nil
         pendingFeedback = nil
         reversibleRejection = nil
+        reversibleBoundary = nil
     }
 
     func discardFeedback(preservingTrustedContext: Bool = false) {
         pendingFeedback = nil
         pendingPairChoice = nil
         reversibleRejection = nil
+        reversibleBoundary = nil
         if !preservingTrustedContext { learning.breakWordSequence() }
     }
 
@@ -384,6 +440,7 @@ final class AutocorrectEngine {
         suggestionConfiguration &+= 1
         decodeCache = nil
         completionCache = nil
+        boundaryCache = nil
         spellingCache = nil
     }
 
@@ -393,6 +450,7 @@ final class AutocorrectEngine {
     /// if it is still intact right before the cursor.
     func settleFeedback(beforeInput: String?, insertedLetter: String, afterInput: String?) {
         reversibleRejection = nil
+        reversibleBoundary = nil
         if let choice = pendingPairChoice {
             pendingPairChoice = nil
             let suffix = choice.word + " "
@@ -420,6 +478,17 @@ final class AutocorrectEngine {
     func recordUndo(_ undo: AppliedCorrection) {
         pendingPairChoice = nil
         learning.breakWordSequence()
+        if let boundary = undo.boundary {
+            pendingFeedback = nil
+            reversibleBoundary = nil
+            let pair = RejectedCorrection(typed: boundary.original, replacement: boundary.replacement)
+            if !boundaryRejections.contains(pair) {
+                boundaryRejections.append(pair)
+                if boundaryRejections.count > Self.boundaryRejectionLimit { boundaryRejections.removeFirst() }
+                reversibleBoundary = boundary
+            }
+            return // Manual boundary undo is not an automatic-correction counter or a tap label.
+        }
         if let wasNew = undo.keptWordWasNew {
             pendingFeedback = nil
             if wasNew {
@@ -453,6 +522,18 @@ final class AutocorrectEngine {
     func recordSuggestionFeedback(_ suggestion: KeyboardSuggestion, literal: String,
                                   evidence: KeyboardTouchWord?) {
         pendingFeedback = nil
+        if let boundary = suggestion.boundary {
+            boundaryRejections.removeAll {
+                $0 == RejectedCorrection(typed: boundary.original, replacement: boundary.replacement)
+            }
+            reversibleBoundary = nil
+            reversibleRejection = nil
+            // Neither part was independently typed and settled: no word-pair endpoint either.
+            pendingPairChoice = nil
+            learning.breakWordSequence()
+            learning.increment(.manualAlternativePick)
+            return // No inferred boundary labels, phrase counts, constituent-word or pair training.
+        }
         if let pair = reversibleRejection,
            pair.typed == PersonalLexiconSnapshot.normalize(literal),
            pair.replacement == PersonalLexiconSnapshot.normalize(suggestion.replacement),
@@ -553,7 +634,8 @@ final class AutocorrectEngine {
     func suggestions(
         beforeInput: String?,
         field: KeyboardFieldKind,
-        autocorrectionType: UITextAutocorrectionType?
+        autocorrectionType: UITextAutocorrectionType?,
+        boundaryRetrieval: KeyboardBoundaryDecoder.Retrieval? = nil
     ) -> [KeyboardSuggestion] {
         let evidence = touchInput.evidence(beforeInput: beforeInput)
         guard field == .text, autocorrectionType != .no else { return [] }
@@ -586,6 +668,7 @@ final class AutocorrectEngine {
         var completions: Set<String> = []
         var spatialScores: [String: Double] = [:]
         var personalPicks: Set<String> = []
+        var boundaries: [String: KeyboardBoundaryDecoder.Candidate] = [:]
         var contactPicks: Set<String> = []
         // Widen retrieval only when corpus context can contribute, independently of
         // Learn from my typing. No-context/off/missing-pack paths keep #115's budget.
@@ -603,6 +686,55 @@ final class AutocorrectEngine {
         }
         // Explicit revert, automatic choice and suggest-only contraction keep their slots.
         let pinnedCount = pool.count
+
+        // Worker boundaries precede speculative within-word alternatives, not an automatic fix.
+        // UIKit dictionary validity remains on MainActor, after retrieval.
+        if let job = boundaryJob(beforeInput: beforeInput) {
+            let retrieval = boundaryRetrieval.flatMap { $0.job == job ? $0 : nil }
+                ?? heldBoundary(job, evidence: evidence)
+                ?? KeyboardBoundaryDecoder.retrieve(job, lexicons: spatialDecoder?.resourceSnapshot ?? [:],
+                                                     whole: spatialOutcome(for: token, evidence: evidence,
+                                                                           forSuggestions: true),
+                                                     model: contextResources.model)
+            if spatialDecoder?.isResourceLoading != true {
+                boundaryCache = BoundaryCache(retrieval: retrieval, evidence: evidence,
+                                              generation: learning.generation,
+                                              resources: spatialDecoder?.resourceRevision ?? -1)
+            }
+            var candidates = retrieval.candidates
+            if let reversibleBoundary, beforeInput?.hasSuffix(reversibleBoundary.original) == true {
+                candidates.insert(reversibleBoundary, at: 0)
+            }
+            for candidate in candidates where pool.count < 2 {
+                let pair = RejectedCorrection(typed: candidate.original, replacement: candidate.replacement)
+                if boundaryRejections.contains(pair) && candidate != reversibleBoundary { continue }
+                let parts = candidate.original.split(separator: " ").map(String.init)
+                let protected = parts.contains {
+                    suppressedInSession.contains($0.lowercased()) || lexiconTermKeys.contains($0.lowercased())
+                        || lexiconShortcuts[$0.lowercased()] != nil || learning.protections.isKept($0)
+                        || Self.shorthandAllowlist.contains($0.lowercased())
+                }
+                if protected { continue }
+                // Dictionary validity stays authoritative even when the worker treated a
+                // FrequencyWords entry (e.g. "inthe") as merge noise: Apple's checker, not the
+                // ranking corpus, decides whether "comeback" or "beider" is a real word.
+                if candidate.kind == .split && literalIsValid(token) { continue }
+                if candidate.kind == .join && parts.allSatisfy({ literalIsValid($0) }) { continue }
+                let replacement: String
+                if candidate.kind == .split {
+                    let words = candidate.replacement.split(separator: " ").map(String.init)
+                    replacement = words.enumerated().map { index, word in
+                        let cased = word == "i" && englishEnabled ? "I" : personalSpelling(word, token: word)
+                        return index == 0 ? Self.matchCase(of: token, onto: cased) : cased
+                    }.joined(separator: " ")
+                } else {
+                    replacement = personalSpelling(candidate.replacement, token: parts[0])
+                }
+                guard !pool.contains(replacement) else { continue }
+                pool.append(replacement)
+                boundaries[replacement] = candidate
+            }
+        }
 
         // Spatial words (including above-literal one-edit candidates) use the same slots, never changing
         // typed characters. Display-only, below-literal structural edit suggestions follow, only for a
@@ -713,7 +845,11 @@ final class AutocorrectEngine {
         // stays first (Space and its highlight must still describe the unchanged decision).
         if let context, let model = contextModel {
             // Contacts retain #115's precedence too, even with a stronger corpus follower.
-            let slots = pool.indices.filter { $0 >= pinnedCount && !contactPicks.contains(pool[$0]) }
+            // Phrases already carry P(left|context)·P(right|left); do not rerank them
+            // as nonexistent unigram words or lose them behind completion candidates.
+            let slots = pool.indices.filter {
+                $0 >= pinnedCount && !contactPicks.contains(pool[$0]) && boundaries[pool[$0]] == nil
+            }
             let ranked = model.rerank(slots.map { pool[$0] }, spatialScores: spatialScores, context: context,
                                       german: german != nil, english: englishEnabled,
                                       personal: learning.personalBigrams)
@@ -725,19 +861,21 @@ final class AutocorrectEngine {
             KeyboardSuggestion(
                 displayText: first,
                 replacement: first,
-                // Explicit rules (including prefix-extending text replacements) still apply at Space.
-                kind: .primary(autoReplace: first == autoFix && (decision?.kind == .autoRule
-                               || (!completions.contains(first) && !Self.isPrefixExtension(first, of: token)))),
-                isCompletion: completions.contains(first) || Self.isPrefixExtension(first, of: token),
-                isPersonal: personalPicks.contains(first)
+                // Explicit rules retain #117's highlight exception; inferred boundaries do not.
+                kind: .primary(autoReplace: boundaries[first] == nil && first == autoFix
+                               && (decision?.kind == .autoRule
+                                   || (!completions.contains(first) && !Self.isPrefixExtension(first, of: token)))),
+                isCompletion: boundaries[first] == nil && (completions.contains(first) || Self.isPrefixExtension(first, of: token)),
+                isPersonal: personalPicks.contains(first),
+                boundary: boundaries[first]
             )
         } else {
             KeyboardSuggestion(displayText: token, replacement: token, kind: .primary(autoReplace: false))
         }
         let secondary: KeyboardSuggestion? = if pool.count >= 2 {
             KeyboardSuggestion(displayText: pool[1], replacement: pool[1], kind: .secondary,
-                               isCompletion: completions.contains(pool[1]) || Self.isPrefixExtension(pool[1], of: token),
-                               isPersonal: personalPicks.contains(pool[1]))
+                               isCompletion: boundaries[pool[1]] == nil && (completions.contains(pool[1]) || Self.isPrefixExtension(pool[1], of: token)),
+                               isPersonal: personalPicks.contains(pool[1]), boundary: boundaries[pool[1]])
         } else {
             nil
         }
@@ -1038,22 +1176,21 @@ final class AutocorrectEngine {
     }
 
     private func rankedGuesses(for token: String) -> [String] {
-        let lower = token.lowercased()
-        return checker.guesses(for: token)
-            .prefix(8)
-            .enumerated()
-            .sorted { a, b in
-                let costA = Self.singleEditKeyboardCost(
-                    from: lower,
-                    to: a.element.replacingOccurrences(of: "'", with: "").lowercased()
-                ) ?? (2.0 + Double(abs(a.element.count - token.count)) * 0.3)
-                let costB = Self.singleEditKeyboardCost(
-                    from: lower,
-                    to: b.element.replacingOccurrences(of: "'", with: "").lowercased()
-                ) ?? (2.0 + Double(abs(b.element.count - token.count)) * 0.3)
-                return (costA + Double(a.offset) * 0.08) < (costB + Double(b.offset) * 0.08)
-            }
-            .map(\.element)
+        let lower: String = token.lowercased()
+        let tokenCount: Int = token.count
+        // Explicit types keep this sort comparator cheap to type-check.
+        let rankedCost: (Int, String) -> Double = { (offset: Int, guess: String) -> Double in
+            let normalized: String = guess.replacingOccurrences(of: "'", with: "").lowercased()
+            let lengthGap: Double = Double(abs(guess.count - tokenCount))
+            let fallback: Double = 2.0 + lengthGap * 0.3
+            let cost: Double = Self.singleEditKeyboardCost(from: lower, to: normalized) ?? fallback
+            return cost + Double(offset) * 0.08
+        }
+        let candidates: [(offset: Int, element: String)] = Array(checker.guesses(for: token).prefix(8).enumerated())
+        let sorted: [(offset: Int, element: String)] = candidates.sorted { (a: (offset: Int, element: String), b: (offset: Int, element: String)) -> Bool in
+            rankedCost(a.offset, a.element) < rankedCost(b.offset, b.element)
+        }
+        return sorted.map { (pair: (offset: Int, element: String)) -> String in pair.element }
     }
 
     // MARK: - Case matching & QWERTY distance

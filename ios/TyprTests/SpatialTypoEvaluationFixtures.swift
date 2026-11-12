@@ -3,7 +3,7 @@
 /// Fixed public/common words, not collected typing. Frozen for A/B comparisons.
 /// ASCII-only here because the current visible keyboard has no umlaut key centres.
 nonisolated enum SpatialTypoEvaluationFixtures {
-    static let english = """
+    static let english: [String] = """
     about after again always another answer around before better between black bring brother business
     called change children city close coming could country course different dinner doing door down
     early earth enough every everything family father feel find first food found friend friends
@@ -14,9 +14,9 @@ nonisolated enum SpatialTypoEvaluationFixtures {
     mean might mind minute money morning mother move much music must name near need
     never next nice night nothing number office often once only open other outside over
     paper parents
-    """.split(whereSeparator: \.isWhitespace).map(String.init)
+    """.split(whereSeparator: \.isWhitespace).map { (word: Substring) -> String in String(word) }
 
-    static let german = """
+    static let german: [String] = """
     aber abend alle allein alles also alten andere anders anfang angst antwort arbeit auch
     aufgabe augen auto bald bauen beide beim beispiel bekommen besser besten bestimmt bett bild
     bitte bleiben blick blut brauchen bringen bruder buch dabei dadurch damals damit danach danke
@@ -27,7 +27,7 @@ nonisolated enum SpatialTypoEvaluationFixtures {
     genau genug gerade gern gerne geschichte gesicht gestern gesund getan gibt gleich glauben gott
     gute guten haben halb hallo halten hand haus heben heimat heiss helfen herr herrn
     heute hier
-    """.split(whereSeparator: \.isWhitespace).map(String.init)
+    """.split(whereSeparator: \.isWhitespace).map { (word: Substring) -> String in String(word) }
 
     // Capitalised public nouns are deliberately lowercased before producing taps.
     static let germanNouns = ["Haus", "Mutter", "Vater", "Schule", "Wasser", "Freund", "Arbeit", "Fenster",

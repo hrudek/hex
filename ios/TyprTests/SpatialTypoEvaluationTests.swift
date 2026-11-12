@@ -80,9 +80,13 @@ final class SpatialTypoEvaluationTests: XCTestCase {
             sources[language] = try XCTUnwrap(SpatialWordLexicon(data: Data(contentsOf: url)))
         }
         let decoder = Decoder(lexicons: sources)
-        let groups: [(Decoder.Language, [String])] = [(.german, SpatialTypoEvaluationFixtures.german),
-                                                      (.english, SpatialTypoEvaluationFixtures.english)]
-        var lines = ["TYPR-EVAL seed=0x\(String(seed, radix: 16)) sigma=\(sigma) pitch; portrait=393; personal=off; typos=\(half == 0 ? "tune (even" : "holdout (odd") fixture indices); controls=all",
+        let germanWords: [String] = SpatialTypoEvaluationFixtures.german
+        let englishWords: [String] = SpatialTypoEvaluationFixtures.english
+        let groups: [(Decoder.Language, [String])] = [(Decoder.Language.german, germanWords),
+                                                      (Decoder.Language.english, englishWords)]
+        let seedHex: String = String(seed, radix: 16)
+        let typoSplit: String = half == 0 ? "tune (even" : "holdout (odd"
+        var lines: [String] = ["TYPR-EVAL seed=0x\(seedHex) sigma=\(sigma) pitch; portrait=393; personal=off; typos=\(typoSplit) fixture indices); controls=all",
                      "TYPR-EVAL A=static same-length; B=edits; both languages interleaved; validity=corpus membership (not system checker)",
                      "TYPR-EVAL times=simulator timing, not iPhone; controls wrongAuto=unwanted auto replacements"]
         var controls: [String] = []

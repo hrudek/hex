@@ -113,6 +113,26 @@ final class PersonalTypingBigramTests: XCTestCase {
         }
     }
 
+    func testBoundaryPickSuppliesNoPairEndpointAndBreaksPredecessor() {
+        for undo in [false, true] {
+            let (engine, target) = keyboard(text: "")
+            type("hello helloworld", engine)
+            XCTAssertEqual(engine.autocorrect.learning.previousTrustedWord, "hello")
+            var chip = KeyboardSuggestion(displayText: "hello world", replacement: "hello world",
+                                          kind: .primary(autoReplace: false))
+            chip.boundary = .init(kind: .split, original: "helloworld", replacement: "hello world", score: 0, baseline: 0)
+            chip.ownership = engine.suggestionOwnership
+            engine.acceptSuggestion(chip)
+            XCTAssertEqual(target.text, "hello hello world ")
+            XCTAssertNil(engine.autocorrect.learning.previousTrustedWord)
+            if undo { tap(.delete, engine) }
+            type("next n", engine)
+            let pairs = engine.autocorrect.learning.personalBigrams
+            XCTAssertTrue(pairs.followers(after: "hello").isEmpty, "\(undo)")
+            XCTAssertNil(pairs.followers(after: "world")["next"], "\(undo)")
+        }
+    }
+
     func testKeepRevertDoesNotPurgeButExplicitDeletionDoes() {
         let session = KeyboardLearningSession()
         for _ in 0..<3 { session.model.recordPair("world", after: "hello") }

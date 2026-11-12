@@ -268,7 +268,8 @@ choices can supply a pair endpoint, but wait for that same next-letter settlemen
 the existing immediate unigram/label rules are unchanged. Prediction picks have no
 typed word/evidence and teach neither endpoint nor pair. Automatic output, undo,
 in-word deletion/retyping, second separators, Return and punctuation do not teach
-pairs. A failed settlement breaks adjacency; a later valid word may start a new chain.
+pairs, nor do manual split/join boundary picks or their undo. A failed settlement
+breaks adjacency; a later valid word may start a new chain.
 Field, selection, layout/lifecycle/ambiguous-input discontinuities, selected-language
 changes, learning toggle, authoritative reload, either reset and Full Access
 revocation clear the RAM predecessor/pending pair choice. Ordinary word boundaries
@@ -282,8 +283,11 @@ This is absolute discount .5 plus Witten–Bell-style backoff translated from ii
 unknown contexts use the corpus exactly. Repeated personal words can outrank corpus
 followers. Top-three prediction is exact for this mixture: seed all ≤8 personal
 followers alongside corpus boosts and multiply the corpus unseen-word stopping
-bound by `1.5*T/(N+T)`. Personal-only names may join (corpus stock-name suppression
-does not suppress an independently trusted personal follower). Selected corpus
+bound by `1.5*T/(N+T)`. A follower absent from every selected corpus pack (or
+stock-name suppressed there) is a novel personal follower: it may join only after
+**two** trusted sightings (`novelFollowerMinimum`), so one accidental word never
+surfaces as a prediction. Corpus followers need no minimum; their personal counts
+only add mass. With `c=1` the discounted term is `.5`. Selected corpus
 packs remain required; German/English/mixed use the same NFC lowercase keys, with
 no stored language classification or hard personal-language partition. Personal
 prediction casing uses the selected dictionaries to restore nouns/proper names.
@@ -294,7 +298,8 @@ never lowercased. This does not invent predictions at empty/unknown fields.
 Display reranking substitutes this mixture into the existing `.35 * clip(log(P/base),
 0, log(20))` gain, retaining its cap, evidence-kind slots and pinned automatic,
 literal, revert and contact entries. Only a retained personal follower can receive
-an OOV gain (denominator floor `1e-12`); other OOV words still receive zero. It never
+an OOV gain, again only from two sightings (denominator floor `1e-12`, still capped);
+other OOV words still receive zero. It never
 changes automatic decisions, completeness, margins, validation or undo. Learning
 off supplies an empty personal model for both prediction and ranking and disables
 pair updates, but retains saved counts. Corpus context remains active.
@@ -303,30 +308,70 @@ Pair counts halve (integer division, dropping zeros) **before every 256th valid
 adjacent event is inserted**; the modulo counter persists. This is event ageing,
 not wall-clock expiry: unused data remains until eviction/deletion/reset or further
 pair events. Rows/totals are derived after ageing so no stale totals survive.
-Keep/rejection protections never age. Per-row and global eviction remove the
-lowest count, then lexically greatest follower (context first globally). A new
-weak follower can lose immediately to eight stronger ones. Each update temporarily
+Keep/rejection protections never age. Row eviction removes the lowest count, then
+the lexically greatest follower; global eviction the lowest count, then greatest
+context, then greatest follower. Both always spare the edge just recorded, so a
+recent phrase displaces a stale weakest one instead of vanishing. Each update temporarily
 has ≤513 edges and ≤9 followers in one row; bounded eviction scans can remove at
 most 513 edges, never an unbounded history. Logical string+counter payload is also
 bounded by the conservative ≤64 KiB JSON bound; Swift dictionaries, COW snapshots,
 allocator overhead and encoding transients are extra, not measured RSS. The whole
 store still caps at 256 KiB and trims pairs before unigram/protection entries.
 
-`PersonalTypingBigramTests` covers settlement and forbidden sources, discontinuities,
+Deleting a kept or counted word in **Manage learned words**, or a word in its
+**Words in next-word pairs** section, purges that word's row and every incoming
+reference. The immediate Backspace revert of a just-added keep only withdraws the
+keep: it is not a deletion request and leaves earlier pairs. Reset learning clears
+all pairs. Schema-3 snapshots with an out-of-bounds pair section are repaired by
+dropping only the pairs; keeps, counts and rejections survive.
+
+`PersonalTypingBigramTests` and `PersonalTypingBigramEvaluationTests` cover settlement and forbidden sources, discontinuities,
 manual choice/undo, migration, reset/delete races, revocation, learning-off isolation,
 Unicode/mixed pairs, ageing/caps/bytes, exact mixture top-three against exhaustive
-union and sentence/noun casing. Synthetic repeated-session and DE/EN/mixed noisy-touch
-evaluations print `EVAL P4_*`; timings are report-only, never wall-clock assertions.
+union and sentence/noun casing. Synthetic repeated-session recall (typed through the
+real engine), CC0 held-out no-harm, DE/EN/mixed noisy-touch and ageing evaluations
+print `EVAL P4_*`; timings are report-only, never wall-clock assertions.
 These are not natural typing benefit, Apple dictionary or extension memory proof.
 Only a real iPhone can prove protected persistence/backup policy, Full Access
 callbacks, management refresh in a live keyboard, UIKit/host ordering and latency/RSS.
+
+## Manual boundary choices
+
+The strip can offer exact omitted-space splits and conservative exact joins.
+P5b ranks splits with the existing public-corpus bigram model using only the short
+RAM field suffix; boundary ranking reads no personal next-word pairs and adds no storage.
+This corpus influence remains active with Learn from my typing off, while personal
+counts/calibration do not. Evaluated automatic-split gates either split lowercase
+names/products (`ina`, `malin`, `todo`, `athome`) or recovered under 10% of omitted
+spaces, so all boundary choices remain manual.
+See
+[the boundary policy](KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
+These are **suggestion-only**, with no automatic application at Space/punctuation/
+Typr-key boundaries. A manual pick replaces an owned suffix as one undoable step.
+Neither picking nor undoing a boundary hypothesis teaches touch labels, a phrase
+count, or constituent-word counts. No missing space is fabricated as a tap; joins
+retain no earlier-word touch evidence. The manual-alternative pick counter can
+increase; boundary undo is not counted as an automatic-correction undo.
+
+Boundary phrase rejections use a **64-pair FIFO in session RAM only**, bounded to
+two words / 32 combined letters, with no new file or schema. The existing saved
+letter/apostrophe-only word-pair contract is unchanged. Undo offers the immediate
+explicit reversal; picking it removes the new session rejection. New typing,
+selection/field/layout/lifecycle discontinuities end that immediate association,
+not the session rejection itself. Learning reset clears session boundary pairs;
+ordinary learning-off retains them and kept-word protections. Boundary picks do
+not count as personal-word evidence while learning is either on or off; they also
+break the RAM next-word predecessor and supply no pair endpoint. Persistent
+protections, individual deletion and Full Access rules for existing word learning
+remain unchanged. No boundary-tap archive, sentence history or network.
 
 ## Suggestion snapshot isolation
 
 The [suggestion worker](KEYBOARD_SPATIAL_DECODER.md#suggestion-worker-and-boundary-authority)
 receives immutable Sendable calibration/personal-prior values. All live learning,
 protection/rejection mutations, diagnostics and pending feedback stay on MainActor;
-worker output alone never teaches. Results and chips must match learning generation
+worker output alone never teaches. Boundary jobs additionally share bounded personal
+snapshots for exact two-part lookup; a latest-only retrieval cache owns no text history. Results and chips must match learning generation
 **and** feedback/reset epoch, including a statistics-only reset. Switching learning
 off or deleting/resetting saved data invalidates older results rather than letting
 their ranking/protection state cross that change. If acceptance itself observes a new
