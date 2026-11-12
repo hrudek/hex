@@ -357,8 +357,10 @@ whole-word rules/corrections keep their precedence and automatic policy.
 
 - Exactly two letter-only parts, each at most **20 letters**, total **3–32** for
   splitting; one extra space may be removed from two adjacent tokens of at most 32
-  combined letters. No per-part spelling errors, invented letters, consumed taps,
-  numbers/units, generalized segmentation, selection rewrite or space-key geometry.
+  combined letters. These **exact** hypotheses use no space-key geometry or consumed
+  taps; the spatial extension below can reinterpret one observed tap. Neither path
+  performs per-part spelling correction, number/unit runs, generalized segmentation
+  or selection rewrites.
 - Examine every bounded split point. Parts must exist in selected TSW1 resources,
   a small hand-curated closed-class short-word list, or the enabled personal model
   (kept or counted twice). All selected language packs must be present. Short words
@@ -396,11 +398,13 @@ whole-word rules/corrections keep their precedence and automatic policy.
 - Joins charge the same edit penalty and require a **ln(100)** lead over separate
   lexical/OOV readings. If both parts are known, abstain regardless of frequency.
   In particular **`some thing` stays separate**: without contextual evidence there
-  is no authority to call that valid pair accidental. No previous-word taps are kept.
+  is no authority to call that valid pair accidental. Exact joins need no previous taps.
 - MainActor vetoes splits for literals valid in either enabled dictionary
   (including German noun casing) without exception: the system checker, not the
   ranking corpus, decides that `comeback` is a word and `inthe` is not.
-  Joins of two dictionary-valid parts are vetoed.
+  Exact joins of two dictionary-valid parts are vetoed. Spatial Space-as-letter joins
+  additionally need a better letter-versus-Space tap likelihood when both lexical parts
+  are known; they are manual-only, including the ambiguous `a out → about` case.
   Explicit keeps, counted personal whole words, Contacts/lexicon terms, shortcuts,
   shorthand, internal capitals, acronyms, identifiers and non-prose token contexts
   retain protection. German noun casing uses the existing checker, not corpus casing.
@@ -425,8 +429,9 @@ removes the new session pair. New typing/discontinuities end that special offer,
 not the bounded session protection. Learning reset clears it; ordinary learning-off
 retains protection. See [learning](KEYBOARD_LEARNING.md#manual-boundary-choices).
 
-Work is capped at **74 lexical queries**, each visiting at most 32 letters × 30
-child edges in each of two tries (**142,080 edge checks**, deliberately loose).
+Combined exact/spatial work is capped at **144 lexical queries** (exact-only ≤74),
+each visiting at most 32 letters × 30 child edges in each of two tries
+(**276,480 edge checks**, deliberately loose).
 No per-part decoder calls or personal-word scans. At most three retained results
 plus one insertion transient; deterministic 1e-9 score buckets and lexical ties.
 With context: at most **142 mixture-probability queries** (two for the literal, two
@@ -463,6 +468,129 @@ like omitted spaces, so manual suggestions are not an assertion that the origina
 is wrong. Apple dictionary behavior, UIKit compilation, rapid pick/Space/cursor
 ordering, Full Access storage and physical latency/footprint need Apple/iPhone
 checks; a Linux synthetic run does not prove real typing benefit.
+
+### Spatial boundary-tap recovery (P6)
+
+A `KeyboardBoundaryTouch` immutable job value carries only fully observed, intact,
+matching-layout evidence: either one current word, or one previous word + the actual
+Space sample + current word, **32 combined taps including Space**, two nonempty
+words, at most one changed boundary. No generalized multiword search or earlier-text
+rewrite. The existing serial worker, job/cache equality, field/revision/suffix checks,
+one-step undo and RAM-only 64-pair rejection policy are reused. A current-word split
+and previous+current join are competing alternatives, never a combined three-word edit;
+retaining a prior word does not hide current-word split recovery. Invalidation discards
+both current and previous evidence; no late held-tap release can recreate the window.
+
+- **Letter-as-Space** (`greatvday → great day`): consider only an interior observed
+  c/v/b/n/m tap whose key frame actually adjoins this layout's Space frame. Compare
+  P(left)·P(right)·density(Space,tap)/density(observed letter,tap) against the whole
+  literal/OOV and up to eight existing spatial word readings on the full lexical scale.
+  Unchanged letters cancel; there is no missing-tap penalty for a consumed real tap.
+  Each literal part must exist in enabled DE/EN/short/personal resources, ≤20 letters.
+  Dictionary-valid whole literals, keeps/counts, contact/shortcut/identifier protections
+  retain authority. This new path is lexical/spatial, not an additional context beam.
+- **Space-as-letter** (`a out → about`, `ha en → haben`): require the actual retained
+  Space coordinate and intact evidence for both adjacent words. Try at most five
+  geometrically adjacent c/v/b/n/m keys, each with a hard one-pitch x/y gate. Compare
+  P(joined)·density(letter,tap)/density(Space,tap) against separate lexical/OOV priors
+  with a **ln(100)** margin. Two known parts also require density(letter)>density(Space),
+  so frequency alone cannot join them. Historical personal keeps/counts, contacts and
+  shortcuts remain vetoes. `gr at → great` needs a nonadjacent `e` and deliberately
+  abstains; this is not arbitrary missing-letter insertion.
+- **Gratuitous Space**: retain the exact-join protections/ln(.01) penalty. With real
+  geometry, compare the deleted tap's best gated Space/adjacent-letter density against
+  its as-Space density. Two known parts remain protected, including `some thing`.
+  Without coordinates the existing exact-join policy is unchanged.
+
+Space's predictive density is **uniform horizontally over its actual bar, Gaussian
+vertically with .35 row pitch**, with hard x/y support. It does not make the centre
+more plausible than either thumb's normal bar position. Existing sanitized frozen
+letter covariance/calibration is used when learning is enabled. There is **no trusted
+Space training channel**, and no Space labels are inferred: sparse and calibrated
+letter fixtures both recover `about` with the same static Space prior. Wide covariance
+cannot license a distant/nonadjacent tap. The 393-point layout's n/m centres lie above
+the Typr region and abstain (retained in the evaluation denominator); this does not
+silently treat a Typr-key tap as Space geometry or change layouts/hit targets.
+
+Normal release retains its actual point; rollover commits a held real Space at the
+next key-down exactly once with the last observed point. Trackpad and all invalidation
+rules still apply; a committed Space cannot later start trackpad. A Typr quick tap
+still types Space/double-space-period but has **no geometry**. Programmatic/chip-created
+spaces likewise fabricate no points. Corrected first words, second spaces, punctuation,
+backspace, selection/field/layout/cancel/lifecycle/memory-warning changes drop the window.
+Leading/trailing reinterpretations intentionally abstain rather than consume deliberate
+second Space; both parts must be nonempty. A geometrically ambiguous real Space cancels
+the first fragment's pending literal-learning feedback and breaks the RAM trusted-word
+chain. Manual picks/undo train neither inferred boundary labels, constituent counts nor
+personal pairs, and supply no inferred pair endpoint. Ordinary centred word boundaries
+preserve #122's predecessor while retaining P6 geometry; the follower still requires
+independent next-letter settlement. Language/evidence discontinuities clear pending
+feedback and predecessor as before. No new file/schema/network/settings.
+
+Each boundary snapshot has a **32,768-byte element/string payload cap**, checked before
+retrieval; the 32-sample limit includes the retained Space. Only one previous word is
+kept and replaced at the next real Space. Job snapshots/cache use the existing one
+running + one latest worker, shared immutable resources and no per-part decoder. At most
+72 combined letter/Space density evaluations (≤60 for splitting, ≤12 for join/deletion), in addition to
+the lexical/context bounds above. Payload arithmetic excludes allocator/container
+capacity and is not RSS; iPhone physical footprint is unmeasured.
+
+**All spatial hypotheses remain suggestion-only.** 72 synthetic valid-pair control
+calls produced zero automatic changes, but one ambiguous English boundary chip for
+`a out → about` at the adversarial top edge (1/24 EN, 0/24 DE, 0/24 mixed; centred
+Space controls have none). No automatic gate is installed, and precision is N/A for
+an always-abstaining automatic boundary policy. This chip is reported, not hidden as
+an accuracy win. Existing within-word automatic policy is unchanged.
+
+Linux Swift 6.4.2 debug synthetic evaluation (five deterministic ±.08/.04/0 horizontal-pitch /
+vertical-row-gap jitter variants per constructed fixture; retrieval and actual two-alternative chips,
+not Apple's real dictionaries or held-out human typing):
+
+| Language | Case | n | Recall@1 / @3 / chip@3 | Without geometry @3 |
+| --- | --- | ---: | --- | --- |
+| EN | Letter as Space | 10 | .50 / .50 / .50 | 0 |
+| DE | Letter as Space | 20 | .50 / .50 / .50 | 0 |
+| Mixed | Letter as Space | 10 | .50 / .50 / .50 | 0 |
+| EN | Space as letter | 10 | 1 / 1 / 1 | 0 |
+| DE | Space as letter | 10 | 1 / 1 / 1 | 0 |
+| Mixed | Space as letter | 20 | 1 / 1 / 1 | 0 |
+| EN | Gratuitous Space | 5 | 1 / 1 / 1 | 1 |
+| DE | Gratuitous Space | 5 | 1 / 1 / 1 | 1 |
+| Mixed | Gratuitous Space | 10 | 1 / 1 / 1 | 1 |
+
+Observed per-call decoder p95 was **.36–1.83 ms**, max **1.83 ms** in the final full run;
+latency is report-only (no wall-clock assertions, #117). This excludes worker queue,
+UIKit/checker finish and key latency. Observed maximum touch payload **9,346 bytes**,
+lexical queries **17**, deterministic result comparisons exact on repeated calls;
+conservative hard ceilings remain 32,768 bytes and 144 queries. Picks/undo in both
+spatial directions report label/count deltas **0**, one undo step and zero stale edits.
+`KeyboardBoundaryTouchTests` and its evaluation extension cover real versus Typr Space,
+letter/Space densities, calibration/learning-off, geometry gates, endpoint abstention,
+rollover ordering, invalidation/late release, combined caps, suffix ownership and undo.
+UIKit compilation, Apple dictionaries, two-host real Space/thumb behavior, simulator,
+physical latency/footprint and Full Access behavior remain unverified on Linux.
+
+Original P6-only Linux run: **352 total, 342 passed, 1 known Linux Foundation backup-exclusion
+metadata failure, 9 explicit skips**; all nine P6 tests passed. Scratch Swift 6 build/
+nine-test run with `-Xfrontend -warn-long-expression-type-checking=100` passed with
+no long-expression warnings (one pre-existing unused-variable warning in P5 evaluation).
+Repository Python checks passed **76 + 25 tests**; bash syntax, shellcheck, actionlint
+and `git diff --check` passed. No harness adaptations were needed. These are observed
+Linux checks, not Xcode/UIKit compilation, simulator or real-iPhone proof.
+
+**M6 merge verification with #122:** the full Swift 6.4.2 Linux harness ran twice:
+**370 total, 360 passed, 1 known backup-metadata failure, 9 skips**. All 11 P6 tests
+(including two new integration regressions) and all 16 personal-pair tests/evaluations
+passed. Normal real-Space and Typr-key DE/EN/mixed fixtures learned six pairs only
+after follower settlement; four spatial-pick/undo scenarios produced zero inferred
+pairs, counts or touch labels. Retained current-only splits also preserved the prior
+real-Space window without expanding the edited suffix. P6 recall/control/byte/work
+metrics were unchanged; final retrieval p95 .38–1.94 ms (max 1.94 ms), report-only.
+The incoming exhaustive personal-mixture oracle was split into explicitly typed
+scoring/sorting steps after a diagnostic compile found an 846 ms expression;
+subsequent 100 ms-warning compilation plus 23 focused tests passed without
+long-expression warnings. Repository Python 76 + 25, shell syntax, shellcheck,
+actionlint and diff checks passed. No harness adaptation or Apple/device proof.
 
 ### Original P5 Linux synthetic check (before context integration)
 

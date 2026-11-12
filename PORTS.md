@@ -147,6 +147,32 @@ layouts, clipboard, network, neural weights and dictation changes. No upstream
 file is copied wholesale. Bounds, controls and Apple/iPhone proof limits are in
 [the correction reference](ios/KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
 
+## Spatial boundary taps (iikb, P6)
+
+Owner-approved scoped translation from **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
+**MIT, © 2026 Bassim Shahidy**. Reference files and LICENSE were read only, never
+built/run. This narrowly supersedes P5's space-tap exclusion for one manual-only
+reinterpretation in a two-nonempty-word / 32-combined-tap window.
+
+| Source paths at this pin | Translated algorithm | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (`joined`, whole/separate likelihood protection, lines 513–553; `asSpace` and consumed-boundary run scoring, lines 625–669; geometric `spaced` comparison, lines 672–707) | Whole-versus-separate lexical/tap likelihood ratios for one letter-as-Space, Space-as-adjacent-letter, or gratuitous Space; geometric bar adjacency and hard distance gates, bounded top-three retention. Typr uses existing TSW1/personal priors, frozen letter densities and a new static bar-uniform/vertical-Gaussian Space predictive prior, not upstream learned Space/neural scoring, per-part decoding or multiword DP. | `ios/TyprShared/FullKeyboard/KeyboardBoundaryDecoder.swift`, `KeyboardBoundaryTouch.swift`, `AutocorrectEngine.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (pending ending tap, owned suffix/join/revert, lines 259–417) | One previous intact word and actual real Space coordinate, combined sample cap, suffix/revision revalidation, one reversible transaction and no inferred label learning. Rewritten around Typr's existing tracker, worker and undo. Real Space rollover uses the last observed point exactly once; Typr/programmatic spaces fabricate no geometry. | `ios/TyprShared/FullKeyboard/KeyboardTouchInput.swift`, `FullKeyboardEngine.swift`, `KeyboardBoundaryTouch.swift`, `AutocorrectEngine.swift`; `ios/TyprTests/KeyboardBoundaryTouchTests.swift`, `KeyboardBoundaryTouchEvaluationTests.swift` |
+
+All hypotheses remain suggestion-only: synthetic controls found an ambiguous valid
+English chip, so no automatic gate is installed. Raw boundary points remain RAM-only
+and are discarded on evidence discontinuities; no file/schema/resource/settings
+change. No phrase/tap/count learning from picks or undo. Existing full iikb MIT
+notice was verified against the pinned LICENSE and extended descriptively below,
+not duplicated. Tests/metrics and Apple-device proof limits are in
+[the spatial reference](ios/KEYBOARD_SPATIAL_DECODER.md#spatial-boundary-tap-recovery-p6).
+
+Excluded: per-part noise/beam decoding, arbitrary/earlier-text rewrites, initial/final
+Space reinterpretation, nonadjacent keys (including `e`), number/unit runs,
+personal context/Space training, phrase persistence, upstream fixtures/resources/
+dependencies, dynamic hit attribution, swipe typing, emoji, themes, layouts,
+clipboard, network, neural weights and dictation changes. No wholesale file copy.
+
 ## Aggregate touch aim on multiple timescales (iikb, P7)
 
 Owner-approved scoped translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,

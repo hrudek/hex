@@ -185,6 +185,15 @@ The same **MIT, Copyright (c) 2026 Bassim Shahidy** notice above, verified again
 that pin's LICENSE, applies without duplication. These are rewritten manual-only
 Typr algorithms, not copied files, upstream test data, language data or dependencies;
 [PORTS.md](PORTS.md#exact-omitted-space-splits-and-joins-iikb-p5) lists paths and exclusions.
+The spatial boundary extension additionally translates whole-versus-separate tap
+likelihood comparison, geometric Space adjacency, retained actual boundary taps and
+owned suffix/revert from that pin's `Correction/Corrector.swift` (513–553, 625–707)
+and `Typing/TypingEngine+Words.swift` (259–417). These are rewritten, bounded,
+suggestion-only Typr algorithms, with no upstream data/model/dependency, inferred
+Space training or wholesale file copy. The same **MIT, Copyright (c) 2026 Bassim
+Shahidy** notice above was checked against the pinned LICENSE and covers this
+adaptation without duplication; [PORTS.md](PORTS.md#spatial-boundary-taps-iikb-p6)
+records scope, source/destination paths and exclusions.
 The small closed-class short-word supplement is Typr original hand-curated work.
 P5b additionally translates two-part conditional scoring and whole comparison from
 that pin's `Corrector.swift` / `LanguageModel.swift`, using Typr's existing separately
