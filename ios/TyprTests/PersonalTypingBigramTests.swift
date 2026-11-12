@@ -98,6 +98,32 @@ final class PersonalTypingBigramTests: XCTestCase {
         }
     }
 
+    func testDiscontinuityAfterSettledPredecessorClearsRAMContext() {
+        // `hello` settles at the next letter. After the discontinuity, a silent fixture edit
+        // removes that letter so a freshly typed, independently trusted `world` follows
+        // `hello ` again: only clearing the RAM predecessor prevents the pair. `none` is
+        // the positive control proving the scenario would otherwise learn it.
+        for mode in ["none", "selection", "field", "lifecycle", "layout", "cancel"] {
+            let (engine, target) = keyboard()
+            type("hello w", engine)
+            XCTAssertEqual(engine.autocorrect.learning.previousTrustedWord, "hello", mode)
+            switch mode {
+            case "selection": engine.textDidChange()
+            case "field": engine.configureForField()
+            case "lifecycle": engine.discardTouchEvidence()
+            case "layout": engine.width = 430
+            case "cancel": engine.cancelAllTouches()
+            default: break
+            }
+            XCTAssertEqual(engine.autocorrect.learning.previousTrustedWord, mode == "none" ? "hello" : nil, mode)
+            target.deleteBackward()
+            XCTAssertEqual(target.text, "hello ")
+            type("world n", engine)
+            XCTAssertEqual(engine.autocorrect.learning.personalBigrams.followers(after: "hello")["world"],
+                           mode == "none" ? 1 : nil, mode)
+        }
+    }
+
     func testManualChoiceWaitsForSettlementAndUndoBreaksSequence() async throws {
         for undo in [false, true] {
             let (engine, _) = keyboard()
