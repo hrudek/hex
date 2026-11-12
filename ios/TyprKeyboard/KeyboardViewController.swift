@@ -225,6 +225,10 @@ final class KeyboardViewController: UIInputViewController {
             keyboard.allowsCompactBar = experimentOn
             keyboard.onShowCompactBar = { [weak self] in self?.switchSurface(toCompactBar: true) }
             fullKeyboard = keyboard
+            // Surface switches can create a keyboard without another viewWillAppear callback.
+            let imports = hasFullAccess
+                ? ProtectedPersonalLexicon.load(directory: KeyboardLearningStore.sharedDirectory) : .empty
+            keyboard.engine.autocorrect.loadProtectedLexicon(imports)
             mounted = keyboard
             heightConstraint?.constant = keyboard.preferredHeight
         } else {

@@ -73,6 +73,18 @@ final class PersonalLexiconImporter {
         generation &+= 1
         let revision = generation
         pending?.cancel()
+        if !contacts && !vocabulary {
+            pending = nil
+            do {
+                // No defaults mutation/notification loop and no empty-file recreation after reset.
+                try ProtectedPersonalLexicon.reset(directory: KeyboardLearningStore.sharedDirectory, defaults: nil)
+                problem = nil
+            } catch {
+                lastInput = nil
+                problem = "Typr could not delete imported words. Open Typr to retry."
+            }
+            return
+        }
         let sourceTexts = texts
         pending = Task { [weak self] in
             let worker = Task.detached(priority: .utility) {
