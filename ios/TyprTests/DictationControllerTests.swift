@@ -847,6 +847,63 @@ final class DictationControllerTests: XCTestCase {
         controller.cancelCurrentJob()
     }
 
+    func testFailedStartDuringCallKeepsWarmSessionUntilTheCallEnds() async throws {
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: 26_000, retryDelays: [])
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+
+        // A phone call holds audio: every activation fails until it ends.
+        controller.handleAudioSystemEvent(.interruptionBegan)
+        audio.keepaliveShouldThrow = true
+        controller.startRecording(keyboardJobID: "during-call")
+        try await settle()
+        guard case .failed = controller.phase else { return XCTFail("expected failure, got \(controller.phase)") }
+        XCTAssertTrue(controller.keyboardSessionEnabled, "a failed start during the call must not end the session")
+
+        audio.keepaliveShouldThrow = false
+        controller.handleAudioSystemEvent(.interruptionEnded(shouldResume: true))
+        try await settle()
+        XCTAssertTrue(controller.keyboardSessionEnabled)
+        XCTAssertTrue(audio.isKeepaliveRunning, "the end of the call still resumes the warm input")
+    }
+
+    func testSuccessfulStartDuringInterruptionEndsTheSuspension() async throws {
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: 27_000, retryDelays: [])
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+
+        controller.handleAudioSystemEvent(.interruptionBegan)
+        XCTAssertFalse(audio.isKeepaliveRunning)
+        controller.startRecording(keyboardJobID: "during-voice-playback")
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording)
+        controller.finishRecording()
+        try await settle()
+        XCTAssertEqual(controller.phase, .ready)
+        XCTAssertTrue(audio.isKeepaliveRunning)
+        let startsAfterDictation = audio.startKeepaliveCount
+
+        // A late end of the interruption must not restart the running input or end the session.
+        controller.handleAudioSystemEvent(.interruptionEnded(shouldResume: true))
+        try await settle()
+        XCTAssertEqual(audio.startKeepaliveCount, startsAfterDictation)
+        XCTAssertTrue(controller.keyboardSessionEnabled)
+        XCTAssertTrue(audio.isKeepaliveRunning)
+
+        // The input is no longer treated as suspended: the session loop restarts a dead input.
+        audio.stopKeepalive()
+        try await settle()
+        XCTAssertTrue(audio.isKeepaliveRunning, "the session loop must not skip a dead input after the suspension")
+    }
+
     func testOnlyEngineFailuresRequireReloadingTheModel() {
         XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.silentAudio))
         XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.emptyTranscript))

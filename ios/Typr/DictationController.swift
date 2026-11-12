@@ -147,6 +147,8 @@ final class DictationController {
     private var keyboardSessionExpiresAt: TimeInterval = 0
     private var suspendedWarmSessionOnInterruption = false
     @ObservationIgnored private var interruptionResumeTask: Task<Void, Never>?
+    /// Between `.interruptionBegan` and `.interruptionEnded`, independent of a pending resume.
+    private var interruptionInProgress = false
     private let audioRetryDelays: [Duration]
     /// Set when a transcription failed in a way that may come from the engine itself. Other
     /// failures (microphone, silence) keep the prepared model for the next dictation.
@@ -677,9 +679,7 @@ final class DictationController {
         phase = .requestingPermission
         keyboardMessage = nil
         // This activation replaces a pending resume after an interruption.
-        interruptionResumeTask?.cancel()
-        interruptionResumeTask = nil
-        suspendedWarmSessionOnInterruption = false
+        takeOverInterruptionResume()
 
         Task {
             let granted = await audio.requestPermission()
@@ -714,6 +714,7 @@ final class DictationController {
                 try await activateAudio(isCurrent: { self.jobGeneration == requestGen }) {
                     try self.audio.startKeepalive(allowBluetooth: self.allowBluetoothMic)
                 }
+                noteAudioActivated()
                 enableWarmSessionBookkeeping()
                 phase = .ready
                 startKeyboardSessionLoop()
@@ -911,9 +912,7 @@ final class DictationController {
         copied = false
         // The capture starts the input itself. A resume still retrying after an interruption
         // must not restart (stop) the input under it later.
-        interruptionResumeTask?.cancel()
-        interruptionResumeTask = nil
-        suspendedWarmSessionOnInterruption = false
+        takeOverInterruptionResume()
 
         inFlightPermissionRequests += 1
         Task {
@@ -949,6 +948,7 @@ final class DictationController {
                     try? fileManager.removeItem(at: captureURL)
                     return
                 }
+                noteAudioActivated()
 
                 let startedAt = now()
                 var cleanupJob: CleanupJob?
@@ -1222,7 +1222,7 @@ final class DictationController {
                 keyboardSessionEnabled = false
                 keyboardSessionRemaining = 0
                 keyboardSessionExpiresAt = 0
-                keyboardMessage = error.localizedDescription
+                keyboardMessage = Self.audioFailureMessage(for: error)
                 audio.deactivateSession()
             }
         } else {
@@ -1447,6 +1447,7 @@ final class DictationController {
     func handleAudioSystemEvent(_ event: AudioSystemEvent) {
         switch event {
         case .interruptionBegan:
+            interruptionInProgress = true
             interruptionResumeTask?.cancel()
             interruptionResumeTask = nil
             suspendedWarmSessionOnInterruption = keyboardSessionEnabled
@@ -1465,6 +1466,7 @@ final class DictationController {
             publishKeyboardSnapshot()
 
         case .interruptionEnded(let shouldResume):
+            interruptionInProgress = false
             guard suspendedWarmSessionOnInterruption else { return }
             guard keyboardSessionEnabled, keyboardSessionExpiresAt > now() else {
                 suspendedWarmSessionOnInterruption = false
@@ -1513,6 +1515,24 @@ final class DictationController {
                     endWarmSession()
                 }
             }
+        }
+    }
+
+    /// A keyboard activation or capture now owns the input: stop a pending resume. While the
+    /// interruption itself is still running (a call), the session stays suspended so a failed
+    /// attempt does not end it and `.interruptionEnded` still resumes it.
+    /// Typr's input runs again, so any interruption is over for Typr. iOS does not always send
+    /// `.interruptionEnded`; a later one must neither restart this input nor end the session.
+    private func noteAudioActivated() {
+        interruptionInProgress = false
+        suspendedWarmSessionOnInterruption = false
+    }
+
+    private func takeOverInterruptionResume() {
+        interruptionResumeTask?.cancel()
+        interruptionResumeTask = nil
+        if !interruptionInProgress {
+            suspendedWarmSessionOnInterruption = false
         }
     }
 
