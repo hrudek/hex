@@ -63,8 +63,13 @@ double-space-period, Return or punctuation never settles a literal. Prefix compl
 not labels. Full signal rules, distance/layout/finite guards and reset epochs
 are defined in [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md#trusted-signals).
 
-For touch data, **only aggregated per-key counts, offsets and variances are
-persisted**, not the word's points or order. The separate personal lexicon also
+For touch data, **only slow aggregated per-key/global counts, offsets and full
+xx/xy/yy covariance are persisted**, not the word's points or order. The shared
+~40/~8-label affine drift regressions and predictive weights stay RAM-only with no
+per-key fast banks or recent-point reservoir;
+they use exactly the same independent labels and reset on evidence discontinuities
+(field/host/layout/lifecycle, ambiguous gestures, etc.), not ordinary word boundaries.
+These memories change frozen word-recognition densities, never immediate hit attribution. The separate personal lexicon also
 stores bounded kept words, trusted word counts and rejected pairs; diagnostics
 store text-free counters/histograms. With real keyboard Full Access these files
 are local, protected and excluded from backup; otherwise session-only. This is
@@ -76,7 +81,10 @@ The [suggestion worker](KEYBOARD_SPATIAL_DECODER.md#suggestion-worker-and-bounda
 may hold a frozen copy of current-word evidence for one running job and one
 replaceable latest request. These bounded snapshots are Sendable, RAM-only,
 never Codable/persisted/exported, and not an ordered tap/text history. Their
-captured layout and learning generation/epoch must still match before use.
+captured layout and learning generation/epoch must still match before use. Frozen
+calibration includes the complete covariance and aggregate affine-aim prediction;
+trusted updates or actual fast resets invalidate the old ranking. Snapshot reads
+and repeated empty resets do not themselves change learning ownership.
 Cancellation drops queued copies immediately; an already running bounded search
 may finish, but cannot publish, edit text or teach after invalidation. Discarding
 geometry while visible (layer/layout change, key slide, trackpad, selection callback

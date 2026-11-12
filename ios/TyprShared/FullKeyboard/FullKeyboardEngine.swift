@@ -228,11 +228,12 @@ final class FullKeyboardEngine {
         refreshSuggestions()
     }
 
-    /// For callers that refresh right afterwards anyway.
-    private func invalidateTouchEvidence() {
+    /// For callers that refresh right afterwards anyway. Applied manual choices clear the
+    /// word without resetting the fast aggregate aim just trained by independent feedback.
+    private func invalidateTouchEvidence(resetFastAim: Bool = true) {
         textRevision &+= 1
         suggestionWorker.cancel()
-        autocorrect.discardEvidence()
+        autocorrect.discardEvidence(resetFastAim: resetFastAim)
         for id in touchOrder {
             touches[id]?.hasUnambiguousPoint = false
         }
@@ -348,7 +349,7 @@ final class FullKeyboardEngine {
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
         }
-        invalidateTouchEvidence()
+        invalidateTouchEvidence(resetFastAim: false)
         if let token {
             for _ in 0..<token.count {
                 target.deleteBackward()

@@ -107,11 +107,12 @@ final class KeyboardLearningStore {
         var model = model
         let repaired = model.validated() == nil && model.discardInvalidTouchStats()
         if repaired { diagnostics.increment(.storeWriteFailed) }
-        guard model.validated() != nil else {
+        guard let validated = model.validated() else {
             if !repaired { diagnostics.increment(.storeWriteFailed) }
             isPersistent = false // An unrecoverable state must not fail on every session flush.
             return false
         }
+        model = validated
         guard directory != nil else {
             ramModel = model
             ramDiagnostics = diagnostics

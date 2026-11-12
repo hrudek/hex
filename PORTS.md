@@ -44,9 +44,9 @@ Typr-specific adaptations and boundaries:
   12,000-state/trail caps and an explicit above-literal completeness proof. At most
   one structural edit; incomplete search never authorizes inferred replacement.
   Below-literal structural retrieval is suggestion-only and best effort.
-- Static hit-testing remains. Gaussian calibration uses shrunk/clamped means and
-  diagonal variance, not iikb's NIW/Student-t mixture, pooled covariance or drift
-  memories. No automatic-output touch/word-count training; manual labels must
+- Static hit-testing remains. The original diagonal Gaussian calibration is extended
+  by the separately pinned aggregate-aim adoption below, not a wholesale NIW/Student-t
+  port. No automatic-output touch/word-count training; manual labels must
   have independent unambiguous alignment and finite/distance/layout checks.
 - Typr keeps deterministic rules, valid-literal/contact/keep protections,
   total/spatial/runner-up margins and English/German system validation. No borrowed
@@ -92,6 +92,28 @@ Implemented regression suites include `SpatialWordDecoderTests`,
 `TypingModelTypesTests`, `KeyboardDiagnosticsPresentationTests` and offline
 `ios/tools/keyboard_words/test_build.py`. These listings do not claim an iOS pass.
 
+## Aggregate touch aim on multiple timescales (iikb, P7)
+
+Owner-approved scoped translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
+**MIT, © 2026 Bassim Shahidy**. Historical pins above remain unchanged. The read-only
+reference was inspected, never built or executed; no dependency or resource was added.
+
+| Source paths at this pin | Translated algorithm | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TouchModel.swift` (`Touches`, `Spread`, `KeyTouches`, `Drift`, `Posterior`) | Full xy sufficient statistics, within-key pooling/shrinkage, prequential predictive weighting, fixed-share recovery and moment matching. Typr replaces upstream per-key 30/3 memories with shared stable/40/8 affine residual drift (ridge [1,2,2], .02 share), tempered bounded Gaussian density rather than NIW/Student-t. Typr-specific frozen inverse scoring plus length-span/next-child admissible search bounds preserve the objective. Only slow statistics persist, schema 1→2 migration retains words/protections. | `ios/TyprShared/FullKeyboard/PersonalTypingModel.swift`, `TouchAimDrift.swift`, `TypingModelTypes.swift`, `SpatialWordDecoder.swift`, `SpatialWordRanking.swift`, `KeyboardLearningStore.swift` (all latter paths in the same FullKeyboard directory); `KeyboardLearningSession.swift`, `AutocorrectEngine.swift` reset fast state on discontinuities |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Aim.swift`, `Tap.swift` | Pitch-to-point full-covariance ellipse; independent intended labels stay ephemeral and retain Typr's static-distance/alignment gates | `ios/Typr/KeyboardDiagnosticsModel.swift`, `KeyboardTouchModelView.swift`; label/calibration types in `ios/TyprShared/FullKeyboard/TypingModelTypes.swift` |
+| `Packages/KeyboardModules/Tests/KeyboardCoreTests/TypingModelTests.swift` | Rewritten covariance, pooled/rare-key, shift/return and switching regression scenarios; Typr-specific frozen-score oracle, migration, trust and bounded synthetic DE/EN/mixed ablation | `ios/TyprTests/PersonalTypingAimTests.swift`, `PersonalTypingAimEvaluationTests.swift`, `PersonalTypingModelTests.swift`, `SpatialWordDecoderTests.swift`, `KeyboardLearningStoreTests.swift` |
+
+Excluded: raw recent-point reservoirs (including diagnostic reservoirs), dynamic key
+attribution/visible resizing, correction-as-training, grip classification/sensors,
+swipe, emoji, themes, layouts, clipboard, network, neural weights/resources,
+context histories and dictation changes. All previous licensing/data boundaries apply.
+Fast regressions and weights are RAM-only (one active layout, 24 sufficient sums plus
+three weights), never Codable. No raw points or upstream files were copied. P7b's
+shared affine ridge field, covariance tempering and search indexes are Typr-specific
+adaptations; tests distinguish their contribution from the old diagonal contract.
+The existing full MIT notice is retained once in `THIRD_PARTY_NOTICES.md`.
+
 ## Deferred keyboard suggestions (iikb)
 
 Owner-approved P1 translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
@@ -107,8 +129,10 @@ evidence/learning/resource invalidation, state-preserving suggestion resume, com
 decode reuse on unchanged refresh and direct accessibility activation are Typr-specific
 integration fixes in the destinations above, not additional upstream UI adoption.
 
-The existing Typr search/scoring algorithm is extracted unchanged into
-`SpatialWordRanking`, not replaced by iikb's scorer. UIKit checkers and all live
+P1 extracted the existing Typr search/scoring algorithm unchanged into
+`SpatialWordRanking`, not replaced by iikb's scorer. The aggregate-aim adoption
+above now extends that same serial-owner core with frozen full covariance and
+tighter admissible bounds for both worker and boundary; it does not duplicate the scorer. UIKit checkers and all live
 learning/diagnostics mutation stay on MainActor. Space/punctuation never await a
 job: a missing/stale cache runs the existing bounded synchronous decision.
 The existing MIT notice in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) covers

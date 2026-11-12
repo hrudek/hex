@@ -31,6 +31,7 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
             return await withCheckedContinuation { continuation = $0 }
         }
         func count() -> Int { requests.count }
+        func request(at index: Int) -> KeyboardSuggestionWorker.Request { requests[index] }
         func release(requestIndex: Int? = nil) {
             let request = requestIndex.map { requests[$0] } ?? requests.last
             guard let request, let continuation else { return }
@@ -65,6 +66,79 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
             engine.touchBegan(id: 1, at: point)
             engine.touchEnded(id: 1, at: point)
         }
+    }
+
+    func testAimSnapshotIsFrozenAndLearningOrResetDropsOldResultWithoutPollChurn() async throws {
+        let session = KeyboardLearningSession()
+        let gate = Gate()
+        let worker = KeyboardSuggestionWorker(rank: { await gate.rank($0) })
+        let (engine, target, checker) = keyboard(worker: worker, session: session)
+        try type("teh", engine)
+        let e = try XCTUnwrap(engine.layout.key(.character("e"))).frame
+        func train(_ x: Double) {
+            for i in 0..<40 {
+                let delta = i % 2 == 0 ? 0.1 : -0.1
+                session.learn([.init(point: CGPoint(
+                    x: e.midX + (x + delta) * (e.width + engine.layout.metrics.gap),
+                    y: e.midY + delta * (e.height + engine.layout.metrics.rowGap)), letter: "e")],
+                    layout: engine.layout, source: .keep)
+            }
+        }
+        train(0.2)
+        engine.refreshSuggestions()
+        await waitForJob(gate)
+        let request = await gate.request(at: 0)
+        let frozen = try XCTUnwrap(request.calibration)
+        XCTAssertNotEqual(frozen.keys["e"]?.covarianceXY, 0)
+        let chip = try XCTUnwrap(engine.suggestions.first)
+        train(-0.2)
+        XCTAssertNotEqual(session.calibration(for: engine.layout), frozen)
+        XCTAssertEqual(request.calibration, frozen, "Live aim changes must not mutate a Sendable request")
+        let calls = checker.calls
+        await gate.release()
+        await engine.waitForSuggestions()
+        XCTAssertEqual(checker.calls, calls, "Stale aim result must be refused before checker/cache/diagnostics")
+        engine.acceptSuggestion(chip)
+        XCTAssertEqual(target.text, "Teh")
+        XCTAssertTrue(session.protections.kept.isEmpty)
+        await waitForJob(gate, count: 2)
+        let second = await gate.request(at: 1)
+        XCTAssertEqual(second.ownership.learning, session.generation)
+        session.resetFastAim()
+        XCTAssertNotEqual(second.ownership.learning, session.generation)
+        let resetGeneration = session.generation
+        for _ in 0..<100 {
+            session.resetFastAim()
+            _ = session.calibration(for: engine.layout)
+        }
+        XCTAssertEqual(session.generation, resetGeneration, "No-op resets/read-only snapshots cannot churn ownership")
+        await gate.release()
+        await engine.waitForSuggestions()
+        XCTAssertEqual(checker.calls, calls)
+        engine.refreshSuggestionsIfStale()
+        await waitForJob(gate, count: 3)
+        await gate.release()
+        await engine.waitForSuggestions()
+        XCTAssertEqual(engine.suggestions.last?.replacement, "The")
+        print("EVAL M114_aimOwnership frozen=true staleLearnDropped=true staleResetDropped=true noOpResets=100 generationStable=true")
+    }
+
+    func testManualChoiceKeepsFastAimButEvidenceDiscardResetsItOnce() async throws {
+        let (engine, target, _) = keyboard()
+        try type("teh", engine)
+        await engine.waitForSuggestions()
+        let choice = try XCTUnwrap(engine.suggestions.first { $0.replacement.lowercased() == "the" })
+        engine.acceptSuggestion(choice)
+        XCTAssertEqual(target.text, "The ")
+        let session = engine.autocorrect.learning
+        let trained = session.generation
+        session.resetFastAim()
+        XCTAssertGreaterThan(session.generation, trained, "Applied manual choice retained its trusted fast state")
+        let reset = session.generation
+        engine.discardTouchEvidence()
+        engine.discardTouchEvidence()
+        XCTAssertEqual(session.generation, reset, "Repeated empty discards do not refresh learning ownership")
+        await engine.waitForSuggestions()
     }
 
     func testInsertionNeverCallsCheckerAndReadyResultUsesSamePolicy() async throws {

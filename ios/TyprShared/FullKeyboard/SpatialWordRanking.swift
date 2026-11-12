@@ -5,6 +5,9 @@ import CoreGraphics
 /// Resources and input snapshots are immutable Sendable values; no checker or learning owner enters here.
 // Search/trail ideas previously translated from AVGVSTVS96/iikb Decoder.swift (MIT),
 // 08df5aa1e698d8587b6dcaef53f5e555ba1fac2a; extracted from Typr unchanged for P1.
+// P7 adds frozen full-covariance/affine-aim densities (TouchModel.swift ideas at
+// 09a2e9cdfbe851adff6c4646333c0a3f74ba8765, MIT © 2026 Bassim Shahidy) and
+// Typr-specific admissible length/next-child bounds; both serial owners use this core.
 nonisolated final class SpatialWordRanking {
     typealias Language = SpatialWordDecoder.Language
     typealias Edit = SpatialWordDecoder.Edit
@@ -31,7 +34,14 @@ nonisolated final class SpatialWordRanking {
     private var absentPersonalWords: [Set<Language>: [PersonalLexiconSnapshot.ScanList.Entry]] = [:]
     private var corpusAbsent: [Set<Language>: [String: Bool]] = [:]
 
-    init(lexicons: [Language: SpatialWordLexicon]) { self.lexicons = lexicons }
+    // Internal baseline seam for performance/oracle tests, not a product switch.
+    // true retains the pre-aim per-pair density work and suffix-only search bound.
+    private let usesLegacySearch: Bool
+
+    init(lexicons: [Language: SpatialWordLexicon], usesLegacySearch: Bool = false) {
+        self.lexicons = lexicons
+        self.usesLegacySearch = usesLegacySearch
+    }
 
     private func lexicon(_ language: Language) -> SpatialWordLexicon? { lexicons[language] }
 
@@ -156,6 +166,33 @@ nonisolated final class SpatialWordRanking {
         }
     }
 
+    /// Prepared once per physical key, not once per tap/key pair. All covariance
+    /// inverses and normalizers are immutable throughout the search. No extra score
+    /// approximation: the independent frozen-score DP checks this representation too.
+    nonisolated private struct FrozenKey {
+        let frame: CGRect
+        let pitchX: Double, pitchY: Double
+        let offsetX: Double, offsetY: Double
+        let inverseXX: Double, inverseXY: Double, inverseYY: Double, normalizer: Double
+
+        init(frame: CGRect, gap: CGFloat, rowGap: CGFloat, key: SpatialTouchCalibration.Key) {
+            self.frame = frame
+            pitchX = Double(frame.width + gap); pitchY = Double(frame.height + rowGap)
+            offsetX = key.offsetX; offsetY = key.offsetY
+            let xx = key.sigmaX * key.sigmaX, yy = key.sigmaY * key.sigmaY, xy = key.covarianceXY
+            let determinant = xx * yy - xy * xy
+            inverseXX = yy / determinant; inverseXY = -xy / determinant; inverseYY = xx / determinant
+            normalizer = -log(2 * Double.pi) - 0.5 * log(determinant)
+        }
+
+        func score(_ point: CGPoint) -> Double {
+            let dx = Double(point.x - frame.midX) / pitchX - offsetX
+            let dy = Double(point.y - frame.midY) / pitchY - offsetY
+            guard dx * dx + dy * dy <= 1.6 * 1.6 else { return -.infinity }
+            return -0.5 * max(0, inverseXX * dx * dx + 2 * inverseXY * dx * dy + inverseYY * dy * dy) + normalizer
+        }
+    }
+
     func decode(_ word: KeyboardTouchWord, languages: Set<Language>,
                 budget: Int = SpatialWordDecoder.searchBudget,
                 calibration: SpatialTouchCalibration? = nil,
@@ -187,6 +224,17 @@ nonisolated final class SpatialWordRanking {
         for (index, letter) in alphabet.enumerated() {
             if let key = word.layout.key(.character(String(letter))) { frames[index] = key.frame }
         }
+        var prepared = [FrozenKey?](repeating: nil, count: alphabet.count)
+        if !usesLegacySearch {
+            for (index, frame) in frames {
+                let key = calibration?.keys[alphabet[index]] ?? SpatialTouchCalibration.Key(
+                    offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma, sigmaY: SpatialTouchCalibration.staticSigma)
+                let frozen = FrozenKey(frame: frame, gap: word.layout.metrics.gap, rowGap: word.layout.metrics.rowGap, key: key)
+                guard frame.width > 0, frame.height > 0, frozen.pitchX.isFinite, frozen.pitchY.isFinite,
+                      frozen.pitchX > 0, frozen.pitchY > 0 else { return .unavailable(.evidence) }
+                prepared[index] = frozen
+            }
+        }
         var likelihoods: [[Double]] = []
         var bestScores: [Double] = []
         var literalSpatial = 0.0
@@ -201,21 +249,24 @@ nonisolated final class SpatialWordRanking {
             }
             var scores = [Double](repeating: -.infinity, count: alphabet.count)
             for index in alphabet.indices {
+                if !usesLegacySearch {
+                    scores[index] = prepared[index]?.score(sample.point) ?? -.infinity
+                    continue
+                }
                 guard let frame = frames[index] else { continue }
                 let width = Double(frame.width + word.layout.metrics.gap)
                 let height = Double(frame.height + word.layout.metrics.rowGap)
                 guard frame.width > 0, frame.height > 0, width.isFinite, height.isFinite,
                       width > 0, height > 0 else { return .unavailable(.evidence) }
-                let key = calibration?.keys[alphabet[index]]
-                let dx = Double(sample.point.x - frame.midX) / width - (key?.offsetX ?? 0)
-                let dy = Double(sample.point.y - frame.midY) / height - (key?.offsetY ?? 0)
-                let sx = key?.sigmaX ?? SpatialTouchCalibration.staticSigma
-                let sy = key?.sigmaY ?? SpatialTouchCalibration.staticSigma
-                // Density in pitch coordinates. The -log(2πσxσy) term is essential:
-                // omitting it would reward broader personal distributions unfairly.
+                let key = calibration?.keys[alphabet[index]] ?? SpatialTouchCalibration.Key(
+                    offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma,
+                    sigmaY: SpatialTouchCalibration.staticSigma)
+                let x = Double(sample.point.x - frame.midX) / width
+                let y = Double(sample.point.y - frame.midY) / height
+                // The entire density is frozen before search, preserving max-path bounds.
+                let dx = x - key.offsetX, dy = y - key.offsetY
                 if dx * dx + dy * dy <= 1.6 * 1.6 {
-                    scores[index] = -0.5 * (dx * dx / (sx * sx) + dy * dy / (sy * sy))
-                        - log(2 * Double.pi * sx * sy)
+                    scores[index] = key.logDensity(x: x, y: y)
                 }
             }
             guard scores[label].isFinite, let best = scores.max(), best.isFinite else {
@@ -226,6 +277,14 @@ nonisolated final class SpatialWordRanking {
             bestScores.append(best)
             for index in scores.indices where scores[index] < best - 6 { scores[index] = -.infinity }
             likelihoods.append(scores)
+        }
+        let rankedLabels: [[Int]] = !usesLegacySearch ? likelihoods.map { scores in
+            scores.indices.filter { scores[$0].isFinite }.sorted {
+                scores[$0] == scores[$1] ? $0 < $1 : scores[$0] > scores[$1]
+            }
+        } : []
+        let finiteLabelMasks = rankedLabels.map { labels in
+            labels.reduce(UInt32(0)) { $0 | (UInt32(1) << $1) }
         }
         let floorPrior = sources.map { log(1 / $0.1.total) }.max() ?? 0
         let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
@@ -325,8 +384,30 @@ nonisolated final class SpatialWordRanking {
                 let depth = state.depth + letters.count
                 guard depth <= Self.maxLetters else { return }
                 let penalty = edit == .none ? 0 : Self.editPenalty
-                let bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
-                    + maxBonus + Self.boundSlack
+                let bound: Double
+                if usesLegacySearch {
+                    // Original expression retained for same-run baseline timing/work.
+                    bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
+                        + maxBonus + Self.boundSlack
+                } else {
+                    guard source.canFinish(at: node, remaining: count - tap,
+                                           editAvailable: allowsEdits && edit == .none) else { return }
+                    let fixed = spatial + penalty + Self.priorWeight * source.bestLogPrior(at: node)
+                        + maxBonus + Self.boundSlack
+                    let loose = fixed + suffix[tap]
+                    // Most proposals already fail the cheap bound; do not look ahead on them.
+                    guard loose >= threshold || loose + (edit == .none ? Self.editPenalty : 0) >= belowThreshold else { return }
+                    // Once the edit is spent (or disabled), the next tap MUST match a
+                    // child. Unedited paths retain the old bound because they may skip
+                    // or swap, and the below-literal proof assumes that suffix-only bound.
+                    // Later terms remain optimistic maxima, including positive densities.
+                    let remaining: Double
+                    if (edit != .none || !allowsEdits), tap < count {
+                        remaining = source.bestNextDensity(at: node, scores: likelihoods[tap],
+                                                           rankedLabels: rankedLabels[tap], finiteMask: finiteLabelMasks[tap]) + suffix[tap + 1]
+                    } else { remaining = suffix[tap] }
+                    bound = fixed + remaining
+                }
                 let essential = bound >= threshold
                 guard essential || bound + (edit == .none ? Self.editPenalty : 0) >= belowThreshold else { return }
                 frontier.push(State(source: state.source, node: node, tap: tap, depth: depth,

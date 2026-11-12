@@ -301,7 +301,9 @@ final class AutocorrectEngine {
     }
 
     /// Cursor, field, layout or host text changed: no tap, decode or pending word survives.
-    func discardEvidence() {
+    /// Only an applied manual word choice preserves the just-trained fast aggregate aim.
+    func discardEvidence(resetFastAim: Bool = true) {
+        if resetFastAim { learning.resetFastAim() }
         touchInput.clear()
         decodeCache = nil
         pendingFeedback = nil

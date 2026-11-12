@@ -85,7 +85,7 @@ letter keys are a–z; popup umlauts/ß have no fabricated centers.
 ## What is stored and bounded
 
 Touch evidence for the current word and its one pending-feedback transaction
-stays **RAM-only**. Only aggregated per-key touch statistics are serialized;
+stays **RAM-only**. Only slow aggregated per-key and all-key touch statistics are serialized;
 there is no sample reservoir, point sequence, field text, ordered word stream,
 context/bigram/trigram history, host-app history, transcript or audio in these
 learning/diagnostic files. The personal lexicon **does contain word strings**
@@ -94,7 +94,8 @@ and rejected word pairs: it is sensitive personal data, not anonymized data.
 | Stored learning state | Bound and retention |
 | --- | --- |
 | Layout signatures | At most 4; orientation, width rounded to nearest 8 pt, suggestion strip and globe; least recently updated layout evicted |
-| Per-key touch statistics | Up to 26 keys/layout: capped effective count, mean x/y offset and diagonal variance in pitch units; layout last-update time, no raw points |
+| Slow touch statistics | Up to 26 keys plus one global aggregate/layout: capped effective count, mean x/y offset and full xx/xy/yy covariance in pitch units; layout last-update time, no raw points |
+| Fast aim (never stored) | One active layout, two shared affine ridge regressions (~40/~8 trusted-label decay) plus three predictive weights; 24 sufficient sums, no per-key fast banks or point reservoir |
 | Kept words and trusted word counts | **One combined bound: kept ∪ counted ≤2,000 words**; normalized lowercase NFC, 2–32 letters, ≤256 UTF-8 bytes; keeps have priority. Evict unkept counts by lowest count then oldest update, then oldest keeps (with their counts); spelling breaks timestamp ties. Keeps store last-kept time; counts saturate at 10,000 and store last-update time |
 | Rejected typed→replacement pairs | At most 512 unique normalized pairs, FIFO; repeated rejection does not refresh order |
 | Diagnostics (separate statistics epoch) | Fixed known counters, accepted labels by source (`literalValid`, `keep`, `undo`, `manualPick`), rejected labels by reason, since/updated dates and two seven-bucket latency histograms; each count saturates at Int32.max |
@@ -107,10 +108,60 @@ No time-based expiry runs: data remains until reset, bounded eviction or invalid
 state discard. Updates continue adapting statistics; effective count is not a
 lifetime tap count.
 
-Calibration starts per key at **20** trusted labels. Effective count caps at
-256; update weight is `max(1/n, 1/64)`. Mean/variance shrink by `n/(n+20)` toward
-zero offset and static variance `.35²`. Inference offsets clamp independently
-to ±.25 pitch; sigma clamps to .22–.50. The word bonus is
+### Slow covariance and fast aim
+
+Slow effective counts cap at **256**; update weight is `max(1/n, 1/64)`.
+The population update retains xx/xy/yy covariance. The shared physical spread pools
+within-key covariances in sorted key order, weighted by effective count, plus **20**
+`.20²` prior observations. Per-key covariance shrinks by `n/(n+20)` toward that
+pool; slow centers shrink toward zero by the same factor. This is a bounded Gaussian
+translation of iikb's hierarchical/multiple-memory ideas, **not** its NIW/Student-t
+model or an explicit grip classifier.
+
+Calibration starts after **20 pooled trusted labels**, including for unseen keys;
+scarce keys borrow spread and a shared global center/shift. A migrated diagonal-only
+model retains its per-key 20-label threshold until 20 new pooled labels exist.
+`TouchAimDrift` replaces sparse per-key fast memories with one shared affine field:
+`drift(u,v) = W × [1,u,v]`, where key positions are normalized to [-1,1] in the letter
+plane. It can explain both translation and position-dependent reach/tilt without
+waiting for 20 labels on every key. Two exponentially forgetting ridge regressions
+have ~**40/~8** label memories and diagonal ridge penalties **[1,2,2]** toward no
+drift. They learn residuals from the pre-update slow physical model. A stable
+no-drift memory competes with them; prequential likelihood weights (scored **before**
+learning) use **.02 fixed share**. Disagreeing means broaden the moment-matched
+Gaussian. There is no discrete posture state, sensor, raw reservoir or per-key fast
+bank. The affine field is Typr's transfer mechanism, not a copied upstream algorithm.
+Only independent trusted labels advance any memory; ordinary automatic output does
+not accelerate adaptation. Recovery is measured in **accepted trusted labels**, not
+all physical taps; real alignment/feedback gates can make it substantially slower.
+
+Physical covariance is tempered by **(.35/.20)² = 3.0625** before decoder use, so a
+.20-pitch physical cloud has the original .35-pitch scoring width. Directly using
+a mature narrow physical cloud with unchanged prior/margin weights was overconfident
+in the synthetic controls. The physical prequential model has eigen-sigma bounds
+.10–.50; the final frozen inference density retains the bounds below. Saved diagnostic
+ellipses show shrunk slow statistics, not the live/tempered inference distribution.
+
+Inference offsets clamp independently to **±.50 pitch**, enough to represent a
+far-side thumb undershoot; static hit targets and the one-pitch trust gate do not move.
+Marginal sigma stays
+**.22–.50**, and xy is bounded so **both covariance eigenvalues** stay in
+**[.22², .50²]**, hence determinant ≥ **.22⁴**. Densities include the determinant
+normalizer. Calibration is an immutable value frozen for each decode; scoring never
+updates it. Hit testing and immediate inserted keys stay static.
+
+Fast state/weights are never Codable and never enter saved summaries. They reset
+with evidence discontinuities (field/host/layout/lifecycle invalidation, cancellation,
+ambiguous gestures), a different active layout, learning toggle, model reload or reset.
+Ordinary word boundaries and applied manual word choices clear current-word taps
+but retain fast aggregate aim (including the manual choice's just-trained labels).
+There is no raw recent-point reservoir, even in the diagnostic model.
+
+Maximum numeric slow payload is **5,184 bytes** (4×27 statistics, Swift stride 48),
+fast payload **320 bytes** (one `TouchAimDrift`, including SIMD padding) on the tested Linux target;
+dictionary/string/allocator overhead, snapshots and encoding transients are extra,
+not measured extension RSS. Stored byte ceilings and collection caps are unchanged.
+The word bonus is
 `min(1.0, .25 × log2(1 + count))` log units. These bounds limit influence; they
 are not evidence of calibration quality or improved typing.
 
@@ -139,6 +190,15 @@ Suggestion-search diagnostics record accepted uncached worker decode duration
 on MainActor; queue wait, lazy snapshot preparation, checker finish and rendering
 are excluded, so the histogram is still not end-to-end keystroke latency.
 
+The calibration value includes all bounded xx/xy/yy terms and the moment-matched
+stable/40/8 affine-aim prediction, not a reference to live memories. Snapshot reads
+are side-effect-free: reading another layout cannot silently reset aim outside
+learning generation. Trusted updates and actual fast-state resets advance that
+generation; repeated resets of already-empty fast state do not. A stale aim result
+is rejected before checker/cache/diagnostic mutation, and the ownership-aware poll
+refreshes once for the changed generation. Applied manual choices invalidate their
+word/revision but preserve the fast aggregate aim just trained by trusted feedback.
+
 ## Files, saves and reset
 
 The existing App Group (`group.dev.rudek.typr`) contains:
@@ -146,6 +206,16 @@ The existing App Group (`group.dev.rudek.typr`) contains:
 - `<AppGroup>/Typr/Keyboard/learning-v1.json` — at most **256 KiB** encoded.
 - `<AppGroup>/Typr/Keyboard/diagnostics-v1.json` — at most **64 KiB** encoded.
 - `learning.lock` — coordination only, not a data archive.
+
+The learning **value schema is now 2**, retaining the `learning-v1.json` filename
+so reset/locking and existing byte limits remain authoritative. Schema 1 migrates
+in memory with xy=0 and no invented global stream; keeps, counts, rejected pairs,
+layout dates and diagonal statistics survive. The next save writes schema 2. Missing
+global data stays absent until new labels arrive. Unknown future versions fail closed;
+older Typr builds that only understand schema 1 discard schema 2 rather than guess.
+Invalid/non-PSD/nonfinite covariance fails load validation; save-time repair drops
+only invalid key/global aggregates and preserves unrelated lexicon data. No migration
+persists fast memories or reconstructs raw taps.
 
 Each JSON envelope has a reset epoch and schema-versioned value. Only the
 keyboard writes learning/diagnostic snapshots; the app reads summaries,
@@ -272,10 +342,11 @@ comparison. Simulator/Linux numbers do not predict iPhone speed. TSW1 mapping,
 validation and subtree-index construction run detached from the main actor after
 keyboard appearance with Autocorrect on; their cold cost is outside these timers.
 
-The touch map reconstructs bucket-width geometry, draws shrunk/clamped model
-centers and one-sigma ellipses, and lists per-key effective counts accessibly.
-Keys below 20 are marked uncalibrated; estimates may still be displayed but are
-not used for inference. It displays **model parameters, not raw taps, moved hit
+The touch map reconstructs bucket-width geometry, draws saved slow shrunk/clamped
+centers and correlated one-sigma ellipses, and lists per-key effective counts accessibly.
+Keys below 20 have gray outlines; pooled evidence can still inform them in the keyboard.
+The app explicitly does not show RAM-only fast aim. It displays **model parameters,
+not raw taps, moved hit
 targets, measured hit probability, accuracy or improvement**.
 
 No undo does not mean a correction was right. Many repairs are not linked undo,

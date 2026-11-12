@@ -39,6 +39,22 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         for letter in text { tap(letter == " " ? .space : .character(String(letter)), engine) }
     }
 
+    func testManualFeedbackRetainsFastAimButExternalContextResetsIt() throws {
+        let session = KeyboardLearningSession()
+        let (engine, _) = keyboard(session: session)
+        let grid = engine.layout
+        let key = try XCTUnwrap(grid.key(.character("e")))
+        let label = TouchLabel(point: CGPoint(x: key.frame.midX + 0.2 * (key.frame.width + grid.metrics.gap),
+                                              y: key.frame.midY), letter: "e")
+        session.learn(Array(repeating: label, count: 40), layout: grid, source: .keep)
+        type("hello", engine)
+        engine.acceptSuggestion(.init(displayText: "hello", replacement: "hello", kind: .keepLiteral))
+        let slow = PersonalTypingModel(state: session.model.state).calibration(for: grid)
+        XCTAssertNotEqual(session.calibration(for: grid), slow, "manual feedback must not immediately erase its own fast updates")
+        engine.textDidChange()
+        XCTAssertEqual(session.calibration(for: grid), slow)
+    }
+
     func testValidLiteralSettlesOnlyWhenIntactAndNextLetterStarts() {
         let (engine, target) = keyboard()
         type("hello ", engine)
