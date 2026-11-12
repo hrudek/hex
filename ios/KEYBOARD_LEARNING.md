@@ -199,7 +199,8 @@ Autocorrect; off uses geometric insertion. Its same-row, gap-only, strict-densit
 posterior gates are defined in [touch input](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution).
 Geometric hits and attributed letters stay separate in RAM evidence. A word with
 any automatic reattribution is disqualified from **all touch labels and word counts**,
-even on a later keep/manual choice or unchanged-literal settlement. Explicit keep
+even on a later keep/manual choice or unchanged-literal settlement, including a
+partially observed prefix. They cannot become personal pair endpoints either. Explicit keep
 and rejection protections still work. This prevents self-confirming covariance,
 aim, counts or personal continuation priors. Other trusted-word rules are unchanged.
 

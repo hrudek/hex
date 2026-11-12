@@ -260,7 +260,8 @@ final class FullKeyboardEngine {
     func refreshSuggestions() {
         guard suggestionsAreActive else { return }
         textRevision &+= 1
-        // No decoder, checker, personal snapshot construction or lexicon scan on this path.
+        // No ranking/decoder/checker or vocabulary scan. Attribution may lazily prepare
+        // the bounded personal snapshot after trusted-word changes.
         let evidence = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         let ownership = suggestionOwnership
         // Current before returning to the event loop, independent of strip/worker readiness.
@@ -701,16 +702,17 @@ final class FullKeyboardEngine {
     private func commitCharacter(_ touch: ActiveTouch) {
         let key = touch.key
         guard let character = key.character else { return }
-        autocorrect.syncLearning()
         var attributed = key
         // Rollover commits previous letters first; their didEdit already prepared this map.
         // Unreported context/model/config changes or invalidated held geometry stay literal.
         if touch.hasUnambiguousPoint, touch.evidenceLayout == layout, !shift.isUppercase,
-           let attribution, attribution.ownership == suggestionOwnership {
-            attributed = attribution.map.attributedKey(
-                at: touch.point, geometric: key, layout: layout,
-                prefix: PersonalLexiconSnapshot.normalize(AutocorrectEngine.currentToken(
-                    in: target.documentContextBeforeInput) ?? ""))
+           autocorrect.isEnabled, autocorrect.learning.isLearningEnabled, let attribution {
+            let current = suggestionOwnership
+            if attribution.ownership == current {
+                attributed = attribution.map.attributedKey(
+                    at: touch.point, geometric: key, layout: layout,
+                    prefix: PersonalLexiconSnapshot.normalize(current.token ?? ""))
+            }
         }
         let inserted = attributed.character ?? character
         let text = layerState.layer == .letters && shift.isUppercase ? inserted.uppercased() : inserted

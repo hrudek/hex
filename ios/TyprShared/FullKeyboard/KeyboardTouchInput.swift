@@ -40,6 +40,11 @@ final class KeyboardTouchInput {
 
     func append(text: String, point: CGPoint, key: KeyboardKey, layout: KeyboardLayout,
                 before: String?, after: String?, attributedKey: KeyboardKey? = nil) {
+        if attributedKey != nil {
+            // Disqualify even a partially observed word: a later keep must not count our guess.
+            editedWord = true
+            word?.learningIntact = false
+        }
         guard before != nil, text.count == 1, text.first?.isLetter == true,
               point.x.isFinite, point.y.isFinite, layout.layer == .letters,
               layout.field == .text, (attributedKey ?? key).character?.lowercased() == text.lowercased(),
@@ -55,11 +60,6 @@ final class KeyboardTouchInput {
             }
         } else {
             word = KeyboardTouchWord(layout: layout, samples: [], learningIntact: !editedWord)
-        }
-        if attributedKey != nil {
-            // Automatic insertion is not independent confirmation of intended labels/counts.
-            editedWord = true
-            word?.learningIntact = false
         }
         word?.samples.append(.init(text: text, point: point, key: key, attributedKey: attributedKey))
     }

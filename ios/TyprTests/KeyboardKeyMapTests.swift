@@ -226,6 +226,27 @@ final class KeyboardKeyMapTests: XCTestCase {
         XCTAssertEqual(capsTarget.text, "thR", "a shifted internal capital is an identifier signal")
     }
 
+    func testPartialAttributedWordCannotCountOrTrainFromKeepAndCannotSeedPersonalPairs() throws {
+        let (engine, target, _) = keyboard(try resources())
+        let session = engine.autocorrect.learning
+        let labels = session.diagnostics.acceptedLabels
+        target.insertText("th") // Prefix existed before Typr observed any taps.
+        engine.refreshSuggestions()
+        tap(gap("e"), engine)
+        XCTAssertEqual(target.text, "the")
+        XCTAssertNil(engine.autocorrect.touchInput.evidence(beforeInput: target.text))
+        XCTAssertFalse(engine.autocorrect.touchInput.isLearningIntact)
+        engine.acceptOwnedFixtureSuggestion(.init(displayText: "the", replacement: "the", kind: .keepLiteral))
+        type("world", engine)
+        tap(center(engine.layout.key(.space)!), engine)
+        type("hello", engine)
+        tap(center(engine.layout.key(.space)!), engine)
+        type("w", engine)
+        XCTAssertNil(session.model.lexicon.counts["the"])
+        XCTAssertEqual(session.diagnostics.acceptedLabels, labels + 10, "only independently observed world and hello teach")
+        XCTAssertEqual(session.model.state.bigrams?.pairCount, 1, "world→hello only; the never becomes an endpoint")
+    }
+
     private actor FirstJobGate {
         var started = false
         private var continuation: CheckedContinuation<Void, Never>?

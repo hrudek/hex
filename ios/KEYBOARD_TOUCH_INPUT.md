@@ -172,7 +172,9 @@ A sample's `key` remains the **geometric hit**; optional `attributedKey` and `te
 record the inserted reading separately. Spatial emissions still use the real point
 and captured geometry. Any reattribution makes the **entire word ineligible for
 labels and word counts**, including a subsequent keep, unchanged-literal settlement,
-manual pick or deletion/retyping. Explicit keep/rejection protections still work.
+manual pick or deletion/retyping. This includes partially observed prefixes whose
+older taps are unavailable. It also prevents #122 personal pair endpoints from
+being seeded by attributed words. Explicit keep/rejection protections still work.
 This deliberately sacrifices some learning coverage rather than teaching the model
 its own guess. No new text/tap persistence or learning schema; the only new saved
 value is a saturating text-free `Reattributed letter taps` diagnostic counter under
