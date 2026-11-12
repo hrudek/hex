@@ -56,12 +56,21 @@ final class KeyboardSuggestionWorker {
         let lexicons: [SpatialWordDecoder.Language: SpatialWordLexicon]
         /// A compatible decode the main actor already holds; the identical search is not re-run.
         var ready: SpatialWordDecoder.Outcome?
+        /// Display-only corpus/personal prefix retrieval for the current token, if eligible.
+        var completion: KeyboardCompletionJob?
+        /// The main actor already holds this job's retrieval; it is not re-run.
+        var completionReady: KeyboardCompletionRetrieval?
+
+        /// Nothing left for the ranker: the held decode and completion retrieval are reused.
+        var isSatisfied: Bool { ready != nil && (completion == nil || completionReady != nil) }
     }
 
     nonisolated struct Result: Sendable {
         let request: Request
         let outcome: SpatialWordDecoder.Outcome?
         let seconds: Double
+        /// `nil` (injected rankers, no eligible token) makes the finish step retrieve synchronously.
+        var completion: KeyboardCompletionRetrieval? = nil
     }
 
     /// One actor owns all suggestion-only mutable search memos. The boundary has its own core.
@@ -75,13 +84,17 @@ final class KeyboardSuggestionWorker {
                 resources = request.ownership.resources
                 ranking = SpatialWordRanking(lexicons: request.lexicons)
             }
-            let outcome = request.evidence.map {
+            let outcome = request.ready ?? request.evidence.map {
                 ranking!.decodeDetailed($0, languages: request.languages,
                                         calibration: request.calibration, personal: request.personal)
             }
+            // Bounded (512 pops, eight results; ≤17 personal range queries), off the main actor.
+            let completion = request.completionReady
+                ?? request.completion.map { KeyboardCompletionRetrieval($0, lexicons: request.lexicons) }
             let elapsed = start.duration(to: .now).components
             return Result(request: request, outcome: outcome,
-                          seconds: Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
+                          seconds: Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18,
+                          completion: completion)
         }
     }
 
@@ -117,8 +130,9 @@ final class KeyboardSuggestionWorker {
                 let epoch = self.epoch
                 guard let request = pending.prepare() else { continue }
                 let result: Result
-                if let ready = request.ready {
-                    result = Result(request: request, outcome: ready, seconds: 0)
+                if request.isSatisfied, let ready = request.ready {
+                    result = Result(request: request, outcome: ready, seconds: 0,
+                                    completion: request.completionReady)
                 } else {
                     result = await self.rank(request)
                 }

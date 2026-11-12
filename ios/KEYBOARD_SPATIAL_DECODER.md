@@ -62,7 +62,9 @@ Preparation coalesces after key handling returns (including lazy personal snapsh
 construction). Its immutable Sendable request includes revision, engine/field
 ownership, bounded context/token, language configuration, learning generation,
 feedback/reset epoch, resource revision, layout/evidence, calibration and personal
-priors. No mutable checker or learning session crosses isolation.
+priors, plus a checker-free completion job (token, languages, resource revision, intact
+evidence/calibration and the personal scan while learning is on). No mutable checker or
+learning session crosses isolation; preparation calls no checker.
 
 A private actor owns `SpatialWordRanking` and its personal/corpus memos. The existing
 search/scoring code was extracted from the main-actor resource facade for #113;
@@ -290,10 +292,21 @@ The prefix arena has a derived **294,912-byte payload ceiling** on this Linux
 64-bit build (state values, heap indices and at most 64 UTF-8 spelling bytes per
 state); this excludes allocator metadata/capacity rounding and is **not RSS**.
 The mapped resources plus max-count indexes remain **3,924,496 bytes**. Prefix
-state is per-call only, with no history/cache. This standalone P2 integration
-runs bounded prefix retrieval in the existing suggestion assembly; its pure search
-and immutable shared resources can also be scheduled by the separate suggestion
-worker. It does not move resource preparation onto typing or alter FullKeyboardEngine.
+state is per-call only, with no history. Prefix retrieval runs **in the suggestion
+worker** beside the correction decode: one `KeyboardCompletionRetrieval` holds the
+evidence-aware result, the exact (evidence-free) result and up to eight personal
+prefix words. Whether the literal is trusted needs the checker, so the main-actor
+finish chooses exact or evidence-aware candidates exactly as before. The engine keeps
+only the latest retrieval and reuses it for an equal job (token, languages, resources,
+evidence, calibration, personal scan identity); otherwise, as for synchronous logic
+callers or injected test rankers, it runs the same bounded retrieval inline. Resource
+preparation stays detached; nothing is persisted.
+
+With Learn from my typing on, [personal completion ranking](KEYBOARD_LEARNING.md#personal-completion-ranking)
+(#101) moves kept or frequently typed completions ahead of the other corpus/system
+completions and can add missing personal words with the prefix; it never changes
+automatic replacement, contacts, spatial alternatives or protections. Off, completions
+keep exactly the order described above.
 
 `SpatialPrefixSearchTests` covers exact/noisy/held prefixes, NFC, frequency and
 language-normalized order, equal-frequency broad tries, missing data, caps,

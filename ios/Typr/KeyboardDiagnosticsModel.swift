@@ -71,7 +71,7 @@ nonisolated enum KeyboardDiagnosticsPresentation {
         .refusedIncompleteSearch, .refusedMissingResource, .refusedValidation, .refusedBelowMargin,
         .resourceLoading]
     static let feedback: [Counter] = [.undoSpatial, .undoSpelling, .undoRule, .keepChip,
-        .manualAlternativePick, .manualCompletionPick]
+        .manualAlternativePick, .manualCompletionPick, .personalCompletionPick]
 
     /// Counts, not an accuracy estimate; even an empty denominator remains visible.
     static func share(_ numerator: Int, of denominator: Int) -> String {
@@ -126,6 +126,7 @@ nonisolated enum KeyboardDiagnosticsPresentation {
         case .storeCorruptDiscarded: "Invalid saved files discarded"
         case .storeWriteFailed: "Save failures or repairs"
         case .storeLoadDeferred: "Deferred learning loads"
+        case .personalCompletionPick: "Picked personal completion"
         }
     }
 

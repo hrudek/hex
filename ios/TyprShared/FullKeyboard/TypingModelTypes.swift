@@ -152,6 +152,8 @@ nonisolated struct PersonalLexiconSnapshot: Equatable, Sendable {
         let entries: [Entry]
         let complete: Bool
         let maxBonus: Double
+        /// Display-only prefix retrieval over the same prepared words (kept or counted twice).
+        let completions: PersonalCompletionIndex
 
         init(kept: Set<String>, counts: [String: Int]) {
             func bonus(_ count: Int) -> Double {
@@ -174,6 +176,8 @@ nonisolated struct PersonalLexiconSnapshot: Equatable, Sendable {
                 guard labels.count == letters.count else { return nil }
                 return Entry(word: word, labels: labels, bonus: bonus(counts[word] ?? 0))
             }
+            completions = PersonalCompletionIndex(sortedWords: entries.map(\.word), kept: kept,
+                                                  counts: normalizedCounts)
         }
     }
 
