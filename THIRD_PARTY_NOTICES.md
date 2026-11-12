@@ -148,6 +148,16 @@ The existing **MIT, Copyright (c) 2026 Bassim Shahidy** notice above was verifie
 against that revision's LICENSE and also covers these rewritten adaptations.
 No additional iikb word data, neural weights or dependencies are included;
 [PORTS.md](PORTS.md) records the exact paths, pin and exclusions.
+
+The aggregate-aim extension additionally translates full covariance, pooled shrinkage,
+multiple-timescale aim, predictive fixed-share weighting and covariance-display/test
+ideas (rewritten with Typr's shared 40/8-label affine drift, not upstream per-key
+30/3 banks) from `TouchModel.swift`, `Aim.swift`, `Tap.swift` and `TypingModelTests.swift` at
+[iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765),
+MIT, Copyright (c) 2026 Bassim Shahidy. The same full MIT notice above applies;
+[PORTS.md](PORTS.md) lists exact paths and exclusions. No upstream recent-tap
+reservoir, executable dependency, neural weights, or language resource is adopted.
+
 The deferred suggestion pipeline additionally translates snapshot/job/revision-checked
 finish and compatible-cache adoption from
 [AVGVSTVS96/iikb at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765),

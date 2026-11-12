@@ -32,26 +32,71 @@ nonisolated struct SpatialTouchCalibration: Equatable, Sendable {
         let offsetY: Double
         let sigmaX: Double
         let sigmaY: Double
+        var covarianceXY: Double = 0
+
+        private var determinant: Double { sigmaX * sigmaX * sigmaY * sigmaY - covarianceXY * covarianceXY }
+
+        /// Squared Mahalanobis distance from the centre. Sanitized by the snapshot initializer.
+        func mahalanobis(x: Double, y: Double) -> Double {
+            let dx = x - offsetX, dy = y - offsetY
+            return max(0, (sigmaY * sigmaY * dx * dx - 2 * covarianceXY * dx * dy + sigmaX * sigmaX * dy * dy) / determinant)
+        }
+
+        /// Normalized full-covariance Gaussian. Sanitized by the snapshot initializer.
+        func logDensity(x: Double, y: Double) -> Double {
+            if covarianceXY == 0 {
+                // Exact origin/main diagonal expression; also avoids unnecessary covariance
+                // arithmetic on the learning-off and slow-diagonal benchmark paths.
+                let dx = x - offsetX, dy = y - offsetY
+                return -0.5 * (dx * dx / (sigmaX * sigmaX) + dy * dy / (sigmaY * sigmaY))
+                    - log(2 * Double.pi * sigmaX * sigmaY)
+            }
+            return -0.5 * mahalanobis(x: x, y: y) - log(2 * Double.pi) - 0.5 * log(determinant)
+        }
     }
 
     let keys: [Character: Key]
     static let staticSigma = 0.35
-    static let maxOffset = 0.25
+    /// Physical tap spread (pitches) that the static density and the decoder's prior weight
+    /// were tuned for: the fixed spatial evaluation's tune/holdout noise of .18/.22 pitch.
+    /// Learned spreads are tempered by (staticSigma / referenceSpread)² so that a typical
+    /// typist keeps the static density's calibration instead of overconfident evidence.
+    static let referenceSpread = 0.20
+    static let temperature = (staticSigma / referenceSpread) * (staticSigma / referenceSpread)
+    /// One-hand thumb use moves far-side aim by up to about half a key; the one-pitch
+    /// label gate and the 1.6-pitch decoder gate stay unchanged.
+    static let maxOffset = 0.5
     static let sigmaRange: ClosedRange<Double> = 0.22...0.50
 
     init(keys: [Character: Key]) {
         self.keys = keys.reduce(into: [:]) { result, entry in
-            let (letter, key) = entry
-            guard letter.isLetter, String(letter) == String(letter).lowercased(),
-                  key.offsetX.isFinite, key.offsetY.isFinite,
-                  key.sigmaX.isFinite, key.sigmaY.isFinite else { return }
-            result[letter] = Key(
-                offsetX: max(-Self.maxOffset, min(Self.maxOffset, key.offsetX)),
-                offsetY: max(-Self.maxOffset, min(Self.maxOffset, key.offsetY)),
-                sigmaX: max(Self.sigmaRange.lowerBound, min(Self.sigmaRange.upperBound, key.sigmaX)),
-                sigmaY: max(Self.sigmaRange.lowerBound, min(Self.sigmaRange.upperBound, key.sigmaY))
-            )
+            guard entry.key.isLetter, String(entry.key) == String(entry.key).lowercased(),
+                  let key = Self.sanitized(entry.value, sigmaRange: Self.sigmaRange) else { return }
+            result[entry.key] = key
         }
+    }
+
+    /// Finite, bounded centres; both covariance eigenvalues inside `sigmaRange`², hence a
+    /// positive determinant floor. Correlated spreads clamp their EIGENVALUES, preserving the
+    /// ellipse orientation; diagonal spreads clamp each axis exactly. `nil` for non-finite input.
+    static func sanitized(_ key: Key, sigmaRange: ClosedRange<Double>) -> Key? {
+        guard key.offsetX.isFinite, key.offsetY.isFinite,
+              key.sigmaX.isFinite, key.sigmaY.isFinite, key.covarianceXY.isFinite else { return nil }
+        let sx = max(sigmaRange.lowerBound, min(sigmaRange.upperBound, key.sigmaX))
+        let sy = max(sigmaRange.lowerBound, min(sigmaRange.upperBound, key.sigmaY))
+        let offsetX = max(-maxOffset, min(maxOffset, key.offsetX))
+        let offsetY = max(-maxOffset, min(maxOffset, key.offsetY))
+        let xy = max(-sx * sy, min(sx * sy, key.covarianceXY))
+        guard xy != 0 else { return Key(offsetX: offsetX, offsetY: offsetY, sigmaX: sx, sigmaY: sy) }
+        let floor = sigmaRange.lowerBound * sigmaRange.lowerBound
+        let ceiling = sigmaRange.upperBound * sigmaRange.upperBound
+        // 2×2 symmetric eigen-decomposition without trigonometry: mean ± radius.
+        let half = (sx * sx - sy * sy) / 2, mean = (sx * sx + sy * sy) / 2, radius = hypot(half, xy)
+        let large = max(floor, min(ceiling, mean + radius)), small = max(floor, min(ceiling, mean - radius))
+        let center = (large + small) / 2, spread = (large - small) / 2
+        return Key(offsetX: offsetX, offsetY: offsetY,
+                   sigmaX: sqrt(center + spread * half / radius), sigmaY: sqrt(center - spread * half / radius),
+                   covarianceXY: spread * xy / radius)
     }
 }
 

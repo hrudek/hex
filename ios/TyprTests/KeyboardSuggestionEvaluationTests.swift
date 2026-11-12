@@ -225,12 +225,13 @@ final class KeyboardSuggestionEvaluationTests: XCTestCase {
         let request = KeyboardSuggestionWorker.Request(ownership: ownership(word, ac: ac), evidence: word,
             languages: [.german, .english],
             calibration: SpatialTouchCalibration(keys: ["k": .init(offsetX: 0.12, offsetY: -0.08,
-                                                                     sigmaX: 0.28, sigmaY: 0.42)]),
+                                                                     sigmaX: 0.28, sigmaY: 0.42, covarianceXY: 0.035)]),
             personal: personal, lexicons: sources)
         let synchronous = ac.spatialDecoder?.decode(word, languages: request.languages,
                                                      calibration: request.calibration, personal: personal)
         let result = try await ranked(request, worker: KeyboardSuggestionWorker())
         guard case .result(let actual)? = result.outcome else { return XCTFail("Expected decode") }
+        XCTAssertEqual(actual, synchronous, "Worker and boundary must preserve full covariance scores, alignments and search bounds")
         XCTAssertEqual(actual.suggestions.map(\.word), synchronous?.suggestions.map(\.word))
         XCTAssertEqual(actual.complete, synchronous?.complete)
         XCTAssertEqual(actual.visits, synchronous?.visits)

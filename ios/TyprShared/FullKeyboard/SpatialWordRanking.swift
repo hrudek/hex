@@ -5,6 +5,9 @@ import CoreGraphics
 /// Resources and input snapshots are immutable Sendable values; no checker or learning owner enters here.
 // Search/trail ideas previously translated from AVGVSTVS96/iikb Decoder.swift (MIT),
 // 08df5aa1e698d8587b6dcaef53f5e555ba1fac2a; extracted from Typr unchanged for P1.
+// P7 adds frozen full-covariance/affine-aim densities (TouchModel.swift ideas at
+// 09a2e9cdfbe851adff6c4646333c0a3f74ba8765, MIT © 2026 Bassim Shahidy) and
+// Typr-specific admissible length/next-child bounds; both serial owners use this core.
 nonisolated final class SpatialWordRanking {
     typealias Language = SpatialWordDecoder.Language
     typealias Edit = SpatialWordDecoder.Edit
@@ -31,7 +34,14 @@ nonisolated final class SpatialWordRanking {
     private var absentPersonalWords: [Set<Language>: [PersonalLexiconSnapshot.ScanList.Entry]] = [:]
     private var corpusAbsent: [Set<Language>: [String: Bool]] = [:]
 
-    init(lexicons: [Language: SpatialWordLexicon]) { self.lexicons = lexicons }
+    // Internal baseline seam for performance/oracle tests, not a product switch.
+    // true retains the pre-aim per-pair density work and suffix-only search bound.
+    private let usesLegacySearch: Bool
+
+    init(lexicons: [Language: SpatialWordLexicon], usesLegacySearch: Bool = false) {
+        self.lexicons = lexicons
+        self.usesLegacySearch = usesLegacySearch
+    }
 
     private func lexicon(_ language: Language) -> SpatialWordLexicon? { lexicons[language] }
 
@@ -182,12 +192,15 @@ nonisolated final class SpatialWordRanking {
             guard let source = lexicon(language) else { return .unavailable(.resource) }
             sources.append((language, source))
         }
-        guard let emissions = KeyboardLetterMap.emissions(for: word, calibration: calibration) else {
+        guard let emissions = KeyboardLetterMap.emissions(for: word, calibration: calibration,
+                                                          prepared: !usesLegacySearch) else {
             return .unavailable(.evidence)
         }
         let likelihoods = emissions.likelihoods
         let bestScores = emissions.best
         let literalSpatial = emissions.literal
+        let rankedLabels = emissions.rankedLabels
+        let finiteLabelMasks = emissions.finiteLabelMasks
         let floorPrior = sources.map { log(1 / $0.1.total) }.max() ?? 0
         let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
         let literalPrior = sources.map { _, source in
@@ -286,8 +299,30 @@ nonisolated final class SpatialWordRanking {
                 let depth = state.depth + letters.count
                 guard depth <= Self.maxLetters else { return }
                 let penalty = edit == .none ? 0 : Self.editPenalty
-                let bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
-                    + maxBonus + Self.boundSlack
+                let bound: Double
+                if usesLegacySearch {
+                    // Original expression retained for same-run baseline timing/work.
+                    bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
+                        + maxBonus + Self.boundSlack
+                } else {
+                    guard source.canFinish(at: node, remaining: count - tap,
+                                           editAvailable: allowsEdits && edit == .none) else { return }
+                    let fixed = spatial + penalty + Self.priorWeight * source.bestLogPrior(at: node)
+                        + maxBonus + Self.boundSlack
+                    let loose = fixed + suffix[tap]
+                    // Most proposals already fail the cheap bound; do not look ahead on them.
+                    guard loose >= threshold || loose + (edit == .none ? Self.editPenalty : 0) >= belowThreshold else { return }
+                    // Once the edit is spent (or disabled), the next tap MUST match a
+                    // child. Unedited paths retain the old bound because they may skip
+                    // or swap, and the below-literal proof assumes that suffix-only bound.
+                    // Later terms remain optimistic maxima, including positive densities.
+                    let remaining: Double
+                    if (edit != .none || !allowsEdits), tap < count {
+                        remaining = source.bestNextDensity(at: node, scores: likelihoods[tap],
+                                                           rankedLabels: rankedLabels[tap], finiteMask: finiteLabelMasks[tap]) + suffix[tap + 1]
+                    } else { remaining = suffix[tap] }
+                    bound = fixed + remaining
+                }
                 let essential = bound >= threshold
                 guard essential || bound + (edit == .none ? Self.editPenalty : 0) >= belowThreshold else { return }
                 frontier.push(State(source: state.source, node: node, tap: tap, depth: depth,

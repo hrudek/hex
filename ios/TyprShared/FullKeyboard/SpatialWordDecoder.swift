@@ -10,6 +10,10 @@ nonisolated struct SpatialWordLexicon: Sendable {
     let nodeCount: Int
     let total: Double
     private var subtreeCounts: [UInt32] = []
+    /// Min/max letters to a terminal, packed in two saturated UInt8 lanes.
+    private var suffixLengths: [UInt16] = []
+    /// Immediate child alphabet, derived once with the validated subtree index.
+    private var childLabels: [UInt32] = []
 
     init?(data: Data) {
         guard data.count >= 36, data.count <= Self.maxBytes,
@@ -28,10 +32,13 @@ nonisolated struct SpatialWordLexicon: Sendable {
         // once, in reverse (edges are forward-only). Also establish the unique
         // spelling per node required by max-path state dominance below.
         subtreeCounts = [UInt32](repeating: 0, count: nodes)
+        suffixLengths = [UInt16](repeating: 255, count: nodes)
+        childLabels = [UInt32](repeating: 0, count: nodes)
         var parents = [Bool](repeating: false, count: nodes)
         for index in (0..<nodes).reversed() {
             guard let record = node(index) else { return nil }
             var maximum = UInt32(record.count)
+            var minimumLength = record.count > 0 ? 0 : 255, maximumLength = 0
             var labels: UInt32 = 0
             for child in record.children {
                 // Forward children were already validated in this reverse pass.
@@ -41,8 +48,14 @@ nonisolated struct SpatialWordLexicon: Sendable {
                 labels |= bit
                 parents[child] = true
                 maximum = max(maximum, subtreeCounts[child])
+                if subtreeCounts[child] > 0 {
+                    minimumLength = min(minimumLength, min(255, Int(suffixLengths[child] & 255) + 1))
+                    maximumLength = max(maximumLength, min(255, Int(suffixLengths[child] >> 8) + 1))
+                }
             }
             subtreeCounts[index] = maximum
+            childLabels[index] = labels
+            suffixLengths[index] = UInt16(minimumLength | (maximumLength << 8))
         }
         guard parents.dropFirst().allSatisfy({ $0 }) else { return nil }
     }
@@ -50,6 +63,25 @@ nonisolated struct SpatialWordLexicon: Sendable {
     /// Upper bound on the terminal prior of any descendant (including this node).
     func bestLogPrior(at index: Int) -> Double {
         log(Double(subtreeCounts[index]) / total)
+    }
+
+    /// A length-incompatible subtree cannot finish, regardless of touch likelihood.
+    /// Saturation at 255 is conservative for the decoder's <=32 remaining taps.
+    func canFinish(at index: Int, remaining: Int, editAvailable: Bool) -> Bool {
+        let span = suffixLengths[index], allowance = editAvailable ? 1 : 0
+        return Int(span & 255) <= remaining + allowance && Int(span >> 8) >= remaining - allowance
+    }
+
+    /// Best possible NEXT aligned density. With an edit already spent, the next
+    /// tap must name an immediate child. Works on frozen full-covariance scores,
+    /// not an axis-aligned geometric approximation. No allocation or trie reads.
+    func bestNextDensity(at index: Int, scores: [Double], rankedLabels: [Int], finiteMask: UInt32) -> Double {
+        let mask = childLabels[index] & finiteMask
+        guard mask != 0 else { return -.infinity }
+        // Tap scores have few finite neighbours. Their order is frozen once per tap;
+        // usually the first or second one is a child, instead of scanning up to 30 edges.
+        for label in rankedLabels where mask & (UInt32(1) << label) != 0 { return scores[label] }
+        return -.infinity
     }
 
     struct Node {
@@ -180,9 +212,9 @@ final class SpatialWordDecoder {
     private var ranking: SpatialWordRanking
     private(set) var isResourceLoading = false
 
-    init(lexicons: [Language: SpatialWordLexicon]) {
+    init(lexicons: [Language: SpatialWordLexicon], usesLegacySearch: Bool = false) {
         self.lexicons = lexicons
-        self.ranking = SpatialWordRanking(lexicons: lexicons)
+        self.ranking = SpatialWordRanking(lexicons: lexicons, usesLegacySearch: usesLegacySearch)
         self.bundle = nil
     }
 

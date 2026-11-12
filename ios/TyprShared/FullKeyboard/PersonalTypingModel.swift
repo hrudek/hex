@@ -9,10 +9,29 @@ final class PersonalTypingModel {
         var meanY = 0.0
         var varianceX = 0.0
         var varianceY = 0.0
+        var covarianceXY = 0.0
+
+        private enum CodingKeys: String, CodingKey { case n, meanX, meanY, varianceX, varianceY, covarianceXY }
+        init(n: Int = 0, meanX: Double = 0, meanY: Double = 0,
+             varianceX: Double = 0, varianceY: Double = 0, covarianceXY: Double = 0) {
+            self.n = n; self.meanX = meanX; self.meanY = meanY
+            self.varianceX = varianceX; self.varianceY = varianceY; self.covarianceXY = covarianceXY
+        }
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            n = try c.decode(Int.self, forKey: .n)
+            meanX = try c.decode(Double.self, forKey: .meanX)
+            meanY = try c.decode(Double.self, forKey: .meanY)
+            varianceX = try c.decode(Double.self, forKey: .varianceX)
+            varianceY = try c.decode(Double.self, forKey: .varianceY)
+            // Schema 1 had diagonal statistics only; missing covariance means zero.
+            covarianceXY = try c.decodeIfPresent(Double.self, forKey: .covarianceXY) ?? 0
+        }
 
         // Pitch-normalized sufficient statistics adapted from AVGVSTVS96/iikb
         // Packages/KeyboardModules/Sources/KeyboardCore/Correction/TouchModel.swift (MIT).
         mutating func update(x: Double, y: Double) {
+            guard x.isFinite, y.isFinite else { return }
             // The inclusive learn gate tolerates floating-point pitch rounding only.
             let x = max(-1, min(1, x)), y = max(-1, min(1, y))
             n = min(256, n + 1)
@@ -22,6 +41,8 @@ final class PersonalTypingModel {
             meanY = max(-1, min(1, meanY + weight * dy))
             varianceX = max(0, min(1, (1 - weight) * (varianceX + weight * dx * dx)))
             varianceY = max(0, min(1, (1 - weight) * (varianceY + weight * dy * dy)))
+            let limit = sqrt(varianceX * varianceY)
+            covarianceXY = max(-limit, min(limit, (1 - weight) * (covarianceXY + weight * dx * dy)))
         }
 
         var calibration: SpatialTouchCalibration.Key {
@@ -30,7 +51,8 @@ final class PersonalTypingModel {
             let raw = SpatialTouchCalibration.Key(
                 offsetX: shrink * meanX, offsetY: shrink * meanY,
                 sigmaX: sqrt(shrink * varianceX + (1 - shrink) * prior),
-                sigmaY: sqrt(shrink * varianceY + (1 - shrink) * prior))
+                sigmaY: sqrt(shrink * varianceY + (1 - shrink) * prior),
+                covarianceXY: shrink * covarianceXY)
             // Reuse the decoder contract's bounds for summaries as well as inference.
             return SpatialTouchCalibration(keys: ["a": raw]).keys["a"] ?? raw
         }
@@ -40,6 +62,7 @@ final class PersonalTypingModel {
                 && abs(meanX) <= 1 && abs(meanY) <= 1
                 && varianceX.isFinite && varianceY.isFinite
                 && (0...1).contains(varianceX) && (0...1).contains(varianceY)
+                && covarianceXY.isFinite && abs(covarianceXY) <= sqrt(varianceX * varianceY) + 1e-12
         }
     }
 
@@ -47,6 +70,33 @@ final class PersonalTypingModel {
         var signature: KeyboardLayoutSignature
         var lastUpdated: Date
         var keys: [String: TouchStats] = [:]
+        // Optional only for schema-1 decoding. New labels create this aggregate.
+        var global: TouchStats?
+
+        /// Within-key pooled covariance, not between-key center differences. Each key
+        /// contributes at most 256 effective observations; iteration order is fixed.
+        /// Physical (untempered) spread: the prior is the reference spread, not .35.
+        var pooled: SpatialTouchCalibration.Key {
+            let prior = SpatialTouchCalibration.referenceSpread * SpatialTouchCalibration.referenceSpread
+            var n = 20.0, xx = 20 * prior, yy = 20 * prior, xy = 0.0
+            for letter in keys.keys.sorted() {
+                guard let s = keys[letter], s.isValid else { continue }
+                let weight = Double(s.n)
+                n += weight; xx += weight * s.varianceX; yy += weight * s.varianceY
+                xy += weight * s.covarianceXY
+            }
+            return .init(offsetX: 0, offsetY: 0, sigmaX: sqrt(xx / n), sigmaY: sqrt(yy / n), covarianceXY: xy / n)
+        }
+
+        func slowKey(_ stats: TouchStats?) -> SpatialTouchCalibration.Key {
+            let prior = pooled
+            guard let stats else { return prior }
+            let w = Double(stats.n) / Double(stats.n + 20)
+            return .init(offsetX: w * stats.meanX, offsetY: w * stats.meanY,
+                         sigmaX: sqrt(w * stats.varianceX + (1 - w) * prior.sigmaX * prior.sigmaX),
+                         sigmaY: sqrt(w * stats.varianceY + (1 - w) * prior.sigmaY * prior.sigmaY),
+                         covarianceXY: w * stats.covarianceXY + (1 - w) * prior.covarianceXY)
+        }
     }
 
     nonisolated struct WordCount: Codable, Equatable, Sendable {
@@ -55,14 +105,14 @@ final class PersonalTypingModel {
     }
 
     nonisolated struct State: Codable, Equatable, Sendable {
-        var schemaVersion = 1
+        var schemaVersion = 2
         var layouts: [String: LayoutStats] = [:]
         var kept: [String: Date] = [:]
         var counts: [String: WordCount] = [:]
         var rejected: [RejectedCorrection] = []
 
         func validated() -> State? {
-            guard schemaVersion == 1, layouts.count <= 4,
+            guard (1...2).contains(schemaVersion), layouts.count <= 4,
                   Set(kept.keys).union(counts.keys).count <= 2000, rejected.count <= 512,
                   Set(rejected).count == rejected.count else { return nil }
             for (id, layout) in layouts {
@@ -70,7 +120,8 @@ final class PersonalTypingModel {
                 guard id == signature.id, ["portrait", "landscape"].contains(signature.orientation),
                       (8...4096).contains(signature.widthBucket), signature.widthBucket % 8 == 0,
                       layout.lastUpdated.timeIntervalSinceReferenceDate.isFinite,
-                      !layout.keys.isEmpty, layout.keys.count <= 26 else { return nil }
+                      !layout.keys.isEmpty, layout.keys.count <= 26,
+                      layout.global == nil || layout.global?.isValid == true else { return nil }
                 for (key, stats) in layout.keys {
                     guard key.count == 1, key.utf8.count == 1,
                           key.utf8.allSatisfy({ (97...122).contains($0) }), stats.isValid else { return nil }
@@ -80,7 +131,9 @@ final class PersonalTypingModel {
                   counts.allSatisfy({ Self.validWord($0.key) && (1...10_000).contains($0.value.count)
                       && $0.value.lastUpdated.timeIntervalSinceReferenceDate.isFinite }),
                   rejected.allSatisfy({ Self.validRejectedWord($0.typed) && Self.validRejectedWord($0.replacement) }) else { return nil }
-            return self
+            var migrated = self
+            migrated.schemaVersion = 2
+            return migrated
         }
 
         /// Repair only invalid key aggregates, preserving unrelated words and layouts.
@@ -92,6 +145,7 @@ final class PersonalTypingModel {
                 layout.keys = layout.keys.filter { key, stats in
                     key.utf8.count == 1 && key.utf8.allSatisfy { (97...122).contains($0) } && stats.isValid
                 }
+                if layout.global?.isValid == false { layout.global = nil }
                 if layout.keys.isEmpty { layouts.removeValue(forKey: id) }
                 else { layouts[id] = layout }
             }
@@ -166,6 +220,7 @@ final class PersonalTypingModel {
         let offsetY: Double
         let sigmaX: Double
         let sigmaY: Double
+        var covarianceXY: Double = 0
         var isCalibrated: Bool { n >= 20 }
     }
 
@@ -185,7 +240,52 @@ final class PersonalTypingModel {
     }
 
     private(set) var state: State
-    var isLearningEnabled: Bool { didSet { cachedLexicon = nil } }
+    var isLearningEnabled: Bool { didSet { cachedLexicon = nil; resetFastAim() } }
+    // Only ONE active layout's shared fast drift lives in RAM: no per-key banks, no points.
+    private var fastLayout: String?
+    private var fastDrift = TouchAimDrift()
+
+    @discardableResult
+    func resetFastAim() -> Bool {
+        guard fastLayout != nil else { return false }
+        fastLayout = nil; fastDrift = TouchAimDrift()
+        return true
+    }
+
+    private func activateAim(_ signature: KeyboardLayoutSignature) {
+        if fastLayout != signature.id {
+            resetFastAim()
+            fastLayout = signature.id
+        }
+    }
+
+    /// The slow (persisted) PHYSICAL density the fast drift is measured against. Keys without
+    /// labels use the pooled covariance and the layout-wide slow centre once pooled inference is ready.
+    private static func slowKey(_ letter: String, in stats: LayoutStats) -> SpatialTouchCalibration.Key {
+        let value = stats.keys[letter]
+        let pooled = physical(stats.slowKey(value))
+        guard value == nil, let global = stats.global, global.n >= 20 else { return pooled }
+        let center = global.calibration
+        return physical(.init(offsetX: center.offsetX, offsetY: center.offsetY, sigmaX: pooled.sigmaX,
+                              sigmaY: pooled.sigmaY, covarianceXY: pooled.covarianceXY))
+    }
+
+    private static let fallback = SpatialTouchCalibration.Key(
+        offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma, sigmaY: SpatialTouchCalibration.staticSigma)
+
+    /// Bounded physical spread: a numerically safe determinant floor for prequential scoring.
+    private static func physical(_ key: SpatialTouchCalibration.Key) -> SpatialTouchCalibration.Key {
+        SpatialTouchCalibration.sanitized(key, sigmaRange: 0.10...0.50) ?? fallback
+    }
+
+    /// The decoder contract: covariance tempered to the static density's calibration, then bounded.
+    static func tempered(_ key: SpatialTouchCalibration.Key) -> SpatialTouchCalibration.Key {
+        let t = SpatialTouchCalibration.temperature
+        return SpatialTouchCalibration.sanitized(.init(
+            offsetX: key.offsetX, offsetY: key.offsetY, sigmaX: key.sigmaX * sqrt(t), sigmaY: key.sigmaY * sqrt(t),
+            covarianceXY: key.covarianceXY * t), sigmaRange: SpatialTouchCalibration.sigmaRange) ?? fallback
+    }
+
     private var cachedLexicon: PersonalLexiconSnapshot?
     private let now: () -> Date
 
@@ -225,7 +325,17 @@ final class PersonalTypingModel {
                            $0.value.lastUpdated == $1.value.lastUpdated ? $0.key < $1.key : $0.value.lastUpdated < $1.value.lastUpdated
                        })?.key { state.layouts.removeValue(forKey: oldest) }
                     var stats = state.layouts[signature.id] ?? LayoutStats(signature: signature, lastUpdated: now())
-                    stats.keys[String(label.letter), default: TouchStats()].update(x: x, y: y)
+                    activateAim(signature)
+                    let letter = String(label.letter)
+                    // Prequential: the shared drift scores and learns this label against the
+                    // slow model BEFORE the slow aggregates absorb it. It starts only once
+                    // pooled inference is ready, so it always has a calibrated reference.
+                    if (stats.global?.n ?? 0) >= 20, let φ = TouchAimDrift.features(for: layout)[label.letter] {
+                        fastDrift.update(x: x, y: y, slow: Self.slowKey(letter, in: stats), features: φ)
+                    }
+                    stats.keys[letter, default: TouchStats()].update(x: x, y: y)
+                    stats.global = stats.global ?? TouchStats()
+                    stats.global?.update(x: x, y: y)
                     stats.lastUpdated = now()
                     state.layouts[signature.id] = stats
                     outcome.accepted += 1
@@ -240,9 +350,21 @@ final class PersonalTypingModel {
         guard isLearningEnabled, layout.layer == .letters, layout.field == .text,
               layout.width.isFinite, (8...4096).contains(layout.width),
               let stats = state.layouts[KeyboardLayoutSignature(layout).id] else { return nil }
+        // Snapshot reads never mutate aim behind the session's generation. Integration resets
+        // on layout discontinuities; learning a different layout also activates a fresh field.
+        let drift = fastLayout == stats.signature.id ? fastDrift : TouchAimDrift()
+        // Migration does not invent an ordered global stream from old per-key data.
+        // Until 20 new pooled labels, legacy keys retain their per-key threshold.
+        let pooledReady = (stats.global?.n ?? 0) >= 20
+        let features = pooledReady ? TouchAimDrift.features(for: layout) : [:]
         var keys: [Character: SpatialTouchCalibration.Key] = [:]
-        for (letter, value) in stats.keys where value.n >= 20 {
-            if let character = letter.first, layout.key(.character(letter)) != nil { keys[character] = value.calibration }
+        for character in "abcdefghijklmnopqrstuvwxyz" {
+            let letter = String(character)
+            guard layout.key(.character(letter)) != nil,
+                  pooledReady || (stats.keys[letter]?.n ?? 0) >= 20 else { continue }
+            let slow = Self.slowKey(letter, in: stats)
+            // The shared drift reaches every key immediately, including rare and unseen keys.
+            keys[character] = Self.tempered(features[character].map { drift.prediction(slow: slow, features: $0) } ?? slow)
         }
         return keys.isEmpty ? nil : SpatialTouchCalibration(keys: keys)
     }
@@ -310,9 +432,9 @@ final class PersonalTypingModel {
         let layouts = state.layouts.values.sorted { $0.signature.id < $1.signature.id }.map { layout in
             LayoutSummary(signature: layout.signature, lastUpdated: layout.lastUpdated,
                 keys: layout.keys.sorted { $0.key < $1.key }.map { letter, stats in
-                    let key = stats.calibration
+                    let key = tempered(slowKey(letter, in: layout))
                     return KeySummary(letter: letter, n: stats.n, offsetX: key.offsetX, offsetY: key.offsetY,
-                                      sigmaX: key.sigmaX, sigmaY: key.sigmaY)
+                                      sigmaX: key.sigmaX, sigmaY: key.sigmaY, covarianceXY: key.covarianceXY)
                 })
         }
         return Summary(layouts: layouts, keptWords: state.kept.count, countedWords: state.counts.count,
@@ -325,5 +447,5 @@ final class PersonalTypingModel {
         return state.discardInvalidTouchStats()
     }
 
-    func reset() { state = State(); cachedLexicon = nil }
+    func reset() { state = State(); cachedLexicon = nil; resetFastAim() }
 }

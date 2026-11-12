@@ -96,6 +96,45 @@ final class KeyboardLearningStoreTests: XCTestCase {
         XCTAssertEqual(values.isExcludedFromBackup, true)
     }
 
+    func testSchemaOneMigratesInPlaceWithoutLosingProtections() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        let model = PersonalTypingModel()
+        model.keep("hallo"); model.recordWord("hello")
+        model.rejectCorrection(typed: "hallo", replacement: "hello")
+        let grid = KeyboardLayout(width: 393)
+        let key = try XCTUnwrap(grid.key(.character("a")))
+        model.learn(Array(repeating: .init(point: CGPoint(x: key.frame.midX, y: key.frame.midY), letter: "a"), count: 20),
+                    layout: grid, source: .keep)
+        var counters = KeyboardDiagnostics()
+        let store = fixture.store()
+        XCTAssertTrue(store.save(model: model.state, diagnostics: &counters))
+        let file = fixture.file("learning-v1.json")
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var value = try XCTUnwrap(object["value"] as? [String: Any])
+        value["schemaVersion"] = 1
+        var layouts = try XCTUnwrap(value["layouts"] as? [String: [String: Any]])
+        for id in layouts.keys {
+            layouts[id]!.removeValue(forKey: "global")
+            var keys = layouts[id]!["keys"] as! [String: [String: Any]]
+            for letter in keys.keys { keys[letter]!.removeValue(forKey: "covarianceXY") }
+            layouts[id]!["keys"] = keys
+        }
+        value["layouts"] = layouts; object["value"] = value
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        let (loaded, diagnostics) = store.load()
+        let migrated = try XCTUnwrap(loaded)
+        XCTAssertEqual(migrated.schemaVersion, 2)
+        XCTAssertEqual(migrated.kept, model.state.kept)
+        XCTAssertEqual(migrated.counts, model.state.counts)
+        XCTAssertEqual(migrated.rejected, model.state.rejected)
+        XCTAssertEqual(diagnostics[.storeCorruptDiscarded], 0)
+        XCTAssertNil(migrated.layouts.values.first?.global)
+        XCTAssertEqual(migrated.layouts.values.first?.keys["a"]?.covarianceXY, 0)
+        XCTAssertTrue(store.save(model: migrated, diagnostics: &counters))
+        XCTAssertEqual(store.load().0, migrated)
+        XCTAssertLessThan(try Data(contentsOf: file).count, KeyboardLearningStore.maximumLearningBytes)
+    }
+
     func testOversizedFilesAreDiscardedBeforeDecode() throws {
         let fixture = try Fixture(); defer { fixture.clean() }
         try Data(repeating: 32, count: KeyboardLearningStore.maximumLearningBytes + 1).write(to: fixture.file("learning-v1.json"))
@@ -220,7 +259,7 @@ final class KeyboardLearningStoreTests: XCTestCase {
         XCTAssertFalse(store.isPersistent)
         XCTAssertFalse(store.resetObserved)
         XCTAssertEqual(diagnostics[.storeWriteFailed], 1)
-        var invalid = PersonalTypingModel.State(); invalid.schemaVersion = 2
+        var invalid = PersonalTypingModel.State(); invalid.schemaVersion = 99
         XCTAssertFalse(fixture.store().save(model: invalid, diagnostics: &diagnostics))
         XCTAssertEqual(diagnostics[.storeWriteFailed], 2)
     }

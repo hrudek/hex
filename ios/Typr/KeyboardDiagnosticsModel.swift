@@ -193,6 +193,22 @@ nonisolated enum KeyboardTouchGeometry {
         return CGRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2)
     }
 
+    /// Cholesky maps a unit circle to the full covariance ellipse (fixed 32 segments).
+    static func ellipsePoints(for summary: PersonalTypingModel.KeySummary, key: KeyboardKey,
+                              layout: KeyboardLayout) -> [CGPoint] {
+        let center = center(for: summary, key: key, layout: layout)
+        let l11 = summary.sigmaX
+        let l21 = summary.covarianceXY / l11
+        let l22 = sqrt(max(0, summary.sigmaY * summary.sigmaY - l21 * l21))
+        let width = Double(key.frame.width + layout.metrics.gap)
+        let height = Double(key.frame.height + layout.metrics.rowGap)
+        return (0..<32).map { i in
+            let angle = Double(i) * 2 * Double.pi / 32
+            return CGPoint(x: center.x + width * l11 * cos(angle),
+                           y: center.y + height * (l21 * cos(angle) + l22 * sin(angle)))
+        }
+    }
+
     static func title(_ signature: KeyboardLayoutSignature) -> String {
         let orientation = signature.orientation == "landscape" ? "Landscape" : "Portrait"
         return "\(orientation), \(signature.widthBucket) pt, \(signature.showsStrip ? "suggestions" : "no suggestions"), \(signature.showsGlobe ? "globe" : "no globe")"
