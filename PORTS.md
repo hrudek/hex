@@ -179,6 +179,27 @@ automatic policies and upstream controller/UI implementations. No file is copied
 wholesale from iikb. Frozen-fixture equivalence and device-proof limits are
 documented in [KEYBOARD_SPATIAL_DECODER.md](ios/KEYBOARD_SPATIAL_DECODER.md).
 
+## Offline corpus context suggestions (iikb)
+
+Owner-requested P3 scoped translation, pinned separately to
+**`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, MIT, © 2026 Bassim Shahidy.
+The source checkout was read only, never built/run. Historical adoptions above
+retain their own pins and exclusions.
+
+| Source paths at this pin | Translated ideas | Destination files | Exclusions / license |
+| --- | --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LanguageModel.swift` (discount/backoff), `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (prediction pool / contextual completion scoring) | Corpus-only absolute-discount backoff, bounded merged next-word suggestions and additive display-candidate scoring, including the #115 system/trie/personal completion union in the deferred worker finish; rewritten for Typr TBG1 sidecars and D3b bilingual evidence, not copied files | `ios/TyprShared/FullKeyboard/KeyboardContextModel.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`; `ios/TyprTests/KeyboardContextModelTests.swift`, `KeyboardContextEvaluationTests.swift`, `KeyboardContextCompletionTests.swift` | MIT, © 2026 Bassim Shahidy; no personal context counts, per-app histories, trigrams, neural weights/training, automatic-best policy, dynamic targets, swipe, emoji, themes, layouts, clipboard, network or dictation changes |
+| Common Voice sentence collectors at `cd9dbfeeed7f2c377d6e9792f4d7a583c0ad3538`; Tatoeba DE/EN detailed exports 7 November 2026 (hash-pinned, named owners only) | Independently prepared training-only sparse bigram statistics and observed display spellings, fixed N=8,000/K=3/min=10; Typr's explicit offline deterministic compiler, input hashes and test fixture | `ios/tools/keyboard_context/`, `ios/TyprShared/FullKeyboard/WordData/keyboard-{de,en}.tbg`, `ATTRIBUTION.md`, `tatoeba-contributors.tsv`, reference/test JSON | CC0 1.0 + CC BY 2.0 FR, **not MIT**; no FrequencyWords counts/casing, no iikb resources or executable dependency. Full attribution/source-ID mapping and licenses linked from WordData and THIRD_PARTY_NOTICES.md |
+
+Only a ≤256-character/2,048-byte suffix is read ephemerally; no field context,
+posterior, pair counts or history is serialized. Automatic decisions/margins and
+personal storage schema remain unchanged. New corpus suggestions follow selected
+Autocorrect languages; no new switch. Corpus context is independent of Learn from
+my typing; off supplies no personal completion/count/calibration influence. Existing contact/system name suggestions
+remain independent of the corpus stock-name suppression list. See
+[context behavior and proof limits](ios/KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions).
+The existing full iikb MIT notice applies without duplication.
+
 ## Carried keyboard PR paths
 
 The second row's current destination paths are listed below. In the adopted

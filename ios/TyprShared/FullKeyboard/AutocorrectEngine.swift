@@ -150,6 +150,7 @@ final class AutocorrectEngine {
     /// Fully aligned, RAM-only evidence for the spatial decoder.
     let touchInput = KeyboardTouchInput()
     let spatialDecoder: SpatialWordDecoder?
+    let contextResources: KeyboardContextResources
     let checker: TextChecking
     let learning: KeyboardLearningSession
     var isEnabled = true { didSet { invalidateDecode() } }
@@ -176,6 +177,14 @@ final class AutocorrectEngine {
         if englishEnabled { languages.insert(.english) }
         if german != nil { languages.insert(.german) }
         return languages
+    }
+
+    /// Cheap gate for after-separator corpus predictions: autocorrect on, prepared packs for
+    /// every selected language (a missing selected pack abstains), caret after whitespace.
+    func canPredictNextWord(after beforeInput: String?) -> Bool {
+        guard isEnabled, beforeInput?.last?.isWhitespace == true,
+              let model = contextResources.model else { return false }
+        return model.supports(german: german != nil, english: englishEnabled)
     }
 
     /// Called only by the worker's deferred preparation, never by key insertion.
@@ -261,8 +270,10 @@ final class AutocorrectEngine {
     init(
         checker: TextChecking? = nil,
         learning: KeyboardLearningSession? = nil,
-        spatialDecoder: SpatialWordDecoder? = .bundled
+        spatialDecoder: SpatialWordDecoder? = .bundled,
+        contextResources: KeyboardContextResources? = nil
     ) {
+        self.contextResources = contextResources ?? .bundled
         self.spatialDecoder = spatialDecoder
         self.checker = checker ?? SystemTextChecker()
         let learning = learning ?? KeyboardLearningSession()
@@ -512,7 +523,23 @@ final class AutocorrectEngine {
     ) -> [KeyboardSuggestion] {
         let evidence = touchInput.evidence(beforeInput: beforeInput)
         guard field == .text, autocorrectionType != .no else { return [] }
-        guard let token = Self.currentToken(in: beforeInput) else { return [] }
+        let activeToken = Self.currentToken(in: beforeInput)
+        let contextModel = isEnabled ? contextResources.model.flatMap {
+            $0.supports(german: german != nil, english: englishEnabled) ? $0 : nil
+        } : nil
+        let context = contextModel?.context(before: beforeInput, currentToken: activeToken)
+        guard let token = activeToken else {
+            guard canPredictNextWord(after: beforeInput), let context, context.canPredict,
+                  let model = contextModel else { return [] }
+            let words = model.suggestions(after: context.previous, weightDE: context.state.weightDE,
+                                          german: german != nil, english: englishEnabled)
+            // Most likely word in the centre slot, like the current-word strip; never automatic.
+            return KeyboardContextModel.stripOrder(words).map { word in
+                KeyboardSuggestion(displayText: word.display, replacement: word.display,
+                                   kind: word == words.first ? .primary(autoReplace: false) : .secondary,
+                                   isCompletion: true)
+            }
+        }
 
         let lower = token.lowercased()
         let decision = isEnabled ? decide(token, evidence: evidence, forSuggestions: true) : nil
@@ -520,7 +547,13 @@ final class AutocorrectEngine {
         let spatial = spatialResult(for: token, evidence: evidence, forSuggestions: true)
         var pool: [String] = []
         var completions: Set<String> = []
+        var spatialScores: [String: Double] = [:]
         var personalPicks: Set<String> = []
+        var contactPicks: Set<String> = []
+        // Widen retrieval only when corpus context can contribute, independently of
+        // Learn from my typing. No-context/off/missing-pack paths keep #115's budget.
+        let usesContext = context?.canPredict == true
+        let poolLimit = usesContext ? SpatialPrefixSearch.maxResults : 2
 
         if let pair = reversibleRejection, pair.typed == PersonalLexiconSnapshot.normalize(token) {
             // Rejected protections suppress automatic decisions, not the immediate explicit revert.
@@ -531,6 +564,8 @@ final class AutocorrectEngine {
         } else if englishEnabled, let suggested = Self.suggestOnlyContractions[lower] {
             pool.append(Self.matchCase(of: token, onto: suggested))
         }
+        // Explicit revert, automatic choice and suggest-only contraction keep their slots.
+        let pinnedCount = pool.count
 
         // Spatial words (including above-literal one-edit candidates) use the same slots, never changing
         // typed characters. Display-only, below-literal structural edit suggestions follow, only for a
@@ -538,21 +573,25 @@ final class AutocorrectEngine {
         let protectsLiteral = spatial?.suggestions.contains(where: { $0.edit != .none }) == true
             && protectsFromEditSuggestions(token)
         for candidate in spatial?.suggestions ?? [] {
-            if pool.count >= 2 { break }
+            if pool.count >= poolLimit { break }
             if candidate.edit != .none && protectsLiteral { continue }
             let text = spatialSpelling(candidate, token: token).text
             if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text) { continue }
-            if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { pool.append(text) }
+            if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) {
+                pool.append(text)
+                spatialScores[text] = candidate.score
+            }
             if candidate.isCompletion { completions.insert(text) }
         }
 
         // Prefix matches from Contacts / lexicon terms.
-        if lower.count >= 2 {
+        if lower.count >= 2 && pool.count < poolLimit {
             for term in lexiconTerms where term.lowercased().hasPrefix(lower) && term.lowercased() != lower {
                 let candidate = Self.matchCase(of: token, onto: term)
                 if !pool.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
                     pool.append(candidate)
                     completions.insert(candidate)
+                    contactPicks.insert(candidate)
                 }
                 if pool.count >= 3 { break }
             }
@@ -560,8 +599,13 @@ final class AutocorrectEngine {
 
         // Corpus prefixes and held-letter alternatives are display-only, independent of the
         // correction result/cache. The worker retrieves them; this only assembles and cases.
-        if pool.count < 2, let job = completionJob(for: token, evidence: evidence) {
+        if pool.count < poolLimit, let job = completionJob(for: token, evidence: evidence) {
             let retrieval = completionRetrieval(for: job)
+            // With context, form a union BEFORE display truncation: ≤8 personal
+            // promotions, ≤8 trie results and ≤8 system results. Alongside the
+            // preceding <8 alternatives this fits the pure reranker's 32-item cap.
+            // Without context, preserve #115's exact personal/trie/system ordering.
+            let completionLimit = usesContext ? pool.count + 3 * SpatialPrefixSearch.maxResults : 2
             // Trusted literals may extend exactly (or via a holder), but must not be
             // displaced by a spatially reinterpreted prefix masquerading as a completion.
             let trusted = protectsFromEditSuggestions(token)
@@ -577,7 +621,7 @@ final class AutocorrectEngine {
                 corpus.append((Self.matchCase(of: token, onto: spelling), item.isCompletion))
             }
             func offer(_ cased: String, isCompletion: Bool, personal: Bool = false) {
-                guard pool.count < 2, !learning.protections.isRejected(typed: token, replacement: cased),
+                guard pool.count < completionLimit, !learning.protections.isRejected(typed: token, replacement: cased),
                       !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) else { return }
                 pool.append(cased)
                 if isCompletion { completions.insert(cased) }
@@ -590,16 +634,21 @@ final class AutocorrectEngine {
                 let baseline = corpus.filter(\.isCompletion).map(\.text) + system
                 for promotion in KeyboardCompletionRanking.promotions(
                     token: token, baseline: baseline, additions: retrieval.personal,
-                    personal: learning.personalPriors) where pool.count < 2 {
+                    personal: learning.personalPriors) where pool.count < completionLimit {
                     let cased = promotion.isAddition ? personalSpelling(promotion.word, token: token) : promotion.word
                     offer(cased, isCompletion: true, personal: true)
                 }
             }
-            for item in corpus where pool.count < 2 { offer(item.text, isCompletion: item.isCompletion) }
+            for item in corpus where pool.count < completionLimit { offer(item.text, isCompletion: item.isCompletion) }
+            if usesContext, englishEnabled {
+                for item in systemCompletions(for: token).prefix(SpatialPrefixSearch.maxResults) {
+                    offer(item, isCompletion: true)
+                }
+            }
         }
 
         // Spelling guesses or prefix completions from `UITextChecker`.
-        if pool.count < 2 && token.count >= 2 {
+        if pool.count < poolLimit && token.count >= 2 {
             // Typr: German-valid words count as valid; German guesses come first.
             let valid = Self.shorthandAllowlist.contains(lower) || literalIsValid(token)
             if !valid {
@@ -609,18 +658,28 @@ final class AutocorrectEngine {
                        !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
                         pool.append(cased)
                     }
-                    if pool.count >= 2 { break }
+                    if pool.count >= poolLimit { break }
                 }
             }
-            if englishEnabled && pool.count < 2 {
+            if englishEnabled && pool.count < poolLimit {
                 for cased in systemCompletions(for: token) {
                     if !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
                         pool.append(cased)
                         completions.insert(cased)
                     }
-                    if pool.count >= 2 { break }
+                    if pool.count >= poolLimit { break }
                 }
             }
+        }
+
+        // Context only reorders display alternatives. The automatic choice or explicit revert
+        // stays first (Space and its highlight must still describe the unchanged decision).
+        if let context, let model = contextModel {
+            // Contacts retain #115's precedence too, even with a stronger corpus follower.
+            let slots = pool.indices.filter { $0 >= pinnedCount && !contactPicks.contains(pool[$0]) }
+            let ranked = model.rerank(slots.map { pool[$0] }, spatialScores: spatialScores, context: context,
+                                      german: german != nil, english: englishEnabled)
+            for (slot, word) in zip(slots, ranked) { pool[slot] = word }
         }
 
         let literal = KeyboardSuggestion(displayText: "“\(token)”", replacement: token, kind: .keepLiteral)

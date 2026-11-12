@@ -106,6 +106,15 @@ before capturing evidence for feedback. Delayed completion, suspension, blocked
 worker and overlapping-held-tap tests live in `KeyboardSuggestionWorkerTests`;
 Linux does not prove real host callback/lifecycle ordering or iPhone latency.
 
+## Corpus context suggestions
+
+The [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions)
+reads only a short RAM field suffix, separately from this touch tracker. It neither
+extends the tap window nor stores personal contexts. Reordering current-token
+suggestions preserves their completion provenance; after-space predictions have
+no current token/tap alignment and teach no touch labels or word counts. Automatic
+correction and all conservative evidence invalidation above are unchanged.
+
 ## Proof limits
 
 `KeyboardTouchInputTests` covers geometry, rollover, deletion/retyping, undo,
