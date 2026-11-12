@@ -53,6 +53,7 @@ targets:
             CFBundleURLSchemes:
               - typr
         NSMicrophoneUsageDescription: Typr records only while you dictate and transcribes locally on this iPhone.
+        NSContactsUsageDescription: Typr imports contact names and companies on this iPhone to protect their spelling and offer keyboard completions when you choose to import contacts.
         NSSpeechRecognitionUsageDescription: Typr uses Apple's on-device SpeechTranscriber to turn your recording into text.
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false

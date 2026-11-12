@@ -222,6 +222,87 @@ each language mode, below the stated synthetic bounds but not zero. The original
 short `thrax` regression is protected. These development fixtures do not establish
 human typing benefit; the stricter gates reduce in-vocabulary gain substantially.
 
+## Personal names and terms
+
+The app's **Personal names and terms** controls are source consent, both off until
+the owner opts in. **Import contacts** asks iOS for Contacts access and reads only
+given/family/nick names and companies (limited access means only selected contacts).
+No phone numbers, addresses, contact IDs or contact relationships enter the file.
+**Import dictation words** reads active Custom vocabulary spellings, not sounds-like
+forms, plus final text from up to 50 entries in the app's existing recent log cache.
+Only finished entries qualify: no raw ASR, rejected/late model answers, feedback
+notes, expected text, audio or full archive walk. Opening an older log entry can
+change that cache; this is not an exhaustive or durable dictation-word history.
+
+The app rebuilds at launch/activation, Contacts changes/permission grant, custom
+vocabulary changes and changes to the recent log cache. Enumeration runs off the
+main actor, with cancellation checks; generations/source consent prevent stale
+results from overwriting a reset. Contacts enumerate the accessible address book
+without an input-count limit, but only the bounded top-K output is retained.
+Imports are a separate dictionary, not typing counts/bigrams or a confidence
+signal invented from inferred corrections; Learn from my typing does not disable
+the imported literal protection.
+
+### Query and storage bounds
+
+`ProtectedPersonalLexicon` owns normalization, streaming build, validation,
+serialization and binary queries. NFC/lowercase keys fold curly apostrophes to
+ASCII, preserve accents/ß (no ae/ä or ss/ß conflation), split phrases/companies on
+nonletter/nonapostrophe characters, reject one-letter and >64-UTF-8-byte tokens,
+and deduplicate. There is no frequency ranking or source precedence. The smallest
+**2,000** distinct keys in Swift's deterministic string ordering survive regardless
+of input order. Numeric identifiers are not imported as whole literals; ordinary
+identifier/URL protections remain in effect. Completions follow typed capitalization,
+not original contact/product casing; no new automatic capitalization.
+
+`Typr/Keyboard/personal-lexicon-v1.json` in the App Group contains only version 1
+and sorted word keys: **256 KiB** hard encoded-file cap, **128,000 bytes** maximum
+word payload (2,000 × 64), plus JSON/container overhead. The app writes atomically
+with complete file protection and backup exclusion. No source IDs, sentences,
+timestamps, frequencies or audio are stored here. A cap-sized 64-byte fixture is
+134,023 encoded bytes. These are payload bounds, not Swift allocation/RSS claims.
+
+The keyboard only reads, with real Full Access, on appearance/host activation.
+No Contacts, microphone, speech or network API is added to the extension.
+File metadata preflight rejects nonregular/symlink/oversized files; the read is
+capped at 262,145 bytes even if metadata races. Missing, corrupt, noncanonical,
+unknown-version, over-count or oversized files yield an empty import lexicon.
+Load validates at most 2,000 entries after the file/count checks. Queries over
+2,000 sorted keys need at most 11 binary comparisons, then at most four prefix
+entries to return three strict completions. No list scan is added per key.
+
+Exact imported literals veto *all* automatic changes, even deterministic
+contraction/digraph rules and iOS shortcuts, while unlisted words retain existing
+policy. They are valid learning literals under the existing independent
+settlement/trusted-touch gates. Prefix completions are manual only. Split/join
+chips are vetoed if any original token is imported; boundary automation remains
+suggestion-only. Adaptive attribution abstains if the current prefix or the
+geometric prefix-plus-letter can still be an imported term. This intentionally
+widens abstention for shared prefixes; it does not promise better recall with an
+arbitrary owner's entire dictionary. No inferred touch label is created.
+
+### Deletion and device checks
+
+**Delete imported words** removes the file and disables both sources. App **Reset
+learning** does the same; statistics-only reset does not. Both prevent immediate
+launch/defaults-triggered repopulation. Neither deletes Contacts, Custom vocabulary
+nor the Dictation log: turn imports back on to rebuild from remaining sources.
+Turning a source off, changing vocabulary or deleting log entries rebuilds the
+shared list without that source (a token present in another source remains).
+Existing typing counts/kept words are separate and use Manage learned words;
+deleting the import list alone does not erase independently learned words.
+The extension discards its old snapshot at its next appearance/activation, not via
+a per-key file read. Existing iOS supplementary lexicon entries remain separate.
+
+Linux tests exercise build/caps/order, JSON/file rejection, deletion/reset,
+manual completions, exact automatic-rule/shortcut veto and integrated boundary and
+geometrically-correct name/compound gap controls. UIKit/SwiftUI compilation,
+Contacts grant/denial/limited access/revocation, actual app lifecycle notifications,
+locked-file protection, backup flags, extension Full Access transitions and
+memory/latency on an older iPhone still require device verification. Check rapid
+reset while import/permission is in flight, deletion/re-enable, both languages and
+mixed text in two hosts, manual completion casing and immediate undo.
+
 ## Personal completion ranking
 
 Issue #101. With **Learn from my typing** on, prefix completions in the strip use the

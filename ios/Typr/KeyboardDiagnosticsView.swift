@@ -38,7 +38,7 @@ struct KeyboardDiagnosticsView: View {
             Button("Reset learning", role: .destructive) { model.resetLearning() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Deletes touch calibration, kept words, word counts, next-word pairs and rejected corrections. Statistics stay. The keyboard clears its matching session data before its next save.")
+            Text("Deletes touch calibration, kept words, word counts, next-word pairs, rejected corrections and imported personal words. Turns off contacts and dictation imports without deleting their sources. Statistics stay. The keyboard clears its matching learning before its next save and reloads imports on its next appearance.")
         }
         .confirmationDialog("Reset statistics?", isPresented: $confirmStatisticsReset, titleVisibility: .visible) {
             Button("Reset statistics", role: .destructive) { model.resetStatistics() }
@@ -173,6 +173,7 @@ struct KeyboardDiagnosticsView: View {
         section("Stored data & reset") {
             note("Aggregated counters, per-key offset statistics, kept words, word counts, next-word pairs and rejected corrections. Word pairs only: no sentences, apps, websites or raw taps.")
             note("Kept words, word counts, next-word pairs and rejected word pairs are personal data. They never leave this iPhone and are excluded from backup.")
+            note("Optional contacts and dictation imports use a separate bounded word list. Manage those sources in Personal names and terms. Reset learning deletes that list and turns off both imports.")
             metric("Learning file", Presentation.fileSize(snapshot.learningFile.bytes))
             metric("Statistics file", Presentation.fileSize(snapshot.diagnosticsFile.bytes))
             note("Location: Typr's shared app group on this iPhone.")

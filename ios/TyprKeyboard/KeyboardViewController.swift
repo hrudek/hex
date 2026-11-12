@@ -40,6 +40,7 @@ final class KeyboardViewController: UIInputViewController {
         KeyboardHost.appeared()
         viewModel.hostNotice = nil
         mountSurface()
+        refreshProtectedLexicon()
         fullKeyboard?.prepareForField()
         handOffNumericPadIfNeeded()
         syncFromBridge(animated: false)
@@ -71,7 +72,15 @@ final class KeyboardViewController: UIInputViewController {
     /// A keyboard touch also resumes suggestions if this notice is missed.
     @objc private func hostDidBecomeActive() {
         guard viewIfLoaded?.window != nil else { return }
+        refreshProtectedLexicon()
         fullKeyboard?.resumeSuggestions()
+    }
+
+    private func refreshProtectedLexicon() {
+        let lexicon = hasFullAccess
+            ? ProtectedPersonalLexicon.load(directory: KeyboardLearningStore.sharedDirectory) : .empty
+        fullKeyboard?.engine.autocorrect.loadProtectedLexicon(lexicon)
+        fullKeyboard?.engine.refreshSuggestions()
     }
 
     override func didReceiveMemoryWarning() {

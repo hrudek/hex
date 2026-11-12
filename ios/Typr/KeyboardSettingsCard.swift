@@ -64,6 +64,7 @@ struct KeyboardSettingsCard: View {
                     .buttonStyle(.plain)
                 }
             }
+            PersonalLexiconSettingsCard()
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSection(title: "iPhone setup") {
                     Button {

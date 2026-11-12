@@ -80,6 +80,9 @@ final class KeyboardSuggestionEvaluationTests: XCTestCase {
         let sources = try resources()
         // One worker per resource facade; resources are immutable and identical throughout this test.
         let worker = KeyboardSuggestionWorker()
+        var importBuilder = ProtectedPersonalLexicon.Builder()
+        importBuilder.add("Ina Malin Andi Jens Maren Siemens herdr Typr Mälin Jürgen Zoë O'Neil Alice Microsoft OpenAI Whisper")
+        let imported = importBuilder.build()
         let germanWords: [String] = SpatialTypoEvaluationFixtures.german
         let englishWords: [String] = SpatialTypoEvaluationFixtures.english
         let mixedWords: [String] = germanWords + englishWords
@@ -93,6 +96,7 @@ final class KeyboardSuggestionEvaluationTests: XCTestCase {
         ]
         for (name, languages, words) in modes {
             var n = 0, recall1 = 0, recall3 = 0, automatic = 0, wrong = 0, baselineWrong = 0
+            var importedRecall1 = 0, importedRecall3 = 0, importedAutomatic = 0, importedWrong = 0
             var workerMs = [Double]()
             for (ordinal, intended) in words.enumerated() {
                 let half = ordinal % 2
@@ -127,6 +131,22 @@ final class KeyboardSuggestionEvaluationTests: XCTestCase {
                     // Equality of final strips is stronger than recall parity; report nonliteral recall
                     // (two available alternative slots) rather than counting the always-present keep chip.
                     let alternatives = actual.filter { $0.kind != .keepLiteral }.map { $0.replacement.lowercased() }
+                    // Same public fixtures and evidence, now with the name-control import loaded.
+                    let withImports = engine(sources, languages: languages, answer: intended)
+                    withImports.loadProtectedLexicon(imported)
+                    install(word, in: withImports)
+                    let importedStrip = withImports.suggestions(beforeInput: word.text, field: .text,
+                                                                 autocorrectionType: .default)
+                    let importedAlternatives = importedStrip.filter { $0.kind != .keepLiteral }
+                        .map { $0.replacement.lowercased() }
+                    if importedAlternatives.first == intended { importedRecall1 += 1 }
+                    if importedAlternatives.prefix(3).contains(intended) { importedRecall3 += 1 }
+                    let importedBoundary = withImports.replacementOnSpace(beforeInput: word.text, field: .text,
+                                                                          autocorrectionType: .default)
+                    if let importedBoundary {
+                        importedAutomatic += 1
+                        if importedBoundary.replacement.lowercased() != intended { importedWrong += 1 }
+                    }
                     if alternatives.first == intended { recall1 += 1 }
                     if alternatives.prefix(3).contains(intended) { recall3 += 1 }
                     if let boundaryA, boundaryA.replacement.lowercased() != intended { baselineWrong += 1 }
@@ -141,6 +161,11 @@ final class KeyboardSuggestionEvaluationTests: XCTestCase {
                     workerMs.append(result.seconds * 1_000)
                 }
             }
+            XCTAssertEqual(importedRecall1, recall1, "Name-control imports must preserve public correction recall@1")
+            XCTAssertEqual(importedRecall3, recall3, "Name-control imports must preserve public correction recall@3")
+            XCTAssertEqual(importedWrong, wrong)
+            XCTAssertEqual(importedAutomatic, automatic)
+            print("EVAL R2_1_public_quality mode=\(name) n=\(n) before_recall1=\(recall1) after_recall1=\(importedRecall1) before_recall3=\(recall3) after_recall3=\(importedRecall3) before_auto=\(automatic) after_auto=\(importedAutomatic) before_wrong=\(wrong) after_wrong=\(importedWrong) imported_entries=\(imported.words.count) validity=synthetic-corpus NOT-iPhone")
             XCTAssertEqual(wrong, baselineWrong, "Scheduling must not change automatic quality")
             XCTAssertLessThanOrEqual(wrong, 1, "Frozen synthetic fixture bound per language mode; not a valid-word allowance")
             XCTAssertGreaterThanOrEqual(Double(recall1) / Double(n), 0.90)

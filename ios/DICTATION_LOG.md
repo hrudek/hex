@@ -64,6 +64,27 @@ receive a UUID. Equal or older keys are no-ops. Reference/note have a separate
 order. Every mutation increases the per-entry revision. These are observations,
 not labelled audio examples or an automatic model-training pipeline.
 
+## Personal keyboard lexicon imports
+
+An independent, owner-opt-in **Import dictation words** control in Keyboard
+settings lets the app build the protected personal lexicon described in
+[KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md#personal-names-and-terms).
+It reads only final output from finished entries in the existing recent cache
+(up to 50), plus active Custom vocabulary spellings. It does not read archive
+audio, rejected/raw speech/model output, sounds-like forms, notes or human
+references, and does not alter the speech pipeline or the log schema.
+
+Only normalized word keys cross the App Group boundary (≤2,000 entries, ≤64
+UTF-8 bytes/token, ≤256 KiB file); sentences/contact details beyond the explicitly
+selected name/company words/audio never enter that file. The keyboard cannot
+read this app-private log. Deleting log entries or clearing the log refreshes the
+import on cache change; terms also supplied by Contacts/custom vocabulary remain.
+Delete imported words or Reset learning deletes the derivative list and disables
+both import sources without erasing the original log/vocabulary/Contacts. Existing
+typing learning is separate. Re-enable imports explicitly to rebuild; a keyboard
+already open reloads on next appearance/host activation. No runtime export or
+network collection is introduced.
+
 ## Retention, privacy and deletion
 
 Saved text stays on this iPhone until explicitly deleted. **App removal, device
