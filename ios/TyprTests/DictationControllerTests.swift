@@ -847,6 +847,30 @@ final class DictationControllerTests: XCTestCase {
         controller.cancelCurrentJob()
     }
 
+    func testFailedStartDuringCallKeepsWarmSessionUntilTheCallEnds() async throws {
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: 26_000, retryDelays: [])
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+
+        // A phone call holds audio: every activation fails until it ends.
+        controller.handleAudioSystemEvent(.interruptionBegan)
+        audio.keepaliveShouldThrow = true
+        controller.startRecording(keyboardJobID: "during-call")
+        try await settle()
+        guard case .failed = controller.phase else { return XCTFail("expected failure, got \(controller.phase)") }
+        XCTAssertTrue(controller.keyboardSessionEnabled, "a failed start during the call must not end the session")
+
+        audio.keepaliveShouldThrow = false
+        controller.handleAudioSystemEvent(.interruptionEnded(shouldResume: true))
+        try await settle()
+        XCTAssertTrue(controller.keyboardSessionEnabled)
+        XCTAssertTrue(audio.isKeepaliveRunning, "the end of the call still resumes the warm input")
+    }
+
     func testOnlyEngineFailuresRequireReloadingTheModel() {
         XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.silentAudio))
         XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.emptyTranscript))
