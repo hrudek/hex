@@ -32,6 +32,10 @@ private final class FakeAudioManager: AudioManaging {
     /// False models Typr in the background: iOS refuses to start microphone input there,
     /// though input that is already running keeps going.
     var canStartInput = true
+    /// Activations iOS refuses before one succeeds, as right after another app's audio ends.
+    var busyActivationsRemaining = 0
+    var captureShouldThrow = false
+    static let busyError = NSError(domain: NSOSStatusErrorDomain, code: 0x2170_6C61) // '!pla'
     var startKeepaliveCount = 0
     var nextCaptureDuration: TimeInterval = 1.4
     var nextCaptureIsRecording = true
@@ -47,6 +51,11 @@ private final class FakeAudioManager: AudioManaging {
 
     func startKeepalive(allowBluetooth: Bool) throws {
         startKeepaliveCount += 1
+        if busyActivationsRemaining > 0 {
+            busyActivationsRemaining -= 1
+            isKeepaliveRunning = false
+            throw Self.busyError
+        }
         if keepaliveShouldThrow || !canStartInput {
             isKeepaliveRunning = false
             throw CocoaError(.coderInvalidValue)
@@ -70,6 +79,9 @@ private final class FakeAudioManager: AudioManaging {
     ) throws -> any ActiveAudioCapture {
         // Captures record from the keepalive input, starting it when it isn't running.
         try ensureKeepalive(allowBluetooth: allowBluetooth)
+        if captureShouldThrow {
+            throw CocoaError(.fileWriteUnknown)
+        }
         let capture = FakeAudioCapture(url: url, initialDuration: nextCaptureDuration)
         capture.isRecording = nextCaptureIsRecording
         createdCaptures.append(capture)
@@ -669,6 +681,179 @@ final class DictationControllerTests: XCTestCase {
         controller.finishRecording()
         try await settle()
         XCTAssertEqual(controller.transcript, "iPhone 17 broke.")
+    }
+
+    // MARK: - Start without waiting after failures (2026-11-12 device logs)
+
+    private func makeRecoveryController(
+        audio: FakeAudioManager,
+        bridge: KeyboardBridge,
+        now: TimeInterval,
+        retryDelays: [Duration],
+        onPrepare: @escaping () -> Void = {}
+    ) -> DictationController {
+        let transcriber = ControlledTranscriber()
+        return DictationController(
+            audio: audio,
+            keyboardBridge: bridge,
+            transcriber: transcriber,
+            transcriberFactory: {
+                onPrepare()
+                return transcriber
+            },
+            now: { now },
+            autoPrepareOnInit: false,
+            hostReturner: HostReturner(openByBundleID: { _ in false }, openURL: { _ in false }),
+            audioActivationRetryDelays: retryDelays
+        )
+    }
+
+    func testActivationRetriesWhileAnotherAppStillHoldsAudio() async throws {
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: 20_000,
+                                                retryDelays: [.milliseconds(1), .milliseconds(1)])
+        controller.prepareModel()
+        try await settle()
+
+        audio.busyActivationsRemaining = 2
+        controller.startRecording(keyboardJobID: "after-voice-message")
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording, "a brief refusal must not fail the dictation")
+        XCTAssertEqual(audio.startKeepaliveCount, 3)
+        controller.cancelCurrentJob()
+    }
+
+    func testRefusalBeyondRetriesExplainsThatAudioIsBusy() async throws {
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: 21_000,
+                                                retryDelays: [.milliseconds(1)])
+        controller.prepareModel()
+        try await settle()
+
+        audio.busyActivationsRemaining = 5
+        controller.startRecording(keyboardJobID: "busy")
+        try await settle()
+        XCTAssertEqual(controller.phase, .failed(DictationController.audioBusyMessage))
+        XCTAssertEqual(audio.startKeepaliveCount, 2)
+    }
+
+    func testKeyboardHandoffAfterFailureReusesPreparedModel() async throws {
+        let now = 22_000.0
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        var prepares = 0
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: now,
+                                                retryDelays: [], onPrepare: { prepares += 1 })
+        controller.prepareModel()
+        try await settle()
+        XCTAssertEqual(prepares, 1)
+
+        audio.captureShouldThrow = true
+        controller.startRecording(keyboardJobID: "fails")
+        try await settle()
+        guard case .failed = controller.phase else { return XCTFail("expected failure, got \(controller.phase)") }
+
+        audio.captureShouldThrow = false
+        controller.handleKeyboardLaunch(
+            .startRecording(jobID: "next", requestedAt: now, style: .polished, host: nil)
+        )
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording)
+        XCTAssertEqual(prepares, 1, "a microphone failure must not reload the speech model")
+        controller.cancelCurrentJob()
+    }
+
+    func testWarmKeyboardStartWorksAgainAfterFailedCapture() async throws {
+        let now = 23_000.0
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: now, retryDelays: [])
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+        XCTAssertTrue(audio.isKeepaliveRunning)
+
+        audio.captureShouldThrow = true
+        bridge.send(.start, jobID: "fails", style: .polished, sentAt: now)
+        controller.processPendingKeyboardCommandForTesting()
+        try await settle()
+        guard case .failed = controller.phase else { return XCTFail("expected failure, got \(controller.phase)") }
+        XCTAssertTrue(audio.isKeepaliveRunning)
+
+        audio.captureShouldThrow = false
+        bridge.send(.start, jobID: "retry", style: .polished, sentAt: now)
+        controller.processPendingKeyboardCommandForTesting()
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording, "the warm keyboard start must not be ignored after a failure")
+        controller.cancelCurrentJob()
+    }
+
+    func testInterruptionResumeRetriesBeforeEndingWarmSession() async throws {
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: 24_000,
+                                                retryDelays: [.milliseconds(1), .milliseconds(1)])
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+
+        controller.handleAudioSystemEvent(.interruptionBegan)
+        XCTAssertFalse(audio.isKeepaliveRunning)
+        audio.busyActivationsRemaining = 2
+        controller.handleAudioSystemEvent(.interruptionEnded(shouldResume: true))
+        try await settle()
+        XCTAssertTrue(controller.keyboardSessionEnabled)
+        XCTAssertTrue(audio.isKeepaliveRunning)
+
+        controller.handleAudioSystemEvent(.interruptionBegan)
+        audio.busyActivationsRemaining = 10
+        controller.handleAudioSystemEvent(.interruptionEnded(shouldResume: true))
+        try await settle()
+        XCTAssertFalse(controller.keyboardSessionEnabled, "a lasting refusal still ends the warm session")
+    }
+
+    func testKeyboardStartDuringInterruptionResumeKeepsItsCapture() async throws {
+        let now = 25_000.0
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: now,
+                                                retryDelays: [.milliseconds(50), .milliseconds(50)])
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+
+        controller.handleAudioSystemEvent(.interruptionBegan)
+        audio.busyActivationsRemaining = 2
+        controller.handleAudioSystemEvent(.interruptionEnded(shouldResume: true))
+        // Dictate right away, while the resume would still be retrying.
+        bridge.send(.start, jobID: "right-after-voice-message", style: .polished, sentAt: now)
+        controller.processPendingKeyboardCommandForTesting()
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording)
+        let capture = try XCTUnwrap(audio.createdCaptures.last)
+        let startsAfterCapture = audio.startKeepaliveCount
+
+        try await settle()
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording, "the capture must keep recording")
+        XCTAssertTrue(capture.isRecording)
+        XCTAssertEqual(audio.startKeepaliveCount, startsAfterCapture, "no input restart under the capture")
+        XCTAssertTrue(controller.keyboardSessionEnabled)
+        controller.cancelCurrentJob()
+    }
+
+    func testOnlyEngineFailuresRequireReloadingTheModel() {
+        XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.silentAudio))
+        XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.emptyTranscript))
+        XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(CancellationError()))
+        XCTAssertFalse(DictationController.transcriptionFailureKeepsModel(
+            WhisperTranscriber.TranscriberError.corruptModel("ANE")))
+        XCTAssertFalse(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.notPrepared))
     }
 
     private func settle() async throws {
