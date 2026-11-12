@@ -115,6 +115,33 @@ themes, layouts, clipboard, network, neural weights/context prediction, dynamic
 hit targets, raw tap storage, dictation changes and upstream automatic policy.
 The existing iikb MIT notice was checked against this pin's LICENSE and is reused,
 not duplicated. See the keyboard documents for bounds and proof limits.
+## Deferred keyboard suggestions (iikb)
+
+Owner-approved P1 translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
+**MIT, © 2026 Bassim Shahidy**; this pin does not replace the historical pins above.
+The read-only reference was inspected, never built or executed.
+
+| Source path at this pin | Translated algorithm | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+
+The P1 review follow-up keeps this same pin/scope: current-token republication after
+evidence/learning/resource invalidation, state-preserving suggestion resume, completed
+decode reuse on unchanged refresh and direct accessibility activation are Typr-specific
+integration fixes in the destinations above, not additional upstream UI adoption.
+
+The existing Typr search/scoring algorithm is extracted unchanged into
+`SpatialWordRanking`, not replaced by iikb's scorer. UIKit checkers and all live
+learning/diagnostics mutation stay on MainActor. Space/punctuation never await a
+job: a missing/stale cache runs the existing bounded synchronous decision.
+The existing MIT notice in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) covers
+this adaptation without duplicating it.
+
+Excluded: swipe, emoji, themes, layouts, clipboard, network, neural weights,
+dictation changes, upstream resources/dependencies, contextual learning, new
+automatic policies and upstream controller/UI implementations. No file is copied
+wholesale from iikb. Frozen-fixture equivalence and device-proof limits are
+documented in [KEYBOARD_SPATIAL_DECODER.md](ios/KEYBOARD_SPATIAL_DECODER.md).
 
 ## Carried keyboard PR paths
 

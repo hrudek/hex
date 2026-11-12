@@ -125,7 +125,7 @@ final class SpatialPrefixSearchTests: XCTestCase {
         print("EVAL P2_learning completion_picks=2 counted_words=2 touch_labels=0")
     }
 
-    func testKeyboardStripCompletionSelectionAndSpaceBoundary() throws {
+    func testKeyboardStripCompletionSelectionAndSpaceBoundary() async throws {
         for pick in [false, true] {
             let words = lexicon([("keyboard", 100)])
             let ac = AutocorrectEngine(checker: PrefixChecker(), learning: KeyboardLearningSession(),
@@ -137,6 +137,7 @@ final class SpatialPrefixSearchTests: XCTestCase {
             keyboard.configureForField()
             track(evidence("keyb"), engine: ac)
             keyboard.refreshSuggestions()
+            await keyboard.waitForSuggestions()
             let chip = try XCTUnwrap(keyboard.suggestions.first { $0.replacement == "keyboard" })
             XCTAssertTrue(chip.isCompletion)
             if pick {
