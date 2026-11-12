@@ -156,6 +156,41 @@ claim endorsement by the original authors. Typr's own decoder/compiler code
 remains MIT. No iikb model or word resources, wordfreq or Python package dependency
 is bundled.
 
+## Offline corpus context suggestions
+
+Typr additionally translates absolute-discount backoff and bounded contextual
+candidate ranking ideas from iikb `LanguageModel.swift` / `Corrector.swift` at
+[`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765),
+MIT, **Copyright (c) 2026 Bassim Shahidy**. The full existing iikb notice above
+covers this adaptation; no duplicate notice or iikb resource is included.
+
+The separate `keyboard-de.tbg` / `keyboard-en.tbg` statistics adapt:
+
+- **Common Voice and its sentence-collector contributors**, DE/EN text at
+  `cd9dbfeeed7f2c377d6e9792f4d7a583c0ad3538`, **CC0 1.0 Universal**:
+  https://creativecommons.org/publicdomain/zero/1.0/ .
+- **Tatoeba contributors named in the accompanying
+  [tatoeba-contributors.tsv](ios/TyprShared/FullKeyboard/WordData/tatoeba-contributors.tsv)**,
+  German and English detailed exports dated 7 November 2026, retrieved
+  12 November 2026 UTC, **Creative Commons Attribution 2.0 France (CC BY 2.0 FR)**:
+  https://creativecommons.org/licenses/by/2.0/fr/ ; full legal code:
+  https://creativecommons.org/licenses/by/2.0/fr/legalcode.fr .
+  Official source and terms: https://tatoeba.org/en/downloads and
+  https://tatoeba.org/en/terms_of_use#section-6 .
+
+The [full accompanying attribution](ios/TyprShared/FullKeyboard/WordData/ATTRIBUTION.md)
+contains exact source URLs, changes and distribution conditions, with the actual
+7,206-owner roster bundled in app and keyboard. Preserve the accompanying
+[training sentence-ID / owner / URL / per-sentence-license mapping](ios/tools/keyboard_context/credits/tatoeba-training-attribution.tsv.gz)
+at an accessible public data/credits location or accompany redistributed data with
+it; generic Tatoeba credit alone is insufficient. Official CC0 subset rows are
+labelled in that mapping. Tatoeba-derived portions are **not CC0 or MIT**. No
+endorsement is implied. Preserve applicable credits/license links and do not add
+restrictions defeating the granted rights. No audio or share-alike data enters
+these sidecars. The unchanged FrequencyWords `.words` files retain separate CC
+BY-SA terms. `context-heldout-cc0.json` is a Common Voice CC0 test-only fixture;
+`swift-reference-vectors.json` is Typr-generated numeric reference output.
+
 ## FluidAudio 0.15.5
 
 The iPhone app uses the Swift package

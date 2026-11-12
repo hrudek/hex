@@ -145,6 +145,7 @@ final class AutocorrectEngine {
     /// Fully aligned, RAM-only evidence for the spatial decoder.
     let touchInput = KeyboardTouchInput()
     let spatialDecoder: SpatialWordDecoder?
+    let contextResources: KeyboardContextResources
     let checker: TextChecking
     let learning: KeyboardLearningSession
     var isEnabled = true { didSet { invalidateDecode() } }
@@ -166,8 +167,10 @@ final class AutocorrectEngine {
     init(
         checker: TextChecking? = nil,
         learning: KeyboardLearningSession? = nil,
-        spatialDecoder: SpatialWordDecoder? = .bundled
+        spatialDecoder: SpatialWordDecoder? = .bundled,
+        contextResources: KeyboardContextResources? = nil
     ) {
+        self.contextResources = contextResources ?? .bundled
         self.spatialDecoder = spatialDecoder
         self.checker = checker ?? SystemTextChecker()
         let learning = learning ?? KeyboardLearningSession()
@@ -409,13 +412,25 @@ final class AutocorrectEngine {
     ) -> [KeyboardSuggestion] {
         let evidence = touchInput.evidence(beforeInput: beforeInput)
         guard field == .text, autocorrectionType != .no else { return [] }
-        guard let token = Self.currentToken(in: beforeInput) else { return [] }
+        let activeToken = Self.currentToken(in: beforeInput)
+        let context = contextResources.model?.context(before: beforeInput, currentToken: activeToken)
+        guard let token = activeToken else {
+            guard isEnabled, let beforeInput, beforeInput.last?.isWhitespace == true,
+                  let context, context.canPredict, let model = contextResources.model else { return [] }
+            return model.suggestions(after: context.previous, weightDE: context.state.weightDE,
+                                     german: german != nil, english: englishEnabled).enumerated().map { index, word in
+                KeyboardSuggestion(displayText: word.display, replacement: word.display,
+                                   kind: index == 1 ? .primary(autoReplace: false) : .secondary,
+                                   isCompletion: true)
+            }
+        }
 
         let lower = token.lowercased()
         let autoFix = isEnabled ? decide(token, evidence: evidence, forSuggestions: true).text : nil
         let spatial = spatialResult(for: token, evidence: evidence, forSuggestions: true)
         var pool: [String] = []
         var completions: Set<String> = []
+        let poolLimit = isEnabled && contextResources.model != nil ? 8 : 2
 
         if let pair = reversibleRejection, pair.typed == PersonalLexiconSnapshot.normalize(token) {
             // Rejected protections suppress automatic decisions, not the immediate explicit revert.
@@ -433,7 +448,7 @@ final class AutocorrectEngine {
         let protectsLiteral = spatial?.suggestions.contains(where: { $0.edit != .none }) == true
             && protectsFromEditSuggestions(token)
         for candidate in spatial?.suggestions ?? [] {
-            if pool.count >= 2 { break }
+            if pool.count >= poolLimit { break }
             if candidate.edit != .none && protectsLiteral { continue }
             let text = spatialSpelling(candidate, token: token).text
             if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text) { continue }
@@ -441,7 +456,7 @@ final class AutocorrectEngine {
         }
 
         // Prefix matches from Contacts / lexicon terms.
-        if lower.count >= 2 {
+        if lower.count >= 2 && pool.count < poolLimit {
             for term in lexiconTerms where term.lowercased().hasPrefix(lower) && term.lowercased() != lower {
                 let candidate = Self.matchCase(of: token, onto: term)
                 if !pool.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
@@ -453,7 +468,7 @@ final class AutocorrectEngine {
         }
 
         // Spelling guesses or prefix completions from `UITextChecker`.
-        if pool.count < 2 && token.count >= 2 {
+        if pool.count < poolLimit && token.count >= 2 {
             // Typr: German-valid words count as valid; German guesses come first.
             let valid = Self.shorthandAllowlist.contains(lower) || literalIsValid(token)
             if !valid {
@@ -463,10 +478,10 @@ final class AutocorrectEngine {
                        !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
                         pool.append(cased)
                     }
-                    if pool.count >= 2 { break }
+                    if pool.count >= poolLimit { break }
                 }
             }
-            if englishEnabled && pool.count < 2 {
+            if englishEnabled && pool.count < poolLimit {
                 let checked = checker.completions(for: token)
                     .filter { $0.count > token.count && $0.count <= token.count + 8 }
                     .sorted { a, b in
@@ -479,9 +494,18 @@ final class AutocorrectEngine {
                         pool.append(cased)
                         completions.insert(cased)
                     }
-                    if pool.count >= 2 { break }
+                    if pool.count >= poolLimit { break }
                 }
             }
+        }
+
+        // Context only reorders display alternatives. Keep the automatic or explicit revert
+        // first (Space and its highlight must still describe the unchanged decision).
+        if isEnabled, let context, let model = contextResources.model {
+            let pinned = autoFix != nil || reversibleRejection?.typed == PersonalLexiconSnapshot.normalize(token)
+            let head = pinned ? Array(pool.prefix(1)) : []
+            pool = head + model.rerank(Array(pool.dropFirst(head.count)), context: context,
+                                       german: german != nil, english: englishEnabled)
         }
 
         let literal = KeyboardSuggestion(displayText: "“\(token)”", replacement: token, kind: .keepLiteral)

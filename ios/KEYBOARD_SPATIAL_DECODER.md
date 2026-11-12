@@ -267,6 +267,101 @@ timings. No real typing or personal-learning benefit is established. A later Lin
 Swift 6.2 optimized rerun on both seeds preserved every recorded non-timing
 metric (including pops/generated summaries) versus the prior Linux final runs.
 
+## Offline corpus context suggestions
+
+`KeyboardContextModel` adds **suggestion-only** corpus context, not a new
+correction objective or personal context learner. At a trailing space the strip
+can show three next words; tapping inserts that word plus the existing separator.
+No keep chip or automatic highlight is used for predictions. While typing, up to
+eight existing spatial/spelling/completion alternatives enter a bounded rerank;
+the literal slot and existing automatic/explicit-revert first choice stay pinned.
+Every strict prefix extension still carries completion provenance (no tap labels).
+No second spelling engine or new switch is introduced. Autocorrect off, no selected
+language, non-prose fields and host autocorrection refusal suppress predictions.
+Missing selected sidecars abstain, never quietly prefer the other language.
+
+The [TBG1 sidecars and notices](TyprShared/FullKeyboard/WordData/README.md#corpus-context-sidecars-tbg1)
+are independent Common Voice CC0 + Tatoeba CC BY 2.0 FR statistics: 8,000 lexical
+words/language, K=3 retained followers, min-count=10, **662,793 bytes combined**.
+Off-main-actor preparation maps-if-safe and validates every header, CRC, UTF-8
+spelling, sorted row, offset and count before installation. Two UInt16 unigram
+orders add **32,000 bytes**. File+index payload is **694,793 bytes**, not actual
+resident pages, allocator overhead, high-water RSS or an extension footprint.
+
+Scoring uses discounted backoff: `p0=(u+.5)/(U+.5*N)`;
+`P(w|h)=lambda*p0(w)+max(c(h,w)-.5,0)/C(h)` for retained edges,
+`lambda=1-sum(retained boosts)`. Full row totals include OOV/pruned targets, so
+missing continuation mass backs off rather than disappearing. Nil/unknown context
+uses unigram; explicit sentence punctuation uses `<s>`, never a cross-sentence
+lexical edge. Corpus stock names `tom/mary/maria/john` are skipped by prediction
+ranking only; they remain valid contexts/evidence. User contact, text replacement,
+keep/revert and system spelling names remain available as before.
+
+Bilingual weights implement the exact D3b contract with Float64 natural logs:
+`M=union lexical size`, `q_l(w)=(u_l(w)+.5)/(U_l+.5*(M+1))`,
+`e=clip(log(q_de/q_en),-3,3)` (both OOV gives zero),
+`S=clip(.75*S+e,-6,6)`, `a_de=.05+.90/(1+exp(-S))`, `a_en=1-a_de`.
+Sentence boundaries halve S; numeric/non-prose barriers break adjacency and add no
+evidence. Single-language selection uses only that pack, not the bilingual floor.
+Exact top-three merges keys, seeds all row boosts, then scans descending unigram
+orders until the third score is **strictly greater** than the next-background
+bound. Ties use UTF-8 key order; display uses the larger weighted language
+component, German on ties. At most **16,000 lexical visits plus 32 boosted
+followers**; request-local seen keys are capped by the two 8,000-word vocabularies,
+not a growing cache. Returned top-three storage is fixed size. Strings are ≤128
+UTF-8 bytes/32 characters. No approximation is described as the exact oracle.
+
+Current-token display candidates use original rank score `-.2*rank` plus the
+bounded additive log term `.10*max(-15, log(max(P_mix, exp(-15))))` in [-1.5,0].
+At most 32 candidates may enter the pure reranker (integration retains eight).
+This deliberately weak ranker cannot authorize any replacement: `decide`, spatial
+scores/completeness, German casing validation, protections, margins and Space/
+punctuation/undo transactions are unchanged. Names and productive compounds remain
+protected from automatic frequency chasing.
+
+Only the last **256 characters / 2,048 UTF-8 bytes** before the caret are
+read in RAM; the active token is excluded from completed-word evidence. A clipped first word is discarded. The state is recomputed from that
+suffix on each request (no repeated-word double consumption, retained cross-field
+posterior, checkpoint history, schema, file, log or network). Long fields therefore
+use a bounded approximate history, not all earlier words. Unknown/empty fields
+are not invented BOS. URL/email/identifier/number spans are conservative barriers.
+Resource readiness requests a strip refresh; while loading, old spelling behavior
+continues. Context scoring is in the existing suggestion finish path, **never**
+in `replacementOnSpace`; PR #113 can defer that finish without changing the model.
+
+### Observed P3 Linux checks and limits
+
+Swift 6.4.2 debug Linux harness: nine new context tests passed, all 47 D3b vector
+events reproduce state/weights and both top-three variants to **1e-12**. A full run
+had **244 passed, one known Linux backup-metadata failure, nine skips**. The new
+128-sentence CC0 global-test fixture measured DE R@3 **14.06%** versus unigram
+**4.91%** (448 lexical pairs), EN **17.74%** versus **6.68%** (434 pairs); truncated
+MRR@3 **.0967 / .1359**. This tiny, SHA-ordered held-out fixture is digest-disjoint
+from training, not author/template-independent or natural messaging. Runtime
+stock-name suppression is applied in these figures.
+
+Independently authored synthetic sequences measured DE/EN/mixed R@3
+**50.00% / 40.00% / 33.33%** (14/15/12 pairs). Mixed wrong-language slots were
+**36.11%** versus **44.44%** for 50/50, using D3b's fixed smoothed 4:1 unigram-ratio
+proxy and all suggestion slots as denominator. This intentionally abrupt tiny
+mixed sample remains poor: no natural multilingual quality claim. Nine synthetic
+neighbor-typo fixtures (three/group) retained 3/3 first-choice recall per group,
+zero changed automatic decisions; 20 injected-valid literal/name/compound/homograph
+controls had zero unwanted autos. The validity checker is injected, **not Apple**;
+this checks integration/nonregression, not production precision or a ranking gain.
+A controlled `ich ha` completion test demonstrates promotion while Space leaves
+`ha` unchanged. Existing larger spatial evaluations remain unchanged.
+
+41 warm prediction calls measured mean **.342 ms**, p95 **.671 ms**, max **1.000 ms**
+on this Linux debug run; a generous 500 ms maximum test guard is not a phone
+latency target. Detached preparation/cold mapping/checksum work is excluded; a separate detached
+readiness test measured **882 ms** with filesystem pages potentially warm.
+The production offline compiler freshly rebuilt both packs and credits from all
+six hash-pinned raw inputs, then independently recounted/compiled byte-identically.
+No UIKit compile, simulator, iPhone, system dictionaries, natural code-switch
+quality, content-safety/DRM review, actual RSS or main-thread key latency was
+verified here. Those remain owner/Apple checks, including PR #113 merge behavior.
+
 ## Required owner iPhone checks
 
 First compile app/keyboard/widgets and run the actual iOS test target in Apple

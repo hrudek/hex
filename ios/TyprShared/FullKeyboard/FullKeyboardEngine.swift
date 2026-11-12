@@ -143,6 +143,7 @@ final class FullKeyboardEngine {
 
     /// Call when the keyboard appears or the field changes.
     func configureForField() {
+        autocorrect.contextResources.prepare { [weak self] in self?.refreshSuggestions() }
         switch KeyboardFieldRouting.route(for: target.keyboardType) {
         case .keys(let kind, let initialLayer):
             field = kind

@@ -6,6 +6,17 @@ replaces the old kept-word store; it is **not RAM-only**. It is not a typed-text
 history, raw tap archive, contextual language model or accuracy measurement.
 The keyboard never accesses the microphone, speech model or network.
 
+The separate [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions)
+uses bundled public DE/EN statistics for after-space predictions and display-only
+reranking. It reads at most a 256-character/2,048-byte field suffix in RAM,
+recomputes a bounded language-evidence state per request, and stores **no personal
+context, pair counts, posterior or history**. It adds no learning schema or switch;
+Autocorrect and its selected languages govern it, independently of Learn from my
+typing. Picking a next-word prediction has no aligned current-token evidence and
+teaches no touch labels or personal count. Ordinary typed-prefix completion picks
+retain the existing trusted-count/no-label rules. Full Access-gated personal
+persistence, resets, keeps and rejected pairs below are unchanged.
+
 [Keyboard correction path](KEYBOARD_SPATIAL_DECODER.md) is the single reference
 for candidate scoring and automatic replacement. [Touch evidence](KEYBOARD_TOUCH_INPUT.md)
 defines the ephemeral capture contract. Implementation owners are
