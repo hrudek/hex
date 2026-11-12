@@ -422,10 +422,17 @@ final class FullKeyboardEngine {
         guard let key = layout.hitTest(point) else { return }
         // A touch proves the keyboard is visible, even if a host activation notice was missed.
         if !suggestionsAreActive { resumeSuggestions() }
-        // Rollover: a new key going down commits any character or accent picker still held.
+        // Rollover: commit a held character or real Space before the next key. Space
+        // keeps its last observed point, never a fabricated key centre.
         for other in touchOrder {
-            guard var touch = touches[other], touch.key.character != nil, !touch.committed else { continue }
-            if activeAccentTouchID == other, let menu = activeAccentMenu {
+            guard var touch = touches[other], !touch.committed else { continue }
+            if touch.key.kind == .space, !touch.isTrackpad {
+                let sample: KeyboardTouchWord.Sample? = touch.hasUnambiguousPoint && touch.evidenceLayout == layout
+                    ? .init(text: " ", point: touch.point, key: touch.key) : nil
+                typeSpace(sample: sample)
+            } else if touch.key.character == nil {
+                continue
+            } else if activeAccentTouchID == other, let menu = activeAccentMenu {
                 commitAccentSelection(menu.selectedOption)
                 activeAccentMenu = nil
                 activeAccentTouchID = nil
@@ -503,7 +510,7 @@ final class FullKeyboardEngine {
         }
 
         // 2. Spacebar cursor trackpad: horizontal drag >= 10 pt slides the text caret.
-        if touch.key.kind == .space {
+        if touch.key.kind == .space, !touch.committed {
             if !touch.isTrackpad, abs(point.x - touch.startPoint.x) >= Self.trackpadActivationDistance {
                 discardTouchEvidence()
                 touch.isTrackpad = true
@@ -571,8 +578,10 @@ final class FullKeyboardEngine {
         case .shift:
             shift.shiftUp()
         case .space:
-            if !touch.isTrackpad {
-                typeSpace()
+            if !touch.isTrackpad, !touch.committed {
+                let sample: KeyboardTouchWord.Sample? = touch.hasUnambiguousPoint && touch.evidenceLayout == layout
+                    ? .init(text: " ", point: touch.point, key: touch.key) : nil
+                typeSpace(sample: sample)
             }
         case .returnKey:
             if target.enablesReturnKeyAutomatically == true && !target.hasText {
@@ -780,15 +789,19 @@ final class FullKeyboardEngine {
         onChange?()
     }
 
-    private func typeSpace() {
-        // Keep evidence through replacementOnSpace, then discard the completed word.
+    private func typeSpace(sample: KeyboardTouchWord.Sample? = nil) {
+        // Only an actual, unambiguous Space release can retain boundary geometry.
+        // Typr/programmatic spaces deliberately call with nil.
         _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
-        defer { autocorrect.touchInput.clearAtBoundary() }
+        // Reset only the attribution veto, not #123's retained real-Space window.
+        defer { autocorrect.touchInput.resetAttributionSuppression() }
         // Preserve the predecessor only for a new word's boundary, never a second separator.
-        autocorrect.discardFeedback(preservingTrustedContext:
-            AutocorrectEngine.currentToken(in: target.documentContextBeforeInput) != nil)
+        // The unchanged real Space below retains geometry; corrected/second/Typr spaces clear it.
+        let hasCurrentWord = AutocorrectEngine.currentToken(in: target.documentContextBeforeInput) != nil
+        autocorrect.discardFeedback(preservingTrustedContext: hasCurrentWord)
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
+            autocorrect.touchInput.clear()
             autocorrect.clearPendingUndo()
             target.deleteBackward()
             target.insertText(". ")
@@ -807,6 +820,7 @@ final class FullKeyboardEngine {
                 target.deleteBackward()
             }
             let inserted = replacement + " "
+            autocorrect.touchInput.clear()
             target.insertText(inserted)
             autocorrect.recordAppliedCorrection(original: original, insertedText: inserted)
             lastSpaceAt = now
@@ -816,7 +830,18 @@ final class FullKeyboardEngine {
             return
         }
         autocorrect.clearPendingUndo()
-        insert(" ", keepsFeedback: true)
+        if let sample, let asSpace = KeyboardBoundaryTouch.spaceDensity(sample.point, layout: layout) {
+            let calibration = autocorrect.learning.calibration(for: layout)
+            let ambiguous = KeyboardBoundaryTouch.adjacentLetters(in: layout).contains { key in
+                guard let density = KeyboardBoundaryTouch.letterDensity(sample.point, key: key, layout: layout,
+                                                                         calibration: calibration) else { return false }
+                return density > asSpace
+            }
+            // Do not teach the first fragment as an independently intended word while this
+            // actual boundary tap is more consistent with a bottom-row letter.
+            if ambiguous { autocorrect.discardFeedback() }
+        }
+        insert(" ", sample: sample, keepsFeedback: true)
         lastSpaceAt = now
     }
 

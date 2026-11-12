@@ -441,6 +441,27 @@ final class KeyboardKeyMapTests: XCTestCase {
         }
     }
 
+    func testAttributionCannotSeedSpatialBoundaryWindowsButRealSpaceStillCan() throws {
+        let sources = try resources()
+        let (engine, target, _) = keyboard(sources)
+        type("hello", engine)
+        tap(center(engine.layout.key(.space)!), engine)
+        type("world", engine)
+        let intact = try XCTUnwrap(engine.autocorrect.touchInput.boundaryEvidence(beforeInput: target.text))
+        XCTAssertEqual(intact.previous?.text, "hello")
+        XCTAssertEqual(intact.space?.key.kind, .space, "attribution reset must not discard #123's real Space")
+        tap(center(engine.layout.key(.space)!), engine)
+        type("wher", engine)
+        tap(gap("e"), engine)
+        XCTAssertTrue(target.text.hasSuffix(" where"))
+        XCTAssertNil(engine.autocorrect.touchInput.boundaryEvidence(beforeInput: target.text))
+        tap(center(engine.layout.key(.space)!), engine)
+        type("hello", engine)
+        let after = try XCTUnwrap(engine.autocorrect.touchInput.boundaryEvidence(beforeInput: target.text))
+        XCTAssertNil(after.previous, "an attributed word must not seed a boundary window")
+        XCTAssertNil(after.space)
+    }
+
     func testInconsistentLearnedCloudsAbstain() throws {
         let sources = try resources()
         let priors = try XCTUnwrap(KeyboardKeyMap.priors(prefix: "wher", languages: [.english], lexicons: sources, personal: nil))

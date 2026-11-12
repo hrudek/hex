@@ -3,15 +3,18 @@ import Foundation
 /// Exact two-part run segmentation and whole-vs-split comparison translated from iikb's
 /// Correction/Corrector.swift and Typing/TypingEngine+Words.swift at
 /// 09a2e9cdfbe851adff6c4646333c0a3f74ba8765 (MIT, © 2026 Bassim Shahidy).
-/// No space-tap reinterpretation, per-part decoding, multiword beam or automatic authority.
+/// One spatial boundary reinterpretation is allowed; no per-part decoding, multiword beam
+/// or automatic authority. Actual boundary points stay in bounded RAM snapshots.
 nonisolated enum KeyboardBoundaryDecoder {
     typealias Language = SpatialWordDecoder.Language
     static let maxLetters = 32
     static let maxPartLetters = 20
     static let resultLimit = 3
-    // One whole, two per split point, eight whole competitors and up to two join
-    // readings, each in at most two tries (including rejected split endpoints).
-    static let maximumLexicalQueries = 74
+    // Exact baseline ≤74; at most 60 spatial part lookups plus eight whole
+    // competitors and five Space-as-letter joins. If both paths run, the prior
+    // word + Space leaves at most 30 current letters (saving eight part lookups).
+    // Each query uses at most two tries; 144 includes rejected endpoints.
+    static let maximumLexicalQueries = 144
     static let maximumTrieEdgeChecks = maximumLexicalQueries * maxLetters * 30 * 2
     // Conditional and unconditional mixture lookups: whole literal, eight whole
     // competitors and both parts at every split. Each lookup uses ≤2 packs,
@@ -46,6 +49,8 @@ nonisolated enum KeyboardBoundaryDecoder {
         let kept: Set<String>
         /// Bounded corpus-only state recomputed from the field suffix. Nil preserves unigram policy.
         var context: Context? = nil
+        var touch: KeyboardBoundaryTouch? = nil
+        var calibration: SpatialTouchCalibration? = nil
     }
 
     struct Candidate: Equatable, Sendable {
@@ -61,6 +66,11 @@ nonisolated enum KeyboardBoundaryDecoder {
         /// The whole's FrequencyWords prior was treated as merge noise inside this ranking.
         /// MainActor dictionary validity still vetoes the chip; this never relaxes it.
         var weakWhole = false
+        /// Consumes one observed tap as Space or a letter, rather than inventing a tap.
+        var spatial = false
+        /// Independent likelihood protection for dictionary-valid parts on MainActor,
+        /// including valid names/words absent from the ranking lexicons.
+        var betterThanSeparateTap = false
     }
 
     struct Retrieval: Sendable {
@@ -225,6 +235,71 @@ nonisolated enum KeyboardBoundaryDecoder {
                                  weakWhole: strongPair && wholePrior != nil && literalBaseline > competitorBaseline))
             }
         }
+        // Spatial cases share the exact lookup budget and the top-three retention. Only
+        // one boundary tap changes; all other letters are literal, so their densities cancel.
+        if let touch = job.touch, touch.isUsable, touch.current.text == job.token {
+            let layout = touch.current.layout
+            let adjacent = KeyboardBoundaryTouch.adjacentLetters(in: layout)
+            if !protected, token.count >= 3 {
+                var baseline = wholePrior ?? floor
+                if case .result(let reading) = whole {
+                    for candidate in reading.candidates.prefix(8) where !candidate.isCompletion {
+                        // Same full-prior scale as the exact split comparison above.
+                        queries += 1
+                        precondition(queries <= maximumLexicalQueries)
+                        let p = sources.compactMap { lexicons[$0]?.logPrior(for: candidate.word) }.max() ?? floor
+                        baseline = max(baseline, candidate.score - reading.literalSpatialScore + 0.65 * p)
+                    }
+                }
+                let letters = Array(token)
+                for index in 1..<(letters.count - 1) {
+                    guard index <= maxPartLetters, letters.count - index - 1 <= maxPartLetters,
+                          let key = adjacent.first(where: { $0.character == String(letters[index]) }) else { continue }
+                    let sample = touch.current.samples[index]
+                    guard sample.key == key,
+                          let spaceScore = KeyboardBoundaryTouch.spaceDensity(sample.point, layout: layout),
+                          let letterScore = KeyboardBoundaryTouch.letterDensity(sample.point, key: key, layout: layout,
+                                                                              calibration: job.calibration) else { continue }
+                    let left = String(letters[..<index]), right = String(letters[(index + 1)...])
+                    guard let a = prior(left), let b = prior(right) else { continue }
+                    let score = a + b + spaceScore - letterScore
+                    if score > baseline {
+                        retain(Candidate(kind: .split, original: job.token, replacement: left + " " + right,
+                                         score: score, baseline: baseline, spatial: true))
+                    }
+                }
+            }
+            // A current-token split and a previous+current join are ALTERNATIVES, not
+            // two edits in a three-word run. A retained prior word must not hide a
+            // letter-as-Space error in the current word.
+            if let previous = touch.previous, previous.text == job.previous,
+               isEligible(previous.text), let space = touch.space,
+               previous.text.count + token.count + 1 <= maxLetters {
+                let first = PersonalLexiconSnapshot.normalize(previous.text)
+                let protection = job.kept.contains(first) || job.kept.contains(token)
+                    || (job.personal.counts[first] ?? 0) > 0 || (job.personal.counts[token] ?? 0) > 0
+                if !protection, let asSpace = KeyboardBoundaryTouch.spaceDensity(space.point, layout: layout) {
+                    let a = prior(first), b = wholePrior
+                    // Two known words require better tap likelihood too (iikb's separate
+                    // reading protection). Frequency alone can never reinterpret their Space.
+                    let baseline = (a ?? floor) + (b ?? floor)
+                    for key in adjacent {
+                        guard let letter = key.character,
+                              let density = KeyboardBoundaryTouch.letterDensity(space.point, key: key, layout: layout,
+                                                                              calibration: job.calibration),
+                              (a == nil || b == nil || density > asSpace),
+                              let joined = prior(first + letter + token) else { continue }
+                        let score = joined + density - asSpace
+                        if score > baseline + joinMargin {
+                            retain(Candidate(kind: .join, original: touch.original,
+                                             replacement: first + letter + token,
+                                             score: score, baseline: baseline, spatial: true,
+                                             betterThanSeparateTap: density > asSpace))
+                        }
+                    }
+                }
+            }
+        }
         // Exact removal of one gratuitous space. Without contextual evidence TWO known parts
         // always win protection, irrespective of the joined word's frequency ("some thing").
         if let previous = job.previous, isEligible(previous), previous.count + token.count <= maxLetters {
@@ -236,7 +311,22 @@ nonisolated enum KeyboardBoundaryDecoder {
                 let secondPrior = wholePrior
                 if firstPrior == nil || secondPrior == nil, let joined = prior(first + token) {
                     let apart = (firstPrior ?? floor) + (secondPrior ?? floor)
-                    let score = joined + missingSpacePenalty
+                    var strayLift = 0.0
+                    if let touch = job.touch, touch.isUsable, touch.previous?.text == previous,
+                       touch.current.text == job.token, let space = touch.space,
+                       let asSpace = KeyboardBoundaryTouch.spaceDensity(space.point, layout: touch.current.layout) {
+                        // A deleted gratuitous tap still pays its best gated density and the
+                        // edit penalty. Compare against the same tap interpreted as Space.
+                        var stray = asSpace
+                        for key in KeyboardBoundaryTouch.adjacentLetters(in: touch.current.layout) {
+                            if let density = KeyboardBoundaryTouch.letterDensity(space.point, key: key,
+                                layout: touch.current.layout, calibration: job.calibration) {
+                                stray = max(stray, density)
+                            }
+                        }
+                        strayLift = stray - asSpace
+                    }
+                    let score = joined + missingSpacePenalty + strayLift
                     if score - apart >= joinMargin {
                         retain(Candidate(kind: .join, original: previous + " " + job.token,
                                                replacement: first + token, score: score, baseline: apart))

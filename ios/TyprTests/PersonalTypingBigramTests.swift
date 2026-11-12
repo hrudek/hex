@@ -294,9 +294,18 @@ final class PersonalTypingBigramTests: XCTestCase {
                 let corpusKeys = keys.subtracting(KeyboardContextModel.suppressed)
                 let eligible = corpusKeys.union(personal.followers(after: "ich").filter {
                     $0.value >= PersonalBigramModel.novelFollowerMinimum }.keys)
-                let expected = eligible.map { key in
-                    (key, personal.probability(key, after: "ich", corpus: model.probability(key, after: "ich", weightDE: weight, german: german, english: english)))
-                }.sorted { $0.1 == $1.1 ? $0.0.utf8.lexicographicallyPrecedes($1.0.utf8) : $0.1 > $1.1 }.prefix(3).map(\.0)
+                let scored: [(key: String, probability: Double)] = eligible.map { key in
+                    let corpusProbability = model.probability(key, after: "ich", weightDE: weight,
+                                                              german: german, english: english)
+                    return (key, personal.probability(key, after: "ich", corpus: corpusProbability))
+                }
+                let ranked = scored.sorted { left, right in
+                    if left.probability == right.probability {
+                        return left.key.utf8.lexicographicallyPrecedes(right.key.utf8)
+                    }
+                    return left.probability > right.probability
+                }
+                let expected = ranked.prefix(3).map(\.key)
                 XCTAssertEqual(actual.map(\.key), expected, "\(weight) \(german) \(english)")
                 XCTAssertEqual(actual.first?.key, "swift")
                 XCTAssertFalse(actual.contains { $0.key == "zzqx" })

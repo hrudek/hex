@@ -12,8 +12,8 @@ inference, cancellation, or failure. The keyboard extension sends commands and
 inserts completed text over the shared App Group (`group.dev.rudek.typr`);
 it never accesses the microphone, speech model, or network. Manual typing can
 persist bounded local personal word collections, aggregated per-key statistics
-and text-free diagnostics with Full Access; current-word/pending-feedback raw taps
-remain RAM-only. See [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md) for the
+and text-free diagnostics with Full Access; current-word/pending-feedback and the
+bounded two-word/real-Space boundary-window raw taps remain RAM-only. See [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md) for the
 owner-approved privacy, retention and reset contract.
 
 ## Capabilities

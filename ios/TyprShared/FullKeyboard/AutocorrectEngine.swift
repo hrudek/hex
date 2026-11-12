@@ -278,9 +278,11 @@ final class AutocorrectEngine {
             $0.supports(german: german != nil, english: englishEnabled) ? $0 : nil
         }
         let context = model?.context(before: beforeInput, currentToken: token)
+        let touch = touchInput.boundaryEvidence(beforeInput: beforeInput)
         return .init(token: token, previous: previous, languages: suggestionLanguages,
                      personal: learning.personalPriors, kept: learning.protections.kept,
-                     context: context.map { .init(previous: $0.previous, weightDE: $0.state.weightDE) })
+                     context: context.map { .init(previous: $0.previous, weightDE: $0.state.weightDE) },
+                     touch: touch, calibration: touch.flatMap { learning.calibration(for: $0.current.layout) })
     }
 
     private func heldBoundary(_ job: KeyboardBoundaryDecoder.Job,
@@ -736,7 +738,8 @@ final class AutocorrectEngine {
                 // FrequencyWords entry (e.g. "inthe") as merge noise: Apple's checker, not the
                 // ranking corpus, decides whether "comeback" or "beider" is a real word.
                 if candidate.kind == .split && literalIsValid(token) { continue }
-                if candidate.kind == .join && parts.allSatisfy({ literalIsValid($0) }) { continue }
+                if candidate.kind == .join && parts.allSatisfy({ literalIsValid($0) })
+                    && (!candidate.spatial || !candidate.betterThanSeparateTap) { continue }
                 let replacement: String
                 if candidate.kind == .split {
                     let words = candidate.replacement.split(separator: " ").map(String.init)
