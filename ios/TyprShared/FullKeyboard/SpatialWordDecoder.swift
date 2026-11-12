@@ -144,6 +144,12 @@ final class SpatialWordDecoder {
         let edit: Edit
         /// Candidate letter -> observed tap; missing letters have no tap.
         let alignment: [Int?]
+
+        /// Extending an exhausted tap prefix is a completion even when its prefix was noisy.
+        var isCompletion: Bool {
+            if case .missingLetter(let index) = edit { return index == alignment.count - 1 }
+            return false
+        }
     }
     nonisolated enum Refusal: String, CaseIterable, Sendable {
         case incompleteSearch, noCandidate, belowMargin, ambiguous, editNeedsInvalidLiteral
@@ -182,6 +188,7 @@ final class SpatialWordDecoder {
         func automaticDecision(literalIsValid: Bool) -> AutoDecision {
             guard complete else { return .refuse(.incompleteSearch) }
             guard let best = candidates.first else { return .refuse(.noCandidate) }
+            guard !best.isCompletion else { return .refuse(.belowMargin) }
             if best.edit != .none && literalIsValid { return .refuse(.editNeedsInvalidLiteral) }
             guard best.score - literalScore >= 3,
                   best.edit != .none || best.spatialScore - literalSpatialScore >= 2 else {
@@ -247,6 +254,13 @@ final class SpatialWordDecoder {
     /// Immutable resources are shared copy-on-write, never the mutable ranking memos.
     var resourceSnapshot: [Language: SpatialWordLexicon] { lexicons }
     private(set) var resourceRevision = 0
+
+    /// Display-only wrapper for synchronous logic clients; production suggestions use the worker.
+    func prefixSuggestions(_ prefix: String, languages: Set<Language>, evidence: KeyboardTouchWord?,
+                           calibration: SpatialTouchCalibration?) -> SpatialPrefixSearch.Result {
+        SpatialPrefixSearch.search(prefix, lexicons: lexicons, languages: languages,
+                                   evidence: evidence, calibration: calibration)
+    }
 
     func decode(_ word: KeyboardTouchWord, languages: Set<Language>,
                 budget: Int = SpatialWordDecoder.searchBudget,

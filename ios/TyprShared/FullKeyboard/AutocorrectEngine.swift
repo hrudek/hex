@@ -16,6 +16,8 @@ nonisolated struct KeyboardSuggestion: Equatable, Sendable {
     let kind: Kind
     var isCompletion = false
     var ownership: KeyboardSuggestionOwnership?
+    /// Placed by personal completion ranking (#101); counted separately when picked, text-free.
+    var isPersonal = false
 
     var willAutoReplace: Bool {
         if case .primary(let auto) = kind { return auto }
@@ -141,6 +143,7 @@ final class AutocorrectEngine {
     private struct SpellingCache {
         let token: String
         var germanGuesses: [String]?
+        var systemCompletions: [String]?
         var spatial: [String: (text: String, validated: Bool)] = [:]
     }
 
@@ -164,6 +167,8 @@ final class AutocorrectEngine {
     private var observedFeedbackEpoch: Int
     private var decodeCache: DecodeCache?
     private var spellingCache: SpellingCache?
+    /// The latest bounded prefix retrieval (worker or synchronous), reused only for an equal job.
+    private var completionCache: KeyboardCompletionRetrieval?
     private(set) var suggestionConfiguration = 0
 
     var suggestionLanguages: Set<SpatialWordDecoder.Language> {
@@ -176,6 +181,7 @@ final class AutocorrectEngine {
     /// Called only by the worker's deferred preparation, never by key insertion.
     func suggestionRequest(ownership: KeyboardSuggestionOwnership,
                            evidence: KeyboardTouchWord?) -> KeyboardSuggestionWorker.Request {
+        let rawEvidence = evidence
         let token = ownership.token ?? ""
         let eligible = isEnabled && !suggestionLanguages.isEmpty && evidence?.text == token
             && (token == token.lowercased() || (token.first?.isUppercase == true
@@ -184,19 +190,48 @@ final class AutocorrectEngine {
         let evidence = eligible ? evidence : nil
         let languages = suggestionLanguages
         // Warmup, remount or poll refreshes with unchanged taps reuse the held decode.
+        let completion = ownership.token.flatMap { completionJob(for: $0, evidence: rawEvidence) }
+        let held = completion.flatMap { job in completionCache.flatMap { $0.job == job ? $0 : nil } }
         if let evidence, let cache = decodeCache, cache.evidence == evidence,
            cache.languages == languages, cache.generation == learning.generation,
            cache.resources == (spatialDecoder?.resourceRevision ?? -1) {
             var request = KeyboardSuggestionWorker.Request(
                 ownership: ownership, evidence: evidence, languages: languages, calibration: nil,
-                personal: .empty, lexicons: [:])
+                personal: .empty, lexicons: spatialDecoder?.resourceSnapshot ?? [:])
             request.ready = cache.outcome
+            request.completion = completion
+            request.completionReady = held
             return request
         }
-        return .init(ownership: ownership, evidence: evidence, languages: languages,
-                     calibration: evidence.flatMap { learning.calibration(for: $0.layout) },
-                     personal: evidence == nil ? .empty : learning.personalPriors,
-                     lexicons: spatialDecoder?.resourceSnapshot ?? [:])
+        var request = KeyboardSuggestionWorker.Request(
+            ownership: ownership, evidence: evidence, languages: languages,
+            calibration: evidence.flatMap { learning.calibration(for: $0.layout) },
+            personal: evidence == nil ? .empty : learning.personalPriors,
+            lexicons: spatialDecoder?.resourceSnapshot ?? [:])
+        request.completion = completion
+        request.completionReady = held
+        return request
+    }
+
+    /// Display-only prefix inputs for `token`; checker-free, so worker preparation stays so.
+    /// The personal scan is supplied only while Learn from my typing is on.
+    private func completionJob(for token: String, evidence: KeyboardTouchWord?) -> KeyboardCompletionJob? {
+        let languages = suggestionLanguages
+        guard isEnabled, !languages.isEmpty, token.utf8.count <= 256,
+              (2..<SpatialPrefixSearch.maxLetters).contains(token.count) else { return nil }
+        let evidence = evidence?.text == token ? evidence : nil
+        return KeyboardCompletionJob(
+            token: token, languages: languages, resources: spatialDecoder?.resourceRevision ?? -1,
+            evidence: evidence, calibration: evidence.flatMap { learning.calibration(for: $0.layout) },
+            personal: learning.isLearningEnabled ? learning.personalPriors.scan : nil)
+    }
+
+    /// Worker retrieval when it matches; otherwise the same bounded retrieval, synchronously.
+    private func completionRetrieval(for job: KeyboardCompletionJob) -> KeyboardCompletionRetrieval {
+        if let cache = completionCache, cache.job == job { return cache }
+        let retrieval = KeyboardCompletionRetrieval(job, lexicons: spatialDecoder?.resourceSnapshot ?? [:])
+        completionCache = spatialDecoder?.isResourceLoading == true ? nil : retrieval
+        return retrieval
     }
 
     /// A compatible immutable result is adopted into the same cache the authoritative boundary
@@ -211,6 +246,9 @@ final class AutocorrectEngine {
                 learning.increment(.suggestionDecodes)
                 learning.recordLatency(result.seconds, kind: .suggestion)
             }
+        }
+        if let completion = result.completion, spatialDecoder?.isResourceLoading != true {
+            completionCache = completion
         }
         let suggestions = suggestions(beforeInput: result.request.ownership.context,
                                       field: result.request.ownership.field,
@@ -306,6 +344,7 @@ final class AutocorrectEngine {
         if resetFastAim { learning.resetFastAim() }
         touchInput.clear()
         decodeCache = nil
+        completionCache = nil
         pendingFeedback = nil
         reversibleRejection = nil
     }
@@ -318,6 +357,7 @@ final class AutocorrectEngine {
     private func invalidateDecode() {
         suggestionConfiguration &+= 1
         decodeCache = nil
+        completionCache = nil
         spellingCache = nil
     }
 
@@ -392,6 +432,8 @@ final class AutocorrectEngine {
             if mayLearn { learning.recordWord(literal) }
         } else if suggestion.isCompletion || Self.isPrefixExtension(suggestion.replacement, of: literal) {
             learning.increment(.manualCompletionPick)
+            // Text-free: which chip a personal reorder placed, never which word.
+            if suggestion.isPersonal { learning.increment(.personalCompletionPick) }
             if mayLearn { learning.recordWord(suggestion.replacement) }
         } else {
             learning.increment(.manualAlternativePick)
@@ -477,6 +519,7 @@ final class AutocorrectEngine {
         let spatial = spatialResult(for: token, evidence: evidence, forSuggestions: true)
         var pool: [String] = []
         var completions: Set<String> = []
+        var personalPicks: Set<String> = []
 
         if let pair = reversibleRejection, pair.typed == PersonalLexiconSnapshot.normalize(token) {
             // Rejected protections suppress automatic decisions, not the immediate explicit revert.
@@ -499,6 +542,7 @@ final class AutocorrectEngine {
             let text = spatialSpelling(candidate, token: token).text
             if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text) { continue }
             if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { pool.append(text) }
+            if candidate.isCompletion { completions.insert(text) }
         }
 
         // Prefix matches from Contacts / lexicon terms.
@@ -511,6 +555,46 @@ final class AutocorrectEngine {
                 }
                 if pool.count >= 3 { break }
             }
+        }
+
+        // Corpus prefixes and held-letter alternatives are display-only, independent of the
+        // correction result/cache. The worker retrieves them; this only assembles and cases.
+        if pool.count < 2, let job = completionJob(for: token, evidence: evidence) {
+            let retrieval = completionRetrieval(for: job)
+            // Trusted literals may extend exactly (or via a holder), but must not be
+            // displaced by a spatially reinterpreted prefix masquerading as a completion.
+            let trusted = protectsFromEditSuggestions(token)
+            var corpus: [(text: String, isCompletion: Bool)] = []
+            for item in trusted ? retrieval.exact : retrieval.corpus {
+                var spelling = item.word
+                if item.language == .german, let german {
+                    // Lowercase corpus data cannot establish noun casing. Use the selected
+                    // system dictionary; never infer canonical capitalization from frequency.
+                    let title = spelling.prefix(1).uppercased() + spelling.dropFirst()
+                    if !german.isValid(spelling), german.isValid(title) { spelling = title }
+                }
+                corpus.append((Self.matchCase(of: token, onto: spelling), item.isCompletion))
+            }
+            func offer(_ cased: String, isCompletion: Bool, personal: Bool = false) {
+                guard pool.count < 2, !learning.protections.isRejected(typed: token, replacement: cased),
+                      !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) else { return }
+                pool.append(cased)
+                if isCompletion { completions.insert(cased) }
+                if personal { personalPicks.insert(cased) }
+            }
+            // Learn from my typing: completions the user types often (or kept) move up, and
+            // missing personal words with this prefix may join. Off: no personal influence.
+            if job.personal?.completions.entries.isEmpty == false {
+                let system = englishEnabled && token.count >= 2 ? systemCompletions(for: token) : []
+                let baseline = corpus.filter(\.isCompletion).map(\.text) + system
+                for promotion in KeyboardCompletionRanking.promotions(
+                    token: token, baseline: baseline, additions: retrieval.personal,
+                    personal: learning.personalPriors) where pool.count < 2 {
+                    let cased = promotion.isAddition ? personalSpelling(promotion.word, token: token) : promotion.word
+                    offer(cased, isCompletion: true, personal: true)
+                }
+            }
+            for item in corpus where pool.count < 2 { offer(item.text, isCompletion: item.isCompletion) }
         }
 
         // Spelling guesses or prefix completions from `UITextChecker`.
@@ -528,14 +612,7 @@ final class AutocorrectEngine {
                 }
             }
             if englishEnabled && pool.count < 2 {
-                let checked = checker.completions(for: token)
-                    .filter { $0.count > token.count && $0.count <= token.count + 8 }
-                    .sorted { a, b in
-                        if a.count != b.count { return a.count < b.count }
-                        return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
-                    }
-                for item in checked {
-                    let cased = Self.matchCase(of: token, onto: item)
+                for cased in systemCompletions(for: token) {
                     if !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) {
                         pool.append(cased)
                         completions.insert(cased)
@@ -550,15 +627,18 @@ final class AutocorrectEngine {
             KeyboardSuggestion(
                 displayText: first,
                 replacement: first,
-                kind: .primary(autoReplace: autoFix != nil),
-                isCompletion: completions.contains(first) || Self.isPrefixExtension(first, of: token)
+                kind: .primary(autoReplace: first == autoFix && !completions.contains(first)
+                               && !Self.isPrefixExtension(first, of: token)),
+                isCompletion: completions.contains(first) || Self.isPrefixExtension(first, of: token),
+                isPersonal: personalPicks.contains(first)
             )
         } else {
             KeyboardSuggestion(displayText: token, replacement: token, kind: .primary(autoReplace: false))
         }
         let secondary: KeyboardSuggestion? = if pool.count >= 2 {
             KeyboardSuggestion(displayText: pool[1], replacement: pool[1], kind: .secondary,
-                               isCompletion: completions.contains(pool[1]) || Self.isPrefixExtension(pool[1], of: token))
+                               isCompletion: completions.contains(pool[1]) || Self.isPrefixExtension(pool[1], of: token),
+                               isPersonal: personalPicks.contains(pool[1]))
         } else {
             nil
         }
@@ -688,6 +768,35 @@ final class AutocorrectEngine {
         return spelling
     }
 
+    /// `UITextChecker` completions in today's displayed order (length, then alphabetical),
+    /// cased like the token. Computed once per token for both ranking and fallback.
+    private func systemCompletions(for token: String) -> [String] {
+        if spellingCache?.token != token { spellingCache = SpellingCache(token: token) }
+        if let cached = spellingCache?.systemCompletions { return cached }
+        let checked = checker.completions(for: token)
+            .filter { $0.count > token.count && $0.count <= token.count + 8 }
+            .sorted { a, b in
+                if a.count != b.count { return a.count < b.count }
+                return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+            }
+            .map { Self.matchCase(of: token, onto: $0) }
+        spellingCache?.systemCompletions = checked
+        return checked
+    }
+
+    /// The personal store is case-folded: restore a noun/proper-noun capital only when an
+    /// enabled dictionary confirms it, otherwise follow the typed prefix's case.
+    private func personalSpelling(_ word: String, token: String) -> String {
+        let title = word.prefix(1).uppercased() + word.dropFirst()
+        var spelling = word
+        if let german, !german.isValid(word), german.isValid(title) {
+            spelling = title
+        } else if englishEnabled, !checker.isWordValid(word), checker.isWordValid(title) {
+            spelling = title
+        }
+        return Self.matchCase(of: token, onto: spelling)
+    }
+
     private func germanGuesses(for token: String) -> [String] {
         if spellingCache?.token != token { spellingCache = SpellingCache(token: token) }
         if let guesses = spellingCache?.germanGuesses { return guesses }
@@ -701,6 +810,11 @@ final class AutocorrectEngine {
     private func automatic(_ text: String, token: String, kind: CorrectionKind,
                            counter: KeyboardDiagnostics.Counter, alignment: [Int?]? = nil) -> Decision {
         guard text != token else { return Decision() }
+        // An inferred suffix is a manual completion, never an automatic boundary edit.
+        // Explicit text replacements and deterministic rules keep their existing authority.
+        if (kind == .autoSpatial || kind == .autoSpelling), Self.isPrefixExtension(text, of: token) {
+            return Decision(refusal: .refusedBelowMargin)
+        }
         guard !learning.protections.isRejected(typed: token, replacement: text) else {
             return Decision(refusal: .refusedProtected)
         }

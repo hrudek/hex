@@ -141,6 +141,15 @@ learned/neural model or resources. The existing iikb MIT notice above
 [pinned LICENSE](https://github.com/AVGVSTVS96/iikb/blob/08df5aa1e698d8587b6dcaef53f5e555ba1fac2a/LICENSE),
 also covers these adaptations; it is not duplicated here.
 
+Typr additionally translates bounded best-first prefix enumeration, physical
+held-letter mapping and personal (kept or repeatedly typed) word completions from
+`Correction/Lexicon.swift`, `Correction/LetterKeys.swift` and `Correction/TypingMemory.swift`
+at [iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765).
+The existing **MIT, Copyright (c) 2026 Bassim Shahidy** notice above was verified
+against that revision's LICENSE and also covers these rewritten adaptations.
+No additional iikb word data, neural weights or dependencies are included;
+[PORTS.md](PORTS.md) records the exact paths, pin and exclusions.
+
 The aggregate-aim extension additionally translates full covariance, pooled shrinkage,
 multiple-timescale aim, predictive fixed-share weighting and covariance-display/test
 ideas (rewritten with Typr's shared 40/8-label affine drift, not upstream per-key

@@ -9,7 +9,7 @@ nonisolated struct KeyboardDiagnostics: Codable, Equatable, Sendable {
         case refusedMissingResource, resourceLoading, refusedValidation, refusedBelowMargin
         case undoSpatial, undoSpelling, undoRule, keepChip, manualAlternativePick, manualCompletionPick
         case suggestionDecodes, wordsCounted, wordsKept, correctionsRejected, storeCorruptDiscarded, storeWriteFailed
-        case storeLoadDeferred
+        case storeLoadDeferred, personalCompletionPick
     }
 
     enum LatencyKind: Sendable { case boundary, suggestion }

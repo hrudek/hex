@@ -38,7 +38,8 @@ enum KeyboardDiagnosticsFixture {
             (.refusedAmbiguous, 40), (.refusedIncompleteSearch, 5), (.refusedMissingResource, 2),
             (.refusedValidation, 18), (.refusedBelowMargin, 45), (.resourceLoading, 4),
             (.undoSpatial, 6), (.undoSpelling, 2), (.undoRule, 1), (.keepChip, 16),
-            (.manualAlternativePick, 28), (.manualCompletionPick, 42), (.suggestionDecodes, 3200),
+            (.manualAlternativePick, 28), (.manualCompletionPick, 42), (.personalCompletionPick, 11),
+            (.suggestionDecodes, 3200),
             (.wordsCounted, 750), (.wordsKept, 16), (.correctionsRejected, 9)]
         // Decode the same public schema to keep even updatedAt deterministic; normal counter
         // recording deliberately uses the wall clock. No fixture file is read or written.

@@ -92,6 +92,33 @@ Implemented regression suites include `SpatialWordDecoderTests`,
 `TypingModelTypesTests`, `KeyboardDiagnosticsPresentationTests` and offline
 `ios/tools/keyboard_words/test_build.py`. These listings do not claim an iOS pass.
 
+## Prefix completions and held-letter keys (iikb, P2)
+
+Owner-approved translation from [AVGVSTVS96/iikb](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765)
+at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, **MIT, © 2026 Bassim Shahidy**.
+The checkout was read only, never built or run. This narrowly supersedes the
+historical decoder-completion exclusion above; other adoptions keep their pins.
+
+| Source paths at this pin | Translated idea | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Lexicon.swift` (`mostFrequent`, lines 226–244) | Best-first prefix traversal; rewritten for TSW1 max-descendant counts, equal DE/EN source weights, NFC/deduplication, 512-pop/2,048-state/8-result caps and display-only noisy-prefix states | `ios/TyprShared/FullKeyboard/SpatialPrefixSearch.swift`, `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift`, `ios/TyprShared/FullKeyboard/AutocorrectEngine.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LetterKeys.swift` | Physical holders for corpus letters; ä/a, ö/o, ü/u, ß/s share key density/calibration, never popup positions | `ios/TyprShared/FullKeyboard/KeyboardLetterMap.swift`, `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift` (`completions(for:)`, `frequent`) and `Corrector.swift` (memory completions as candidates) | Personal completions: words counted more than once or kept, by count then spelling. Typr rewrites them as a prepared binary-search/range-maximum index over its existing ≤2,000-word scan list and a stable promotion of system/corpus completions that keeps today's order when learning is off (#101); no bigram/next-word memory | `ios/TyprShared/FullKeyboard/PersonalCompletionIndex.swift`, `ios/TyprShared/FullKeyboard/TypingModelTypes.swift`, `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `ios/TyprShared/FullKeyboard/AutocorrectEngine.swift` |
+
+`ios/TyprTests/SpatialPrefixSearchTests.swift` and `KeyboardSuggestionPersonalRankingTests.swift`
+add Typr-authored synthetic tests and evaluation; `SpatialWordDecoderTests.swift` updates
+the old no-holder expectation. After #114, the physical-holder emissions also carry its
+frozen full-covariance scorer, so correction and prefix retrieval share one density.
+No source file, fixture corpus, resource or binary format was copied wholesale.
+No new data, dependency or switch. Existing separately licensed CC BY-SA word
+files, 5 MB/50k bounds, automatic validation/protections, digraph rules, Full
+Access/persistence and label-trust contracts remain. Inferred suffix extensions
+are manual completions, not automatic Space edits. Excluded: swipe typing, emoji,
+themes, layouts, clipboard, network, neural weights/context prediction, dynamic
+hit targets, raw tap storage, dictation changes and upstream automatic policy.
+The existing iikb MIT notice was checked against this pin's LICENSE and is reused,
+not duplicated. See the keyboard documents for bounds and proof limits.
+
 ## Aggregate touch aim on multiple timescales (iikb, P7)
 
 Owner-approved scoped translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
