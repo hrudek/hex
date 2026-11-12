@@ -54,7 +54,9 @@ learning is off; off supplies no labels/counts.
 Ordinary key insertion no longer calls suggestion ranking synchronously.
 `FullKeyboardEngine.refreshSuggestions` validates current evidence, advances a text
 revision, replaces stale alternatives with safe current-literal/keep chips and
-submits a replaceable request. One owned `KeyboardSuggestionWorker` has **one
+submits a replaceable request. Refreshing an unchanged finished word/evidence/configuration
+keeps its ranked chips visible and reuses its compatible decode rather than searching again;
+checker/policy finalization still runs separately. One owned `KeyboardSuggestionWorker` has **one
 running job and one latest pending preparation**, not a task/queue entry per key.
 Preparation coalesces after key handling returns (including lazy personal snapshot
 construction). Its immutable Sendable request includes revision, engine/field
@@ -93,15 +95,26 @@ chip is refused even if a new field contains the same word after a field callbac
 text/traits; actual host callback behavior remains an iPhone proof requirement.
 Text/selection/field/layout changes, cancellation, hidden strip, dismissal,
 remount, host backgrounding and memory warnings drop pending/stale work.
+Discarding touch evidence (layer/width changes, key slide, trackpad or selection move)
+republishes current-token chips without geometry instead of leaving the strip blank.
+A refused chip refreshes the strip once, without editing or learning; a subsequent tap
+uses current ownership. The existing 4 Hz settings poll compares published ownership
+against current learning/configuration/resource revisions, including changes already
+consumed by a chip's learning sync and newly installed resources.
+
 Dismissal/backgrounding suspend suggestions; late jobs/warmup cannot read a hidden
-proxy, and appearance/host activation prepares a new field revision. In-flight
-search is bounded but not preempted; cancellation releases the latest pending
-snapshot and discards the old completion without starting overlapping searches.
+proxy. Appearance prepares a field; host activation only resumes the strip, preserving
+layer, caps lock, held touches, undo and menus. Key touch or keyboard-originated edit
+(including a Typr-key Space) also resumes after a missed activation notice. A genuine
+field/text callback still invalidates the previous association. In-flight search is
+bounded but not preempted; cancellation releases the latest pending snapshot and
+discards the old completion without starting overlapping searches.
 
 Additional suggestion bounds: **256 context characters / 2,048 UTF-8 bytes**,
-**64 token characters / 256 UTF-8 bytes** (larger tokens/contexts get no strip
-ranking; boundary policy is unchanged), at most 64 captured taps and the existing
-2,000-word personal bound. Current/pending worker snapshots stay RAM-only and are
+**64 token characters / 256 UTF-8 bytes**. Context uses the longest whole-character
+suffix within both caps, so a large emoji/ZWJ prefix does not suppress literal chips.
+An oversized final grapheme or token gets no strip ranking; boundary policy is unchanged.
+The existing 64-tap and 2,000-personal-word bounds remain. Current/pending worker snapshots stay RAM-only and are
 not a text/tap history. Each core retains at most three language-set corpus memos
 of 4,096 entries; the worker and boundary have separate mutable memos, so their
 memo payload can roughly double, while word-file/index backing stays shared.
@@ -123,7 +136,8 @@ changes, maximum-capacity personal scans, synthetic main-actor time and payload
 bounds using `EVAL P1_...` lines. The injected corpus checker is deterministic,
 not Apple's dictionaries; guessed intended words are fixture-supplied, so recall
 is a scheduling-equivalence regression, not independent accuracy evidence.
-See the task handover for exact observed checks; test existence is not a pass.
+Exact observed Linux checks are recorded below; the PR description carries the full
+verification record. Test existence is not a pass.
 Real-device checker timing, event-loop delay, rapid Space overlap in two hosts,
 Full Access/lifecycle races and peak physical footprint remain unverified.
 
@@ -240,9 +254,14 @@ compiler and committed resources. Test presence is not a passing iOS run.
 ### Observed Linux P1 worker regression
 
 Swift **6.4.2**, Swift 6 mode, Linux x86_64 **debug**, synthetic data, not iPhone
-or simulator. The task's full harness run executed **260 tests: 250 passed,
-1 known Linux backup-metadata failure, 9 platform skips**. All 15 new worker and
-evaluation tests passed; the known failure remains visible, not weakened.
+or simulator. The review-fix full harness run executed **266 tests: 256 passed,
+1 known Linux backup-metadata failure, 9 platform skips**. All **17 worker and
+4 evaluation tests** passed; the known failure remains visible, not weakened.
+The repaired autocorrect-off, touch-input equivalence and repeated-literal tests
+await final rankings, checking replacement, kind and completion status rather than
+interim literals. Review regressions cover layer/width/gesture/selection refresh,
+learning-toggle/reset refusal recovery, resource-install poll recovery, caps lock,
+held touches, undo, key-touch/Typr-edit resume and unchanged-refresh reuse.
 On 2,560 noisy snapshots, worker outcomes (including scores/alignments/search
 work), strips and boundary decisions matched the synchronous API exactly.
 The injected checker uses corpus membership and fixture-provided intended-word
@@ -260,17 +279,34 @@ with missing first letter `ive` takes the English rule to `I've` (also in mixed
 mode). This scheduling PR deliberately preserves both rather than changing rules.
 **624 synthetic-valid word/name/compound/code-switch controls had zero unwanted
 changes**. The 2,000-personal-word/calibrated snapshot test matched the synchronous
-search; its cold worker scan took 166.165 ms here, reinforcing why it is not on
+search; its cold worker scan took 164.242 ms here, reinforcing why it is not on
 the ordinary insertion path.
 
 A 160-key synthetic main-actor probe (20 × `keyboard`) simulated the old insertion
-plus synchronous ranking versus current insertion: mean **6.463 → 0.021 ms**,
-p95 **13.345 → 0.036 ms**, p99 **14.559 → 0.053 ms**, max **15.188 → 0.160 ms**.
+plus synchronous ranking versus current insertion: mean **5.363 → 0.019 ms**,
+p95 **10.423 → 0.027 ms**, p99 **10.502 → 0.031 ms**, max **10.553 → 0.036 ms**.
 English fixture-checker calls during insertion were **1,160 → 0**. Mean remaining suggestion-ready
-wait after the burst was 2.066 ms across both variants. This deliberately excludes
+wait after the burst was 1.099 ms across both variants. This deliberately excludes
 host delivery/event-loop waiting, rendering and real checker costs; it is not an
-iPhone speedup claim. The task handover preserves the full `EVAL` lines and exact
-commands; the harness's final test log also contains the original spatial tables.
+iPhone speedup claim. Reproduction commands (run from this worktree):
+
+```sh
+/home/hrudek/code/typr-research/iikb-parity/harness/run.sh "$PWD"
+python3 -m unittest discover -s .github/typr/tests -v
+python3 -m unittest discover -s ios/tools/dictation_log/tests -v
+git diff --check
+```
+
+The two Python suites passed **76 / 25 tests**. Shell syntax, ShellCheck and
+Actionlint also passed. Harness exit **1** deliberately retains
+`KeyboardLearningStoreTests.testRoundTripSummaryAndFileMetadata`: Linux Foundation
+reads `isExcludedFromBackup` as nil. No other failure occurred; source status/hashes
+were unchanged. The PR description records the full `EVAL P1_...` output, including
+memory payload limits (not RSS); the harness test log also contains the original
+spatial tables. UIKit strip/accessibility tests were not compiled or run here.
+Real iPhone checks must include one insertion per chip tap/VoiceOver activation;
+the accessibility override now calls its private activation callback directly,
+not the touch control's primary-action event.
 
 ### Observed Linux x86 synthetic evaluation
 

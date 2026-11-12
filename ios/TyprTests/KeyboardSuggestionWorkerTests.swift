@@ -189,6 +189,8 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
             engine.acceptSuggestion(chip)
             XCTAssertEqual(target.text, "Teh")
             XCTAssertTrue(session.protections.kept.isEmpty)
+            // Refusal refreshes the strip now; isolate the old job's cancellation here.
+            worker.cancel()
             await gate.release()
             await engine.waitForSuggestions()
             XCTAssertFalse(engine.suggestions.contains(where: \.willAutoReplace))
@@ -213,6 +215,8 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
         XCTAssertEqual(source.resourceRevision, 1)
         engine.acceptSuggestion(chip)
         XCTAssertEqual(target.text, "Teh")
+        XCTAssertTrue(engine.suggestions.allSatisfy { $0.ownership == engine.suggestionOwnership })
+        worker.cancel() // The refreshed strip is tested separately; drop its queued job here.
         await gate.release()
         await engine.waitForSuggestions()
         XCTAssertFalse(engine.suggestions.contains(where: \.willAutoReplace))
@@ -423,7 +427,51 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
         engine.touchEnded(id: 6, at: CGPoint(x: lettersKey.midX, y: lettersKey.midY))
         XCTAssertTrue(engine.suggestionsAreActive)
         XCTAssertEqual(engine.suggestions.first?.replacement, "Teh")
-        try await assertLiveRanking(engine, target, "after touch resume")
+        await engine.waitForSuggestions()
+        let literal = try XCTUnwrap(engine.suggestions.first)
+        XCTAssertEqual(literal.kind, .keepLiteral)
+        XCTAssertEqual(literal.ownership, engine.suggestionOwnership)
+        // Undo's rejected-pair/session protection must survive too: "The" is no longer an auto fix.
+        XCTAssertFalse(engine.suggestions.contains(where: \.willAutoReplace))
+        engine.acceptSuggestion(literal)
+        XCTAssertEqual(target.text, "Teh ")
+    }
+
+    func testResumePreservesCapsLockAndHeldTouchesAndTyprEditAlsoResumes() async throws {
+        let (engine, target, _) = keyboard()
+        var now: TimeInterval = 10
+        engine.clock = { now }
+        let key = try XCTUnwrap(engine.layout.key(.shift)).frame
+        let point = CGPoint(x: key.midX, y: key.midY)
+        for id in 20..<22 {
+            engine.touchBegan(id: id, at: point)
+            engine.touchEnded(id: id, at: point)
+            now += 0.1
+        }
+        XCTAssertEqual(engine.shift.state, .locked)
+        try type("teh", engine)
+        XCTAssertEqual(target.text, "TEH")
+        let q = try XCTUnwrap(engine.layout.key(.character("q"))).frame
+        engine.touchBegan(id: 22, at: CGPoint(x: q.midX, y: q.midY))
+        let touches = engine.touches
+        let evidence = engine.autocorrect.touchInput.evidence(beforeInput: target.text)
+        engine.suspendSuggestions()
+        engine.resumeSuggestions()
+        XCTAssertEqual(engine.shift.state, .locked)
+        XCTAssertEqual(engine.touches, touches)
+        XCTAssertEqual(engine.autocorrect.touchInput.evidence(beforeInput: target.text), evidence)
+        engine.touchCancelled(id: 22)
+        await engine.waitForSuggestions()
+        XCTAssertFalse(engine.suggestions.isEmpty)
+
+        // Typr's tap does not enter touchBegan on the letter plane; didEdit must resume too.
+        engine.suspendSuggestions()
+        engine.typeSpaceFromTyprKey()
+        XCTAssertTrue(engine.suggestionsAreActive)
+        XCTAssertEqual(target.text, "THE ")
+        try type("hello", engine)
+        await engine.waitForSuggestions()
+        XCTAssertFalse(engine.suggestions.isEmpty)
     }
 
     func testUnchangedRefreshReusesFinishedRankingWithoutSearchOrFlicker() async throws {

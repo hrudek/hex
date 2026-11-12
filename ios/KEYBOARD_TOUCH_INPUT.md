@@ -78,7 +78,13 @@ replaceable latest request. These bounded snapshots are Sendable, RAM-only,
 never Codable/persisted/exported, and not an ordered tap/text history. Their
 captured layout and learning generation/epoch must still match before use.
 Cancellation drops queued copies immediately; an already running bounded search
-may finish, but cannot publish, edit text or teach after invalidation.
+may finish, but cannot publish, edit text or teach after invalidation. Discarding
+geometry while visible (layer/layout change, key slide, trackpad, selection callback
+or canceled touch) republishes current-token chips without taps; invalidation must
+not leave the strip blank. Host resign/activate only suspends/resumes suggestions,
+not the field: it preserves touches, caps lock/layer and immediate undo. Real
+dismissal or an external text/selection callback still discards evidence as above.
+A key touch or keyboard-originated edit resumes after a missed activation notice.
 
 Rollover still commits a held letter synchronously exactly once. It only schedules
 suggestions; neither the touch tracker nor insertion awaits ranking. Space retains

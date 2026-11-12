@@ -200,11 +200,16 @@ final class AutocorrectEngineTests: XCTestCase {
 
     func testTurningAutocorrectSettingOffKeepsSuggestionsWithoutAutoReplacing() async {
         engine.autocorrect.isEnabled = false
+        // A deterministic prefix suggestion proves this is the finished strip even with the
+        // Linux checker adapter. Automatic contraction of "dont" must still be disabled.
+        engine.autocorrect.loadLexiconEntries([("dontcare", "dontcare")])
         typeWord("dont")
         // The finished ranking, not the interim literal chips.
         await engine.waitForSuggestions()
         XCTAssertFalse(engine.suggestions.isEmpty)
-        XCTAssertTrue(engine.suggestions.contains { $0.replacement == "don't" }, "\(engine.suggestions)")
+        XCTAssertEqual(engine.suggestions[1].replacement, "dontcare")
+        XCTAssertEqual(engine.suggestions[1].kind, .primary(autoReplace: false))
+        XCTAssertTrue(engine.suggestions[1].isCompletion)
         XCTAssertFalse(engine.suggestions.contains(where: \.willAutoReplace))
         tap(.space)
         XCTAssertEqual(target.text, "dont ")

@@ -263,10 +263,9 @@ final class KeyboardTouchInputTests: XCTestCase {
             // Compare finished strips (ownership differs per engine; everything visible must not).
             await typed.waitForSuggestions()
             await plain.waitForSuggestions()
-            func visible(_ engine: FullKeyboardEngine) -> [String] {
-                engine.suggestions.map { "\($0.replacement)|\($0.kind)|\($0.isCompletion)" }
-            }
-            XCTAssertEqual(visible(typed), visible(plain), word)
+            XCTAssertEqual(typed.suggestions.map(\.replacement), plain.suggestions.map(\.replacement), word)
+            XCTAssertEqual(typed.suggestions.map(\.kind), plain.suggestions.map(\.kind), word)
+            XCTAssertEqual(typed.suggestions.map(\.isCompletion), plain.suggestions.map(\.isCompletion), word)
             typed.typeSpaceFromTyprKey()
             plain.typeSpaceFromTyprKey()
             XCTAssertEqual(typedTarget.text, plainTarget.text, word)

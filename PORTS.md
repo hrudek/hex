@@ -102,6 +102,11 @@ The read-only reference was inspected, never built or executed.
 | --- | --- | --- |
 | `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
 
+The P1 review follow-up keeps this same pin/scope: current-token republication after
+evidence/learning/resource invalidation, state-preserving suggestion resume, completed
+decode reuse on unchanged refresh and direct accessibility activation are Typr-specific
+integration fixes in the destinations above, not additional upstream UI adoption.
+
 The existing Typr search/scoring algorithm is extracted unchanged into
 `SpatialWordRanking`, not replaced by iikb's scorer. UIKit checkers and all live
 learning/diagnostics mutation stay on MainActor. Space/punctuation never await a

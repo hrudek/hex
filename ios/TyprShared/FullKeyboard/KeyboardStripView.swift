@@ -42,7 +42,7 @@ final class KeyboardStripView: UIView {
             button.addTarget(self, action: #selector(handleSlotDown(_:)), for: .touchDown)
             button.addTarget(self, action: #selector(handleSlotTap(_:)), for: .touchUpInside)
             button.addTarget(self, action: #selector(handleSlotCancel(_:)), for: [.touchCancel, .touchUpOutside])
-            button.addTarget(self, action: #selector(handleSlotAccessibility(_:)), for: .primaryActionTriggered)
+            button.onAccessibilityActivate = { [weak self] in self?.activateSlot(index) ?? false }
             button.isHidden = true
             addSubview(button)
         }
@@ -131,12 +131,15 @@ final class KeyboardStripView: UIView {
         selection.cancel(slot: sender.tag)
     }
 
-    @objc private func handleSlotAccessibility(_ sender: SlotButton) {
-        guard currentSuggestions.indices.contains(sender.tag) else { return }
-        onSelectSuggestion?(currentSuggestions[sender.tag])
+    private func activateSlot(_ slot: Int) -> Bool {
+        guard currentSuggestions.indices.contains(slot) else { return false }
+        selection.cancel(slot: slot)
+        onSelectSuggestion?(currentSuggestions[slot])
+        return true
     }
 
     private final class SlotButton: UIControl {
+        var onAccessibilityActivate: (() -> Bool)?
         var inSystemPlatter = true { didSet { if inSystemPlatter != oldValue { setNeedsDisplay() } } }
         private var suggestion: KeyboardSuggestion?
         private var palette = FullKeyboardPalette(isDark: false)
@@ -164,8 +167,7 @@ final class KeyboardStripView: UIView {
         }
 
         override func accessibilityActivate() -> Bool {
-            sendActions(for: .primaryActionTriggered)
-            return true
+            onAccessibilityActivate?() ?? false
         }
 
         @objc private func redraw() { setNeedsDisplay() }

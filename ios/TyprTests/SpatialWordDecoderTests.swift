@@ -447,11 +447,21 @@ final class SpatialWordDecoderTests: XCTestCase {
         track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
         keyboard.refreshSuggestions()
         await keyboard.waitForSuggestions()
-        // The finished strip offers "hello" too; the repeated literal is the primary chip.
-        XCTAssertTrue(keyboard.suggestions.contains { $0.replacement == "hello" }, "\(keyboard.suggestions)")
+        // The finished ranking suppresses structural "hello" for valid "helo". A decode
+        // counter proves we did not just inspect the identical-looking interim literal chips.
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 1)
+        let finished = keyboard.suggestions
+        keyboard.refreshSuggestions()
+        XCTAssertEqual(keyboard.suggestions.map(\.replacement), finished.map(\.replacement), "No literal-only flicker")
+        await keyboard.waitForSuggestions()
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 1, "An unchanged worker refresh reuses its decode")
+        XCTAssertEqual(keyboard.suggestions.map(\.replacement), finished.map(\.replacement))
+        XCTAssertEqual(keyboard.suggestions.map(\.kind), finished.map(\.kind))
+        XCTAssertEqual(keyboard.suggestions.map(\.isCompletion), finished.map(\.isCompletion))
         let primary = try XCTUnwrap(keyboard.suggestions.dropFirst().first)
         XCTAssertEqual(primary.replacement, "helo")
         XCTAssertEqual(primary.kind, .primary(autoReplace: false))
+        XCTAssertFalse(primary.isCompletion)
         keyboard.acceptSuggestion(primary)
         XCTAssertEqual(target.text, "helo ")
         XCTAssertEqual(ac.learning.diagnostics[.manualAlternativePick], 0)

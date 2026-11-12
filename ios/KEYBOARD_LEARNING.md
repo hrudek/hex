@@ -122,12 +122,18 @@ protection/rejection mutations, diagnostics and pending feedback stay on MainAct
 worker output alone never teaches. Results and chips must match learning generation
 **and** feedback/reset epoch, including a statistics-only reset. Switching learning
 off or deleting/resetting saved data invalidates older results rather than letting
-their ranking/protection state cross that change.
+their ranking/protection state cross that change. If acceptance itself observes a new
+learning state, it refuses the old chip without editing/learning and refreshes once
+so the next tap uses live ownership. The existing settings poll also detects stale
+published ownership after a deferred load, reset or resource installation, even if
+an earlier sync consumed the transition. A compatible completed decode is reused on
+unchanged refreshes without another search or another suggestion-search counter.
 
 At most one running job and one replaceable latest request can retain bounded
 current-word evidence/context in RAM; no worker field is Codable or written.
-Context is capped at 256 characters / 2,048 UTF-8 bytes, token at 64 characters /
-256 bytes, alongside existing tap/personal bounds. There is no new file,
+Context is a whole-character suffix capped at 256 characters / 2,048 UTF-8 bytes,
+token at 64 characters / 256 bytes, alongside existing tap/personal bounds. A large
+Unicode prefix does not remove the current word's literal chip. There is no new file,
 permission, setting, ordered context history or data collection.
 Suggestion-search diagnostics record accepted uncached worker decode duration
 on MainActor; queue wait, lazy snapshot preparation, checker finish and rendering
