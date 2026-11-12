@@ -335,8 +335,15 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
         XCTAssertEqual(engine.autocorrect.touchInput.evidence(beforeInput: target.text)?.text, "Teh")
         let start = ContinuousClock.now
         engine.typeSpaceFromTyprKey()
-        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        let boundaryDuration = start.duration(to: .now)
+        // The continuation is still blocked: returning with the correction proves independence
+        // from the worker, without asserting scheduler-dependent elapsed time.
+        XCTAssertTrue(worker.isRunning)
+        let rankedCalls = await gate.count()
+        XCTAssertEqual(rankedCalls, 1)
+        XCTAssertEqual(worker.queuedCount, 0)
         XCTAssertEqual(target.text, "The ", "Authoritative fallback does not await a blocked worker")
+        print("EVAL P1_blockedBoundary duration=\(boundaryDuration) rankedCalls=\(rankedCalls) maxRunning=1 queued=\(worker.queuedCount) workerStillBlocked=true")
         await gate.release()
         await engine.waitForSuggestions()
         XCTAssertTrue(engine.suggestions.isEmpty)

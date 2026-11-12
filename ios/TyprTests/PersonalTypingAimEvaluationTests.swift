@@ -165,6 +165,7 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         var unwanted = 0, unavailable = 0, incomplete = 0
         var milliseconds: [Double] = []
         var visits: [Double] = []
+        var generated: [Int] = []
         /// Work on correctly hit-tested literals only: no candidate should need to beat them.
         var cleanVisits: [Double] = []
 
@@ -172,7 +173,8 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
             words += other.words; typos += other.typos; recall1 += other.recall1; recall3 += other.recall3
             fixedAuto += other.fixedAuto; wrongAuto += other.wrongAuto; unwanted += other.unwanted
             unavailable += other.unavailable; incomplete += other.incomplete
-            milliseconds += other.milliseconds; visits += other.visits; cleanVisits += other.cleanVisits
+            milliseconds += other.milliseconds; visits += other.visits; generated += other.generated
+            cleanVisits += other.cleanVisits
         }
     }
 
@@ -191,6 +193,7 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         if typo { metrics.typos += 1 }
         guard let result = decoded else { metrics.unavailable += 1; return }
         metrics.visits.append(Double(result.visits))
+        metrics.generated.append(result.generated)
         if !typo { metrics.cleanVisits.append(Double(result.visits)) }
         if !result.complete { metrics.incomplete += 1 }
         let replaced: String?
@@ -320,7 +323,8 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
                          away.rawValue, name, ms.count, mean(ms), Self.percentile(ms, 0.95),
                          ms.max() ?? 0, mean(visits), Self.percentile(visits, 0.95),
                          visits.max() ?? 0, mean(clean), Self.percentile(clean, 0.95), work[v].incomplete, work[v].unavailable))
-            XCTAssertLessThan(ms.max() ?? 0, 2000, "generous debug/CI bound, not an iPhone budget")
+            // Wall time is diagnostic only: shared runners can pause either comparison variant.
+            XCTAssertLessThanOrEqual(work[v].generated.max() ?? 0, SpatialWordDecoder.maxGenerated)
             XCTAssertEqual(work[v].incomplete, 0, "every decode is a complete, proven search")
             XCTAssertLessThanOrEqual(visits.max() ?? 0, Double(SpatialWordDecoder.searchBudget))
         }
@@ -355,7 +359,7 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
                 var unwanted = [0, 0, 0, 0]
                 var meanTimes: [Double] = [], meanVisits: [Double] = []
                 for (v, calibration) in calibrations.enumerated() {
-                    var ms: [Double] = [], visits: [Double] = [], incomplete = 0
+                    var ms: [Double] = [], visits: [Double] = [], generated: [Int] = [], incomplete = 0
                     for (ordinal, word) in usable.enumerated() {
                         // Literal = intended letters, aim and noise from the two-thumb grip.
                         var random = SplitMix64(state: 0x434f_4e54 &+ UInt64(ordinal) &* 7_919)
@@ -368,13 +372,16 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
                         ms.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
                         guard let result else { continue }
                         visits.append(Double(result.visits))
+                        generated.append(result.generated)
                         if !result.complete { incomplete += 1 }
                         if case .replace = result.automaticDecision(literalIsValid: result.literalInLexicon) { unwanted[v] += 1 }
                     }
                     meanTimes.append(ms.reduce(0, +) / Double(ms.count))
                     meanVisits.append(visits.reduce(0, +) / Double(max(1, visits.count)))
                     XCTAssertEqual(incomplete, 0)
-                    XCTAssertLessThan(ms.max() ?? 0, 2000)
+                    XCTAssertEqual(visits.count, usable.count, "Every control must produce a search result")
+                    XCTAssertLessThanOrEqual(visits.max() ?? 0, Double(SpatialWordDecoder.searchBudget))
+                    XCTAssertLessThanOrEqual(generated.max() ?? 0, SpatialWordDecoder.maxGenerated)
                     rows.append(String(format: "%@:unwanted=%d,incomplete=%d,meanMs=%.3f,p95Ms=%.3f,visits=%.1f/%.0f/%.0f",
                                        names[v], unwanted[v], incomplete, ms.reduce(0, +) / Double(ms.count),
                                        Self.percentile(ms, 0.95), visits.reduce(0, +) / Double(max(1, visits.count)),
@@ -384,11 +391,10 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
                 XCTAssertEqual(unwanted[2], 0, "no unwanted automatic change of a correctly typed control")
                 XCTAssertEqual(unwanted[3], 0, "bound changes work, not automatic policy")
                 // Current requirement: no material regression versus the original slow model
-                // on the exact same controls. Wall-clock tolerance is deliberately CI-safe.
-                // A has only ~10-20 visits; allow eight absolute pops (<.5 ms) there.
+                // on the exact same controls. Gate deterministic work, not noisy wall-clock ratios.
+                // A has only ~10-20 visits; allow eight absolute pops there.
                 // B's hundreds of edit-search visits must stay within ten percent.
                 XCTAssertLessThanOrEqual(meanVisits[2], 1.10 * meanVisits[1] + (edits ? 0 : 8))
-                XCTAssertLessThanOrEqual(meanTimes[2], 1.20 * meanTimes[1] + 0.5)
                 print(String(format: "EVAL P7_originComparison set=%@ variant=%@ newOverOriginStaticVisits=%.3f newOverOriginStaticMeanMs=%.3f newOverOriginSlowVisits=%.3f newOverOriginSlowMeanMs=%.3f pruningVisitsRatio=%.3f",
                              set, edits ? "B" : "A", meanVisits[2] / meanVisits[0], meanTimes[2] / meanTimes[0],
                              meanVisits[2] / meanVisits[1], meanTimes[2] / meanTimes[1], meanVisits[2] / meanVisits[3]))
