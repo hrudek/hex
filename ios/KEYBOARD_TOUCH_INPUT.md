@@ -152,21 +152,34 @@ uses the prefix after the earlier held letter was actually inserted.
 
 Only trained, Learn from my typing-on prose letter maps participate, with Autocorrect
 and host correction permission on. URL, email, number and secure fields abstain.
-A prefix must have 2–31 letters, with no internal capitals; missing/novel
-continuations remain nonzero and neutral. All drawn keycap points stay literal.
+A prefix must have **4–31 letters**, with no internal capitals. If all selected
+tries and the personal index have no continuation, adaptation stops for this word;
+appending cannot re-enter an absent trie prefix. Missing one selected pack still
+abstains entirely. All drawn keycap points stay literal.
 Only the narrow horizontal gap next to an immediate same-row letter neighbor may
-change: at most **10% of key width**, capped at half the six-point gap, within the
+change: at most **1.5% of key width**, capped at half the six-point gap, within the
 middle 60% of key height. No control, punctuation, space or Typr-key cell donates
 taps. Layout, balloons and pressed-key appearance remain geometric.
 
 The neighbor must beat the geometric hit's frozen learned xy/aim density by
-**strictly more than ln(2)**, have a higher prefix prior, and beat its combined
-log posterior by **strictly more than ln(4)**. Prefix mass comes from existing
-TSW1 terminal continuation sums, equal enabled-language mixtures and a **50%
+**strictly more than ln(4)**, have a higher prefix prior, and beat its combined
+log posterior by **strictly more than ln(16)**. Both learned neighboring densities
+must agree: ≥.25-pitch horizontal aim in the donation direction, pairwise centre
+and marginal-sigma differences ≤.08 pitch and xy-covariance difference ≤.015 pitch².
+A displaced/overconfident isolated key cannot donate. Prefix mass comes from existing
+TSW1 terminal continuation sums, equal enabled-language mixtures and a **90%
 uniform novel-word floor**. Personal words contribute at most 20% of the known
 component. Physical holders fold ä/ö/ü/ß to a/o/u/s for the prior only; no new
 stored keys or popup labels. Final prior odds are capped at four between keys.
-Unknown bilingual prefixes contribute uniform mass, not an English-only fallback.
+A missing prefix in one enabled language contributes uniform mass, not an English-only
+fallback; if every source is missing, there is no map.
+
+**Recovery:** any backspace disables attribution for the rest of that word, including
+delete-all/retype and partially observed words. Retyping the same spot is geometric,
+not the same repeated guess. This one RAM-only bit survives evidence loss, layout/
+strip refresh, shifts and worker completion. An actual typed separator or field
+preparation resets it. It may conservatively suppress a different word after cursor
+movement until a separator; no position/text/touch history is retained.
 
 A sample's `key` remains the **geometric hit**; optional `attributedKey` and `text`
 record the inserted reading separately. Spatial emissions still use the real point
@@ -180,7 +193,8 @@ its own guess. No new text/tap persistence or learning schema; the only new save
 value is a saturating text-free `Reattributed letter taps` diagnostic counter under
 the existing Full Access/statistics-reset contract.
 
-The map has at most 26 entries (4,160 bytes element payload on Linux), 52 entry
+The map has at most 26 entries (4,160 bytes element payload on Linux), a ≤64-byte
+policy value and one recovery bit outside the map, 52 entry
 inspections and at most two neighbor scores per attribution. Prefix lookup is
 bounded to 31×30 edges per selected trie plus 30 children. Exact continuation sums
 add eight bytes per validated trie node (**1,962,224 bytes** for the two bundled
@@ -194,9 +208,25 @@ exclude containers, allocator overhead, shared layouts/strings and RSS.
 Synthetic regression/evaluation is in `KeyboardKeyMapTests`: serial/overlapping
 insertion and a blocked worker, controls/stale traits, continuation-mass oracle,
 neutral DE/EN mixing, personal words/holders, no self-training, and fixed public
-word fixtures. The gap-only restriction is intentional: **a deliberate novel-name
-gap tap can still be wrong** (the `thrax` adversarial fixture becomes `theax`).
-Zero harm is guaranteed only for drawn-keycap taps, not ambiguous gaps. Real thumb
+word fixtures. P8b adds **455 unique items absent from both tries**: 61 first names,
+69 surnames, 50 products/brands, 68 identifiers, 80 compounds, 58 slang items and 69
+English technical words used in German context. Names are lowercased to stress the
+attributor without relying on capitalization protection. Original fixtures are not
+copied from iikb or collected typing. Four fixed-coordinate profiles (precise,
+Gaussian .18-pitch x/.10 y, shifted .35±.10 x/.10 y, and one deliberate correct-side
+gap probe per word at .1/.3/.8/1.4 points) compare static geometry with four frozen
+policies in DE/EN/mixed. Gaussian tails off letter cells are centre taps in this
+letter-only evaluation, not a model of control activation. Harm is a **correct
+geometric letter changed to a wrong letter**, divided by correct geometric taps;
+word harm counts any such event, not just final whole-word mismatch. Tests gate both
+the pooled rates and each noise profile at ≤.2% taps / ≤1% words. See the spatial
+document for the curve and exact denominators.
+
+The original `thrax` gap case now stays literal. **Ambiguous gaps can still be
+wrong:** `fahrradlieferzeit` loses one correct letter in the deliberate gap-stress
+profile (all three language modes). Zero harm is guaranteed only for drawn-keycap
+taps, not gaps. These are development fixtures and a synthetic noise model, not
+an untouched benchmark or an estimate of population harm. Real thumb
 taps, host traits/callbacks, grip shifts, rapid rollover, extension memory and whether
 this narrow rule reduces correction burden require iPhone acceptance; no accuracy
 claim follows from synthetic Linux improvements. See the spatial document for metrics.

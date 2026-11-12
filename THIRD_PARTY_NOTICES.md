@@ -52,7 +52,9 @@ prefix continuation scoring and synchronous current-revision maps from
 `Correction/KeyMap.swift`, `Correction/LanguageModel.swift` and
 `Typing/TypingEngine+Words.swift` (under `Packages/KeyboardModules/Sources/KeyboardCore/`)
 at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`. Typr supplies its own gap-only reach,
-strict margins, TSW1/personal indexes and no-self-training policy. No upstream files,
+strict margins, TSW1/personal indexes and no-self-training policy. P8b's tighter
+novel-word/density gates, backspace recovery and original synthetic harm fixtures
+are Typr-specific hardening, not additional upstream code or data. No upstream files,
 resources, neural weights or dependencies are included. The single full MIT notice
 below (Copyright (c) 2026 Bassim Shahidy) covers this adaptation; see PORTS.md.
 

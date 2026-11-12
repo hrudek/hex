@@ -212,6 +212,7 @@ final class FullKeyboardEngine {
         lastSpaceAt = nil
         autocorrect.clearPendingUndo()
         cancelAllTouches(republishing: false)
+        autocorrect.touchInput.clearAtBoundary()
         rebuildLayout()
         refreshAutoCapitalization()
         refreshSuggestions()
@@ -706,6 +707,7 @@ final class FullKeyboardEngine {
         // Rollover commits previous letters first; their didEdit already prepared this map.
         // Unreported context/model/config changes or invalidated held geometry stay literal.
         if touch.hasUnambiguousPoint, touch.evidenceLayout == layout, !shift.isUppercase,
+           !autocorrect.touchInput.attributionSuppressed,
            autocorrect.isEnabled, autocorrect.learning.isLearningEnabled, let attribution {
             let current = suggestionOwnership
             if attribution.ownership == current {
@@ -753,7 +755,7 @@ final class FullKeyboardEngine {
             target.insertText(replacement + text)
             autocorrect.recordAppliedCorrection(original: original, insertedText: replacement + text)
             autocorrect.discardFeedback()
-            autocorrect.touchInput.clear()
+            autocorrect.touchInput.clearAtBoundary()
             lastSpaceAt = nil
             layerState.didInsert(text)
             rebuildLayoutIfNeeded()
@@ -781,7 +783,7 @@ final class FullKeyboardEngine {
     private func typeSpace() {
         // Keep evidence through replacementOnSpace, then discard the completed word.
         _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
-        defer { autocorrect.touchInput.clear() }
+        defer { autocorrect.touchInput.clearAtBoundary() }
         // Preserve the predecessor only for a new word's boundary, never a second separator.
         autocorrect.discardFeedback(preservingTrustedContext:
             AutocorrectEngine.currentToken(in: target.documentContextBeforeInput) != nil)
@@ -834,6 +836,7 @@ final class FullKeyboardEngine {
                                          attributedKey: sample.attributedKey)
         } else {
             autocorrect.touchInput.clear()
+            if text.last?.isLetter != true { autocorrect.touchInput.clearAtBoundary() }
         }
         lastSpaceAt = nil
         layerState.didInsert(text)

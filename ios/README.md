@@ -135,8 +135,9 @@ owner-approved privacy, retention and reset contract.
     a newer field/token. Space/punctuation keep authoritative bounded synchronous fallback
     and never await the worker; see the correction-path reference for bounds/proof limits.
     Dictation, visible keys and gestures are unchanged. Trained models can conservatively
-    attribute horizontal letter-gap taps using the current prefix; drawn-keycap and
-    function-key taps stay literal. See [the attribution bounds and risks](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution).
+    attribute horizontal letter-gap taps using a known prefix of at least four letters;
+    stricter novel-word/density gates limit harm, and backspace keeps retyping geometric
+    for the rest of that word. Drawn-keycap and function-key taps stay literal. See [the attribution bounds and risks](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution).
   - **[Personal typing learning and diagnostics](KEYBOARD_LEARNING.md):** default-on
     **Learn from my typing** uses trusted unchanged literals and explicit feedback, never
     automatic output alone. Full Access allows bounded protected local snapshots of per-key

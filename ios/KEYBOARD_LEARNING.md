@@ -197,6 +197,11 @@ are not evidence of calibration quality or improved typing.
 Bounded adaptive letter-gap attribution follows Learn from my typing **and**
 Autocorrect; off uses geometric insertion. Its same-row, gap-only, strict-density/
 posterior gates are defined in [touch input](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution).
+P8b requires four letters of known continuation, a 90% uniform novel-word floor,
+consistent neighboring learned densities and a 1.5%-width boundary band. Backspace
+vetoes attribution for the rest of the word, even with partial/missing evidence;
+the RAM-only bit survives layout refresh and resets at a separator/field preparation.
+It never adds training eligibility. No positional/retyping history is stored.
 Geometric hits and attributed letters stay separate in RAM evidence. A word with
 any automatic reattribution is disqualified from **all touch labels and word counts**,
 even on a later keep/manual choice or unchanged-literal settlement, including a
@@ -211,7 +216,11 @@ sums to its existing snapshot. The map itself is RAM-only and ownership checked.
 or accuracy; it saturates and follows the existing Full Access-gated diagnostics
 save/statistics-reset contract. A deliberate novel-name gap tap remains ambiguous;
 all visual keycap taps are protected, but gap reattributions need physical-iPhone
-acceptance. The narrow synthetic evaluation does not establish human typing benefit.
+acceptance. A 455-unique-OOV evaluation now measures harm, including precise,
+Gaussian, shifted and deliberate gap probes: one harmed tap/word per 1,820 runs in
+each language mode, below the stated synthetic bounds but not zero. The original
+short `thrax` regression is protected. These development fixtures do not establish
+human typing benefit; the stricter gates reduce in-vocabulary gain substantially.
 
 ## Personal completion ranking
 

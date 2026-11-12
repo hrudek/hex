@@ -208,7 +208,7 @@ final class AutocorrectEngine {
         guard isEnabled, learning.isLearningEnabled, permitsCorrection,
               layout.layer == .letters, layout.field == .text,
               let token = Self.currentToken(in: context), token.utf8.count <= 256,
-              (2...31).contains(token.count),
+              (KeyboardKeyMap.Policy.conservative.minimumPrefix...31).contains(token.count),
               token.dropFirst().allSatisfy({ $0.isLowercase }),
               let calibration = learning.calibration(for: layout), !calibration.keys.isEmpty else { return nil }
         let prefix = PersonalLexiconSnapshot.normalize(token)

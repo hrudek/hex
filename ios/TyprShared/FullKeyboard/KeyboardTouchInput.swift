@@ -27,8 +27,16 @@ final class KeyboardTouchInput {
     // Survives loss of all samples, so delete-all/retype cannot regain learning trust.
     private var editedWord = false
     var isLearningIntact: Bool { !editedWord }
+    // One RAM-only bit, independent of complete tap evidence (also covers partial words).
+    // Backspacing is explicit disagreement: the rest of this word must stay geometric.
+    private(set) var attributionSuppressed = false
 
     func clear() { word = nil; editedWord = false }
+
+    func clearAtBoundary() {
+        clear()
+        attributionSuppressed = false
+    }
 
     func evidence(beforeInput: String?) -> KeyboardTouchWord? {
         guard let word, AutocorrectEngine.currentToken(in: beforeInput) == word.text else {
@@ -65,6 +73,7 @@ final class KeyboardTouchInput {
     }
 
     func deletedBackward(before: String?, after: String?) {
+        attributionSuppressed = true
         let evidence = evidence(beforeInput: before)
         editedWord = true
         guard var current = evidence else { return }
