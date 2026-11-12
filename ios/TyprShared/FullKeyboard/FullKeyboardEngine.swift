@@ -8,6 +8,7 @@ protocol KeyboardTextTarget: AnyObject {
     var hasText: Bool { get }
     var autocapitalizationType: UITextAutocapitalizationType? { get }
     var autocorrectionType: UITextAutocorrectionType? { get }
+    var isSecureTextEntry: Bool? { get }
     var keyboardType: UIKeyboardType? { get }
     var returnKeyType: UIReturnKeyType? { get }
     var enablesReturnKeyAutomatically: Bool? { get }
@@ -19,6 +20,7 @@ protocol KeyboardTextTarget: AnyObject {
 
 extension KeyboardTextTarget {
     var autocorrectionType: UITextAutocorrectionType? { .default }
+    var isSecureTextEntry: Bool? { false }
     var enablesReturnKeyAutomatically: Bool? { false }
     func adjustTextPosition(byCharacterOffset offset: Int) {}
 }
@@ -35,6 +37,7 @@ final class DocumentProxyTextTarget: KeyboardTextTarget {
     var hasText: Bool { proxy().hasText }
     var autocapitalizationType: UITextAutocapitalizationType? { proxy().autocapitalizationType }
     var autocorrectionType: UITextAutocorrectionType? { proxy().autocorrectionType }
+    var isSecureTextEntry: Bool? { proxy().isSecureTextEntry }
     var keyboardType: UIKeyboardType? { proxy().keyboardType }
     var returnKeyType: UIReturnKeyType? { proxy().returnKeyType }
     var enablesReturnKeyAutomatically: Bool? { proxy().enablesReturnKeyAutomatically }
@@ -94,6 +97,7 @@ final class FullKeyboardEngine {
         let final: Bool
     }
     private var published: PublishedStrip?
+    private var attribution: (ownership: KeyboardSuggestionOwnership, map: KeyboardKeyMap)?
     static let suggestionContextLimit = 256
     static let suggestionContextUTF8Limit = 2_048
     private static let suggestionTokenLimit = 64
@@ -106,7 +110,8 @@ final class FullKeyboardEngine {
         let prose: Bool
         if case .keys(.text, _) = route { prose = true } else { prose = false }
         return .init(engine: suggestionEngineID, revision: textRevision, context: context,
-                     token: token, field: field, permitsCorrection: prose && target.autocorrectionType != .no,
+                     token: token, field: field,
+                     permitsCorrection: prose && target.autocorrectionType != .no && target.isSecureTextEntry != true,
                      configuration: autocorrect.suggestionConfiguration,
                      learning: autocorrect.learning.generation, feedbackEpoch: autocorrect.learning.feedbackEpoch,
                      resources: autocorrect.spatialDecoder?.resourceRevision ?? -1, layout: layout)
@@ -258,6 +263,9 @@ final class FullKeyboardEngine {
         // No decoder, checker, personal snapshot construction or lexicon scan on this path.
         let evidence = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         let ownership = suggestionOwnership
+        // Current before returning to the event loop, independent of strip/worker readiness.
+        attribution = autocorrect.keyMap(layout: layout, context: ownership.context,
+                                        permitsCorrection: ownership.permitsCorrection).map { (ownership, $0) }
         // No current word: only corpus next-word predictions after a separator (no tap evidence).
         guard showsStrip, field == .text, ownership.permitsCorrection,
               ownership.token.map({ $0.count <= Self.suggestionTokenLimit && $0.utf8.count <= 256 })
@@ -665,13 +673,27 @@ final class FullKeyboardEngine {
     private func commitCharacter(_ touch: ActiveTouch) {
         let key = touch.key
         guard let character = key.character else { return }
-        let text = layerState.layer == .letters && shift.isUppercase ? character.uppercased() : character
+        autocorrect.syncLearning()
+        var attributed = key
+        // Rollover commits previous letters first; their didEdit already prepared this map.
+        // Unreported context/model/config changes or invalidated held geometry stay literal.
+        if touch.hasUnambiguousPoint, touch.evidenceLayout == layout, !shift.isUppercase,
+           let attribution, attribution.ownership == suggestionOwnership {
+            attributed = attribution.map.attributedKey(
+                at: touch.point, geometric: key, layout: layout,
+                prefix: PersonalLexiconSnapshot.normalize(AutocorrectEngine.currentToken(
+                    in: target.documentContextBeforeInput) ?? ""))
+        }
+        let inserted = attributed.character ?? character
+        let text = layerState.layer == .letters && shift.isUppercase ? inserted.uppercased() : inserted
+        if attributed != key { autocorrect.learning.increment(.reattributedTaps) }
         if layerState.layer == .letters {
             shift.didType()
         }
         autocorrect.clearPendingUndo()
         if touch.hasUnambiguousPoint, touch.evidenceLayout == layout {
-            typeCharacter(text, sample: .init(text: text, point: touch.point, key: key))
+            typeCharacter(text, sample: .init(text: text, point: touch.point, key: key,
+                                              attributedKey: attributed == key ? nil : attributed))
         } else {
             typeCharacter(text)
         }
@@ -777,7 +799,8 @@ final class FullKeyboardEngine {
         }
         if let sample {
             autocorrect.touchInput.append(text: text, point: sample.point, key: sample.key,
-                                         layout: layout, before: before, after: target.documentContextBeforeInput)
+                                         layout: layout, before: before, after: target.documentContextBeforeInput,
+                                         attributedKey: sample.attributedKey)
         } else {
             autocorrect.touchInput.clear()
         }

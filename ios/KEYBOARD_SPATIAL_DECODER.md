@@ -4,7 +4,55 @@ This is the correction-path reference for manual German/English typing in Typr's
 full keyboard. [Touch evidence](KEYBOARD_TOUCH_INPUT.md) describes capture and
 invalidation; [Personal typing learning and diagnostics](KEYBOARD_LEARNING.md)
 defines trusted feedback, storage, settings and counters. Dictation, visible keys,
-gestures, static hit-testing and the three suggestion slots are unchanged.
+gestures and the three suggestion slots are unchanged. The separate
+[bounded letter-gap attribution](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution)
+layer can change immediate letter insertion, never drawn keycaps or function-key cells.
+
+## Immediate letter attribution
+
+Before submitting deferred suggestions, edits synchronously prepare a ≤26-entry
+`KeyboardKeyMap`. It combines #114's frozen learned xy covariance/aim density with
+exact prefix continuation masses from existing TSW1 tries and bounded personal
+prefix sums. The map is revalidated at insertion order, including rollover; stale
+text/layout/configuration/model/epoch or non-prose/off states use geometry. No
+checker, prefix search, word decode or worker wait is part of map preparation.
+
+See [touch input](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution) for
+all gates and memory/work bounds. This first version is deliberately **gap-only,
+horizontal neighbors only**, with a 10%-width/half-gap displacement ceiling. Every
+point inside a drawn keycap is literal. Automatic reattribution disqualifies the
+whole word from labels/counts, not from decoding or explicit protection.
+
+Observed Swift 6.4.2 Linux debug synthetic evaluation (fixed common public words,
+one right-shifted trained model, deterministic gap probes after the first two
+letters; static geometry and adaptive insertion use identical coordinates):
+
+| Mode | Words / taps | Static → adaptive hit errors | Wrong reattributions | Candidate recall@1 / @3, static and adaptive |
+| --- | --- | --- | --- | --- |
+| DE | 128 / 683 | 126 → 5 | 0 | 128/128 at both cutoffs |
+| EN | 128 / 659 | 132 → 8 | 0 | 128/128 at both cutoffs |
+| Mixed | 256 / 1,342 | 251 → 17 | 0 | 256/256 at both cutoffs |
+
+Candidate recall is decoder retrieval (common calibrated density, above-literal
+candidates followed by literal/edit suggestions), **not** final strip rank or
+Space correction precision. It was already saturated; this experiment improves
+immediate hits, not completed-word recall. Seventeen center-tapped valid/homograph/
+name/compound/code-switch controls had zero changed taps and zero unwanted Space
+changes. An explicitly adversarial novel `thrax` gap tap was wrong **1/1** (`theax`):
+identical coordinates cannot establish intention. This is why the policy does not
+enter drawn keycaps, and why real-device acceptance is still required. These are
+development fixtures, not an untouched distribution or a claim of zero gap harm.
+
+Initial focused insertion p95 was about **1.1 ms**, max **1.51 ms** on this Linux
+host; report-only, including map refresh but excluding asynchronous ranking.
+26-entry map payload was **4,160 bytes**, new two-pack continuation indexes
+**1,962,224 bytes**, full 2,000-word personal index **112,392 bytes**. Existing
+10-byte/node decoder indexes and mapped bytes are additional; new TSW1 total is
+**7,358,388 bytes** before context resources and runtime overhead, not RSS. Memory
+and deterministic work bounds, not wall-clock assertions, gate tests. No new
+resource files, persistence schema, switch or network. UIKit compilation, Apple
+checker/traits, actual thumb gap distributions, confidence after grip changes,
+learning coverage and extension footprint remain unverified on Linux.
 
 ## One boundary, one decision
 

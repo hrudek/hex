@@ -127,6 +127,7 @@ nonisolated enum KeyboardDiagnosticsPresentation {
         case .storeWriteFailed: "Save failures or repairs"
         case .storeLoadDeferred: "Deferred learning loads"
         case .personalCompletionPick: "Picked personal completion"
+        case .reattributedTaps: "Reattributed letter taps"
         }
     }
 

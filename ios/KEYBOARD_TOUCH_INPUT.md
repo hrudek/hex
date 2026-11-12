@@ -1,7 +1,8 @@
 # Current-word touch evidence
 
 PR #95 preserved information that fixed key hit-testing otherwise discards.
-The tracker still changes no hit-testing, visible keys, gestures or dictation.
+The tracker changes no visible keys, gestures or dictation. The separately bounded
+[adaptive attribution](#bounded-adaptive-letter-attribution) layer can reinterpret letter-gap taps.
 Its evidence now serves the [keyboard correction path](KEYBOARD_SPATIAL_DECODER.md)
 and bounded [personal learning through trusted feedback](KEYBOARD_LEARNING.md).
 The tracker itself has no settings or serialization; the separate default-on
@@ -73,7 +74,8 @@ xx/xy/yy covariance are persisted**, not the word's points or order. The shared
 per-key fast banks or recent-point reservoir;
 they use exactly the same independent labels and reset on evidence discontinuities
 (field/host/layout/lifecycle, ambiguous gestures, etc.), not ordinary word boundaries.
-These memories change frozen word-recognition densities, never immediate hit attribution. The separate personal lexicon also
+These memories supply frozen word-recognition densities and the conservative
+letter-gap attribution snapshot described below. The separate personal lexicon also
 stores bounded kept words, trusted word counts and rejected pairs; diagnostics
 store text-free counters/histograms. With real keyboard Full Access these files
 are local, protected and excluded from backup; otherwise session-only. This is
@@ -133,6 +135,64 @@ extends the tap window nor stores personal contexts. Reordering current-token
 suggestions preserves their completion provenance; after-space predictions have
 no current token/tap alignment and teach no touch labels or word counts. Automatic
 correction and all conservative evidence invalidation above are unchanged.
+
+## Bounded adaptive letter attribution
+
+`KeyboardKeyMap` is prepared synchronously after edits, before suggestion-worker
+submission, even with the strip hidden. At actual insertion (including rollover),
+`FullKeyboardEngine` checks the complete text/configuration/learning/resource/layout
+ownership again. Stale state, invalidated/sliding/held geometry or missing selected
+resources means geometric insertion, never waiting for ranking. The next held tap
+uses the prefix after the earlier held letter was actually inserted.
+
+Only trained, Learn from my typing-on prose letter maps participate, with Autocorrect
+and host correction permission on. URL, email, number and secure fields abstain.
+A prefix must have 2–31 letters, with no internal capitals; missing/novel
+continuations remain nonzero and neutral. All drawn keycap points stay literal.
+Only the narrow horizontal gap next to an immediate same-row letter neighbor may
+change: at most **10% of key width**, capped at half the six-point gap, within the
+middle 60% of key height. No control, punctuation, space or Typr-key cell donates
+taps. Layout, balloons and pressed-key appearance remain geometric.
+
+The neighbor must beat the geometric hit's frozen learned xy/aim density by
+**strictly more than ln(2)**, have a higher prefix prior, and beat its combined
+log posterior by **strictly more than ln(4)**. Prefix mass comes from existing
+TSW1 terminal continuation sums, equal enabled-language mixtures and a **50%
+uniform novel-word floor**. Personal words contribute at most 20% of the known
+component. Physical holders fold ä/ö/ü/ß to a/o/u/s for the prior only; no new
+stored keys or popup labels. Final prior odds are capped at four between keys.
+Unknown bilingual prefixes contribute uniform mass, not an English-only fallback.
+
+A sample's `key` remains the **geometric hit**; optional `attributedKey` and `text`
+record the inserted reading separately. Spatial emissions still use the real point
+and captured geometry. Any reattribution makes the **entire word ineligible for
+labels and word counts**, including a subsequent keep, unchanged-literal settlement,
+manual pick or deletion/retyping. Explicit keep/rejection protections still work.
+This deliberately sacrifices some learning coverage rather than teaching the model
+its own guess. No new text/tap persistence or learning schema; the only new saved
+value is a saturating text-free `Reattributed letter taps` diagnostic counter under
+the existing Full Access/statistics-reset contract.
+
+The map has at most 26 entries (4,160 bytes element payload on Linux), 52 entry
+inspections and at most two neighbor scores per attribution. Prefix lookup is
+bounded to 31×30 edges per selected trie plus 30 children. Exact continuation sums
+add eight bytes per validated trie node (**1,962,224 bytes** for the two bundled
+packs), built during existing detached resource preparation; no subtree scan on
+insertion. Personal prefix sums add ≤16,008 bytes to the existing ≤2,000-word
+snapshot index; lookup uses 60 binary searches (≤660 comparisons), not a personal
+word scan. Existing snapshot construction is still lazy after personal changes;
+its bounded rebuild cost and UIKit scheduling need device measurement. Payloads
+exclude containers, allocator overhead, shared layouts/strings and RSS.
+
+Synthetic regression/evaluation is in `KeyboardKeyMapTests`: serial/overlapping
+insertion and a blocked worker, controls/stale traits, continuation-mass oracle,
+neutral DE/EN mixing, personal words/holders, no self-training, and fixed public
+word fixtures. The gap-only restriction is intentional: **a deliberate novel-name
+gap tap can still be wrong** (the `thrax` adversarial fixture becomes `theax`).
+Zero harm is guaranteed only for drawn-keycap taps, not ambiguous gaps. Real thumb
+taps, host traits/callbacks, grip shifts, rapid rollover, extension memory and whether
+this narrow rule reduces correction burden require iPhone acceptance; no accuracy
+claim follows from synthetic Linux improvements. See the spatial document for metrics.
 
 ## Proof limits
 

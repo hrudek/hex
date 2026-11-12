@@ -84,6 +84,8 @@ struct KeyboardDiagnosticsView: View {
         section("Decisions") {
             note("Automatic replacements by path, and words left unchanged.")
             counterBars(Presentation.decisions)
+            metric("Reattributed letter taps", diagnostics[.reattributedTaps].formatted())
+            note("Near-boundary letter taps attributed using learned aim and the current prefix. Not a measure of accuracy.")
             DisclosureGroup("Paths that declined to replace") {
                 counterBars(Presentation.refusals)
                 note("A later path may still have replaced the word. These are not additional word boundaries.")

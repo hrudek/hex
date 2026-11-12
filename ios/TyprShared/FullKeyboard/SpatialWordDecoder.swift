@@ -10,6 +10,8 @@ nonisolated struct SpatialWordLexicon: Sendable {
     let nodeCount: Int
     let total: Double
     private var subtreeCounts: [UInt32] = []
+    /// Exact terminal mass for bounded next-letter lookup; built off the insertion path.
+    private var continuationMass: [UInt64] = []
     /// Min/max letters to a terminal, packed in two saturated UInt8 lanes.
     private var suffixLengths: [UInt16] = []
     /// Immediate child alphabet, derived once with the validated subtree index.
@@ -32,12 +34,14 @@ nonisolated struct SpatialWordLexicon: Sendable {
         // once, in reverse (edges are forward-only). Also establish the unique
         // spelling per node required by max-path state dominance below.
         subtreeCounts = [UInt32](repeating: 0, count: nodes)
+        continuationMass = [UInt64](repeating: 0, count: nodes)
         suffixLengths = [UInt16](repeating: 255, count: nodes)
         childLabels = [UInt32](repeating: 0, count: nodes)
         var parents = [Bool](repeating: false, count: nodes)
         for index in (0..<nodes).reversed() {
             guard let record = node(index) else { return nil }
             var maximum = UInt32(record.count)
+            var mass = UInt64(record.count)
             var minimumLength = record.count > 0 ? 0 : 255, maximumLength = 0
             var labels: UInt32 = 0
             for child in record.children {
@@ -48,11 +52,13 @@ nonisolated struct SpatialWordLexicon: Sendable {
                 labels |= bit
                 parents[child] = true
                 maximum = max(maximum, subtreeCounts[child])
+                mass += continuationMass[child]
                 if subtreeCounts[child] > 0 {
                     minimumLength = min(minimumLength, min(255, Int(suffixLengths[child] & 255) + 1))
                     maximumLength = max(maximumLength, min(255, Int(suffixLengths[child] >> 8) + 1))
                 }
             }
+            continuationMass[index] = mass
             subtreeCounts[index] = maximum
             childLabels[index] = labels
             suffixLengths[index] = UInt16(minimumLength | (maximumLength << 8))
@@ -119,6 +125,26 @@ nonisolated struct SpatialWordLexicon: Sendable {
         }
         guard let count = node(index)?.count, count > 0 else { return nil }
         return log(count / total)
+    }
+
+    var continuationPayloadBytes: Int { continuationMass.count * MemoryLayout<UInt64>.stride }
+
+    /// At most 32 × 30 edge inspections plus 30 children, never a subtree scan.
+    /// Mass includes terminals of every descendant, not the decoder's maximum count.
+    func nextLetterMass(after prefix: String) -> [Double] {
+        var result = [Double](repeating: 0, count: Self.alphabet.count)
+        guard prefix.utf8.count <= 256, prefix.count <= 31 else { return result }
+        var index = 0
+        for letter in prefix {
+            guard let label = Self.alphabet.firstIndex(of: letter), let parent = node(index),
+                  let next = parent.children.first(where: { node($0)?.label == label }) else { return result }
+            index = next
+        }
+        guard let parent = node(index) else { return result }
+        for child in parent.children {
+            if let item = node(child) { result[item.label] = Double(continuationMass[child]) }
+        }
+        return result
     }
 
     private static func uint32(_ data: Data, _ offset: Int) -> UInt32 {

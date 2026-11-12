@@ -194,6 +194,23 @@ final class AutocorrectEngine {
         return languages
     }
 
+    /// Synchronous, checker-free attribution preparation, before any deferred ranking.
+    /// No adaptation without a trained model, enabled learning/autocorrect or all selected packs.
+    func keyMap(layout: KeyboardLayout, context: String?, permitsCorrection: Bool) -> KeyboardKeyMap? {
+        guard isEnabled, learning.isLearningEnabled, permitsCorrection,
+              layout.layer == .letters, layout.field == .text,
+              let token = Self.currentToken(in: context), token.utf8.count <= 256,
+              (2...31).contains(token.count),
+              token.dropFirst().allSatisfy({ $0.isLowercase }),
+              let calibration = learning.calibration(for: layout), !calibration.keys.isEmpty else { return nil }
+        let prefix = PersonalLexiconSnapshot.normalize(token)
+        let lexicons = spatialDecoder?.resourceSnapshot ?? [:]
+        let personal = learning.personalPriors.scan.completions
+        guard let priors = KeyboardKeyMap.priors(prefix: prefix, languages: suggestionLanguages,
+                                                lexicons: lexicons, personal: personal) else { return nil }
+        return KeyboardKeyMap(layout: layout, prefix: prefix, calibration: calibration, priors: priors)
+    }
+
     /// Cheap gate for after-separator corpus predictions: autocorrect on, prepared packs for
     /// every selected language (a missing selected pack abstains), caret after whitespace.
     func canPredictNextWord(after beforeInput: String?) -> Bool {

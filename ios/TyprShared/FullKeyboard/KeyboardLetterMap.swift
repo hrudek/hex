@@ -83,7 +83,8 @@ nonisolated enum KeyboardLetterMap {
         for sample in word.samples {
             guard sample.text.count == 1, sample.text.lowercased().count == 1,
                   sample.key == word.layout.key(sample.key.kind),
-                  sample.key.character?.lowercased() == sample.text.lowercased(),
+                  (sample.attributedKey ?? sample.key).character?.lowercased() == sample.text.lowercased(),
+                  sample.attributedKey.map({ $0 == word.layout.key($0.kind) }) ?? true,
                   sample.point.x.isFinite, sample.point.y.isFinite,
                   let letter = sample.text.lowercased().first,
                   let label = alphabet.firstIndex(of: letter),

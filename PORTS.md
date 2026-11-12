@@ -228,6 +228,25 @@ remain independent of the corpus stock-name suppression list. See
 [context behavior and proof limits](ios/KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions).
 The existing full iikb MIT notice applies without duplication.
 
+## Bounded adaptive letter attribution (iikb, P8)
+
+Owner-approved change to the historical static-attribution boundary, narrowly
+superseding earlier dynamic-target exclusions **only** for the rule below.
+Read-only reference at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
+**MIT, © 2026 Bassim Shahidy**; never built/run or added as a dependency.
+
+| Source paths at this pin | Translated algorithm | Destination files | Exclusions |
+| --- | --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/KeyMap.swift` (1–55), `Typing/TypingEngine+Words.swift` (222–237, under the same KeyboardCore directory), `Correction/LanguageModel.swift` (89–110) | Frozen per-key posterior × prefix continuation prior, current synchronous map before deferred suggestions, stale-signature geometric fallback. Rewritten for Typr TSW1 exact descendant-count indexes, equal DE/EN mixing, uniform novelty floor, bounded personal prefix sums, strict likelihood/posterior margins and gap-only horizontal reach. Geometric hit/inserted reading separate; any reattributed word cannot teach labels/counts. | `ios/TyprShared/FullKeyboard/KeyboardKeyMap.swift`, `SpatialWordDecoder.swift`, `PersonalCompletionIndex.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `KeyboardTouchInput.swift`, `KeyboardLetterMap.swift`, `KeyboardDiagnostics.swift` (same directory); `ios/Typr/KeyboardDiagnosticsModel.swift`, `KeyboardDiagnosticsView.swift`, `FullKeyboardSnapshotStage.swift`; `ios/TyprTests/KeyboardKeyMapTests.swift` | No visible resizing/layouts, vertical reach, function/Space/Typr/punctuation stealing, upstream posterior-best policy, word-end probability/space reinterpretation, upstream files/resources, raw traces, new persistence/schema, swipe typing, emoji, themes, clipboard, network, neural weights or dictation changes. |
+
+The existing full iikb MIT notice is extended in THIRD_PARTY_NOTICES.md, not
+duplicated; it was checked against this pin's LICENSE. No files/fixtures copied
+wholesale. TSW1 and context resources retain their separate licenses. Tests and
+synthetic metrics (including a deliberate novel-name **gap** failure) and outstanding
+UIKit/Apple-checker/iPhone proof are documented in the keyboard references. All
+drawn-keycap points remain literal; synthetic hit-error reduction is not evidence
+of lower correction burden for real thumbs.
+
 ## Carried keyboard PR paths
 
 The second row's current destination paths are listed below. In the adopted

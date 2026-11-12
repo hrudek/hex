@@ -6,7 +6,9 @@ nonisolated struct KeyboardTouchWord: Equatable, Sendable {
     struct Sample: Equatable, Sendable {
         let text: String
         let point: CGPoint
+        /// Original geometric hit; never silently relabeled by the attribution map.
         let key: KeyboardKey
+        var attributedKey: KeyboardKey? = nil
     }
 
     let layout: KeyboardLayout
@@ -37,10 +39,10 @@ final class KeyboardTouchInput {
     }
 
     func append(text: String, point: CGPoint, key: KeyboardKey, layout: KeyboardLayout,
-                before: String?, after: String?) {
+                before: String?, after: String?, attributedKey: KeyboardKey? = nil) {
         guard before != nil, text.count == 1, text.first?.isLetter == true,
               point.x.isFinite, point.y.isFinite, layout.layer == .letters,
-              layout.field == .text, key.character?.lowercased() == text.lowercased(),
+              layout.field == .text, (attributedKey ?? key).character?.lowercased() == text.lowercased(),
               AutocorrectEngine.currentToken(in: after) == (AutocorrectEngine.currentToken(in: before) ?? "") + text else {
             word = nil
             return
@@ -54,7 +56,12 @@ final class KeyboardTouchInput {
         } else {
             word = KeyboardTouchWord(layout: layout, samples: [], learningIntact: !editedWord)
         }
-        word?.samples.append(.init(text: text, point: point, key: key))
+        if attributedKey != nil {
+            // Automatic insertion is not independent confirmation of intended labels/counts.
+            editedWord = true
+            word?.learningIntact = false
+        }
+        word?.samples.append(.init(text: text, point: point, key: key, attributedKey: attributedKey))
     }
 
     func deletedBackward(before: String?, after: String?) {
