@@ -326,6 +326,24 @@ through the Hex base. Those references are provenance, not local dependencies.
 configuration, updated to Typr's identity. Typr CI uses
 `.github/typr/` for configuration and export options.
 
+## Personal names and terms (R2-1)
+
+Reviewed READ-ONLY at iikb **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
+**MIT, © 2026 Bassim Shahidy**; existing full notice in THIRD_PARTY_NOTICES.md.
+
+| Source paths at this pin | Translated/reviewed idea | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (`setNames`, exact-name handling before split/correction); adjacent `Lexicon.swift` (normalized word query/canonical lookup) | Independent personal-name candidate/protection layer, rewritten as a bounded sorted NFC token module with binary contains/prefix queries. Deliberate divergence: exact imported literals never receive even canonical-name rewrites; app owns Contacts/dictation input, not the extension. | `ios/TyprShared/FullKeyboard/ProtectedPersonalLexicon.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`; `ios/Typr/PersonalLexiconImporter.swift`, `PersonalLexiconSettingsCard.swift`; `ios/TyprKeyboard/KeyboardViewController.swift` |
+
+Top-K builder, app importer, JSON/storage/reset protocol and controls/tests are
+Typr-authored; no upstream files, data, binaries or dependencies copied. No
+upstream dictionary filtering of lowercase names: owner-approved imports are
+literal protections even if lowercase. No new licensed data or SOURCE pack.
+Excludes upstream canonical auto-capitalization, neural weights, histories,
+swipe/emoji/themes/layout/clipboard, network and changes to dictation output.
+Contacts names/companies and already-kept dictation terms are the explicitly
+owner-approved local data sources, both opt-in and resettable.
+
 ## How to adopt changes
 
 1. Inspect the specific source revision in a separate checkout or on GitHub.

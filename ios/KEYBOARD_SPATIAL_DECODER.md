@@ -109,6 +109,21 @@ Python repository/dictation/word/context checks passed **76/25/4/7** cases; shel
 syntax, ShellCheck, Actionlint and diff checks passed. Scratch Swift warning build
 passed with no P8 slow-expression warnings. These are Linux checks, not an iOS build.
 
+## Imported literal protections
+
+The app-built [personal names and terms](KEYBOARD_LEARNING.md#personal-names-and-terms)
+snapshot is independent of corpus frequencies and typing counts. An exact
+imported token is valid and vetoes all automatic corrections before shortcuts,
+digraphs and contractions; unlisted tokens keep existing authority. Boundary
+chips cannot split or join across imported original tokens, including spatial
+boundary candidates. Imported binary-prefix completions are manual-only and
+precede speculative alternatives without displacing explicit/automatic choices.
+Changing the snapshot invalidates suggestion configuration/caches so stale worker
+results cannot authorize an edit. Straight/curly internal apostrophes now share
+word-token handling. Adaptive prefix veto and device limits are documented in
+KEYBOARD_TOUCH_INPUT.md. The pre-existing unimported-name/OOV automatic gates
+remain suggestion-only; this package does not enable automatic split/join.
+
 ## One boundary, one decision
 
 `AutocorrectEngine.decide` serves both suggestions and replace-on-Space.

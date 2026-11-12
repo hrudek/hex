@@ -57,7 +57,11 @@ final class KeyboardDiagnosticsModel {
     private func reset(learning: Bool) {
         guard !fixture else { return }
         let store = KeyboardLearningStore(directory: directory, defaults: defaults)
-        let success = learning ? store.requestLearningReset() : store.requestDiagnosticsReset()
+        var success = learning ? store.requestLearningReset() : store.requestDiagnosticsReset()
+        if learning {
+            do { try ProtectedPersonalLexicon.reset(directory: directory, defaults: defaults) }
+            catch { success = false }
+        }
         resetProblem = success ? nil : "Could not reset saved data. Try again when Typr can access its shared storage."
         refresh()
     }

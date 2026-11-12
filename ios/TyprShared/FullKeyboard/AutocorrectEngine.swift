@@ -167,6 +167,19 @@ final class AutocorrectEngine {
         invalidateDecode()
     } }
     private(set) var lexiconShortcuts: [String: String] = [:]
+    private(set) var protectedLexicon: ProtectedPersonalLexicon = .empty
+
+    func loadProtectedLexicon(_ lexicon: ProtectedPersonalLexicon) {
+        guard protectedLexicon != lexicon else { return }
+        protectedLexicon = lexicon
+        invalidateDecode()
+    }
+
+    /// Geometric letters stay literal while they could still spell an imported name/term.
+    func protectsAttribution(prefix: String, letter: String) -> Bool {
+        protectedLexicon.protectsPrefix(prefix) || protectedLexicon.protectsPrefix(prefix + letter)
+    }
+
     private var lexiconTerms: [String] = []
     private var lexiconTermKeys: Set<String> = []
     private var suppressedInSession: Set<String> = []
@@ -208,6 +221,7 @@ final class AutocorrectEngine {
         guard isEnabled, learning.isLearningEnabled, permitsCorrection,
               layout.layer == .letters, layout.field == .text,
               let token = Self.currentToken(in: context), token.utf8.count <= 256,
+              !protectedLexicon.protectsPrefix(token),
               (KeyboardKeyMap.Policy.conservative.minimumPrefix...31).contains(token.count),
               token.dropFirst().allSatisfy({ $0.isLowercase }),
               let calibration = learning.calibration(for: layout), !calibration.keys.isEmpty else { return nil }
@@ -623,7 +637,10 @@ final class AutocorrectEngine {
         while start > beforeInput.startIndex {
             let prev = beforeInput.index(before: start)
             let ch = beforeInput[prev]
-            if ch.isLetter || (ch == "'" && start < end && prev > beforeInput.startIndex && beforeInput[beforeInput.index(before: prev)].isLetter) {
+            let apostrophe = ch == "'" || ch == "’"
+            let internalApostrophe = apostrophe && start < end && prev > beforeInput.startIndex
+                && beforeInput[beforeInput.index(before: prev)].isLetter
+            if ch.isLetter || internalApostrophe {
                 start = prev
             } else {
                 break
@@ -706,6 +723,17 @@ final class AutocorrectEngine {
         // Explicit revert, automatic choice and suggest-only contraction keep their slots.
         let pinnedCount = pool.count
 
+        // Imported completions precede speculative alternatives, but never an explicit/automatic pick.
+        // Binary lower bound: no full personal-list scan on a keypress.
+        for term in protectedLexicon.completions(for: token) where pool.count < poolLimit {
+            let candidate = Self.matchCase(of: token, onto: term)
+            if !pool.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
+                pool.append(candidate)
+                completions.insert(candidate)
+                contactPicks.insert(candidate)
+            }
+        }
+
         // Worker boundaries precede speculative within-word alternatives, not an automatic fix.
         // UIKit dictionary validity remains on MainActor, after retrieval.
         if let job = boundaryJob(beforeInput: beforeInput) {
@@ -730,6 +758,7 @@ final class AutocorrectEngine {
                 let parts = candidate.original.split(separator: " ").map(String.init)
                 let protected = parts.contains {
                     suppressedInSession.contains($0.lowercased()) || lexiconTermKeys.contains($0.lowercased())
+                        || protectedLexicon.contains($0)
                         || lexiconShortcuts[$0.lowercased()] != nil || learning.protections.isKept($0)
                         || Self.shorthandAllowlist.contains($0.lowercased())
                 }
@@ -939,13 +968,13 @@ final class AutocorrectEngine {
     /// valid in an enabled language (including a lowercase-typed German noun), kept or a contact.
     private func protectsFromEditSuggestions(_ token: String) -> Bool {
         let lower = token.lowercased()
-        return suppressedInSession.contains(lower) || lexiconTermKeys.contains(lower)
+        return suppressedInSession.contains(lower) || lexiconTermKeys.contains(lower) || protectedLexicon.contains(token)
             || literalIsValid(token)
     }
 
     /// Valid in an enabled dictionary or explicitly kept (the only literals trusted by learning).
     func literalIsValid(_ token: String) -> Bool {
-        learning.protections.isKept(token) || dictionaryAcceptsLiteral(token)
+        protectedLexicon.contains(token) || learning.protections.isKept(token) || dictionaryAcceptsLiteral(token)
     }
 
     private func dictionaryAcceptsLiteral(_ token: String) -> Bool {
@@ -1083,7 +1112,8 @@ final class AutocorrectEngine {
     /// Explicit keeps and shorthand veto everything, as the learned-word protection did.
     private func decide(_ token: String, evidence: KeyboardTouchWord?, forSuggestions: Bool) -> Decision {
         let lower = token.lowercased()
-        guard !suppressedInSession.contains(lower), !learning.protections.isKept(token),
+        guard !protectedLexicon.contains(token),
+              !suppressedInSession.contains(lower), !learning.protections.isKept(token),
               !Self.shorthandAllowlist.contains(lower) else { return Decision(refusal: .refusedProtected) }
         // 1. Explicit iOS Text Replacement (`omw` -> `On my way!`).
         if let shortcut = lexiconShortcuts[lower] {
@@ -1111,7 +1141,7 @@ final class AutocorrectEngine {
 
         // 3. Context guards: inferred corrections only for plain words of 3+ letters.
         guard !isAllCaps else { return Decision(refusal: .refusedProtected) }
-        guard token.count >= 3, !token.contains("'") else { return Decision() }
+        guard token.count >= 3, !token.contains("'"), !token.contains("’") else { return Decision() }
 
         // 4. Protections: Contacts/lexicon terms and words valid in an enabled dictionary.
         guard !lexiconTermKeys.contains(lower) else { return Decision(refusal: .refusedProtected) }

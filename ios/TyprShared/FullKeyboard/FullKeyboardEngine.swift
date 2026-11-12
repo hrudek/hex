@@ -717,6 +717,7 @@ final class FullKeyboardEngine {
         // Unreported context/model/config changes or invalidated held geometry stay literal.
         if touch.hasUnambiguousPoint, touch.evidenceLayout == layout, !shift.isUppercase,
            !autocorrect.touchInput.attributionSuppressed,
+           !autocorrect.protectsAttribution(prefix: suggestionOwnership.token ?? "", letter: character),
            autocorrect.isEnabled, autocorrect.learning.isLearningEnabled, let attribution {
             let current = suggestionOwnership
             if attribution.ownership == current {

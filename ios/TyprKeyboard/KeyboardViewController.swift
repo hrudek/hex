@@ -40,6 +40,7 @@ final class KeyboardViewController: UIInputViewController {
         KeyboardHost.appeared()
         viewModel.hostNotice = nil
         mountSurface()
+        refreshProtectedLexicon()
         fullKeyboard?.prepareForField()
         handOffNumericPadIfNeeded()
         syncFromBridge(animated: false)
@@ -71,7 +72,15 @@ final class KeyboardViewController: UIInputViewController {
     /// A keyboard touch also resumes suggestions if this notice is missed.
     @objc private func hostDidBecomeActive() {
         guard viewIfLoaded?.window != nil else { return }
+        refreshProtectedLexicon()
         fullKeyboard?.resumeSuggestions()
+    }
+
+    private func refreshProtectedLexicon() {
+        let lexicon = hasFullAccess
+            ? ProtectedPersonalLexicon.load(directory: KeyboardLearningStore.sharedDirectory) : .empty
+        fullKeyboard?.engine.autocorrect.loadProtectedLexicon(lexicon)
+        fullKeyboard?.engine.refreshSuggestions()
     }
 
     override func didReceiveMemoryWarning() {
@@ -216,6 +225,10 @@ final class KeyboardViewController: UIInputViewController {
             keyboard.allowsCompactBar = experimentOn
             keyboard.onShowCompactBar = { [weak self] in self?.switchSurface(toCompactBar: true) }
             fullKeyboard = keyboard
+            // Surface switches can create a keyboard without another viewWillAppear callback.
+            let imports = hasFullAccess
+                ? ProtectedPersonalLexicon.load(directory: KeyboardLearningStore.sharedDirectory) : .empty
+            keyboard.engine.autocorrect.loadProtectedLexicon(imports)
             mounted = keyboard
             heightConstraint?.constant = keyboard.preferredHeight
         } else {

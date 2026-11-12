@@ -658,6 +658,44 @@ final class KeyboardKeyMapTests: XCTestCase {
         print("EVAL P8b_latency calls=\(selectedTimes.count) map_p95_ms=\(selectedTimes[Int(Double(selectedTimes.count - 1) * 0.95)]) map_max_ms=\(selectedTimes.last!) wall_clock_assertions=0 calibration=frozen_trained synthetic=1")
     }
 
+    func testImportedNameAttributionGuardBeforeAfterEvaluation() throws {
+        let sources = try resources()
+        let controls = ["ina", "malin", "andi", "jens", "maren", "alice", "george", "siemens",
+                        "microsoft", "openai", "herdr", "typr", "whisper", "fahrradlieferzeit",
+                        "kindergartenplatz", "haustuerschluessel"]
+        var builder = ProtectedPersonalLexicon.Builder()
+        for word in controls { builder.add(word) }
+        let imported = builder.build()
+        let modes: [(String, Set<Language>)] = [
+            ("DE", [.german]), ("EN", [.english]), ("mixed", [.german, .english])
+        ]
+        for (mode, languages) in modes {
+            var harms = [0, 0]
+            var runs = 0
+            for word in controls {
+                for gapIndex in word.indices {
+                    runs += 1
+                    for variant in 0..<2 {
+                        let (engine, target, _) = keyboard(sources, languages: languages)
+                        if variant == 1 { engine.autocorrect.loadProtectedLexicon(imported) }
+                        target.insertText("das ist ")
+                        engine.refreshSuggestions()
+                        for index in word.indices {
+                            let k = key(word[index])
+                            let point = index == gapIndex
+                                ? CGPoint(x: k.hitFrame.minX + 0.1, y: k.frame.midY) : center(k)
+                            XCTAssertEqual(grid.hitTest(point)?.character, String(word[index]))
+                            tap(point, engine)
+                        }
+                        if target.text != "das ist " + word { harms[variant] += 1 }
+                    }
+                }
+            }
+            XCTAssertEqual(harms[1], 0)
+            print("EVAL R2_1_attribution mode=\(mode) controls=\(controls.count) gap_runs=\(runs) before_false=\(harms[0]) after_false=\(harms[1]) profile=one_geometrically_correct_gap_per_position NOT-iPhone")
+        }
+    }
+
     func testMapWorkPayloadAndLatencyEvaluation() throws {
         let sources = try resources()
         let start = ProcessInfo.processInfo.systemUptime

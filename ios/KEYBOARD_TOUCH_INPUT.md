@@ -280,6 +280,20 @@ taps, host traits/callbacks, grip shifts, rapid rollover, extension memory and w
 this narrow rule reduces correction burden require iPhone acceptance; no accuracy
 claim follows from synthetic Linux improvements. See the spatial document for metrics.
 
+## Imported-name attribution guard
+
+The app-built [personal lexicon](KEYBOARD_LEARNING.md#personal-names-and-terms)
+adds a synchronous binary-prefix veto: no adaptive map for an imported prefix,
+and the final insertion additionally checks the geometric prefix-plus-letter.
+This preserves geometric name/company/product taps before any worker result and
+does not create trusted labels from attributed output. Prefix overlap can reduce
+adaptation for unrelated words; unimported OOV/compound residual harm from #124
+is not claimed fixed. With the same 16 imported-name/term/compound controls and
+one correct gap tap at every letter position, the integrated Linux fixture has
+3/122 harmful runs without imports and 0/122 with imports in each DE/EN/mixed mode.
+This is a synthetic guard measurement, not a human accuracy or global zero-harm
+claim. No geometry/layout/frame changes or new touch persistence.
+
 ## Proof limits
 
 `KeyboardTouchInputTests` covers geometry, rollover, deletion/retyping, undo,

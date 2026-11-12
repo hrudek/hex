@@ -1,4 +1,5 @@
 import SwiftUI
+import Contacts
 
 @main
 struct TyprApp: App {
@@ -37,6 +38,16 @@ struct TyprApp: App {
                     showSetup: $showSetup,
                     setupRequestID: setupRequestID
                 )
+                .task { PersonalLexiconImporter.shared.refresh(force: true) }
+                .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                    PersonalLexiconImporter.shared.refresh()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .CNContactStoreDidChange)) { _ in
+                    PersonalLexiconImporter.shared.refresh(force: true)
+                }
+                .onChange(of: DictationLogStore.shared.entries) { _, _ in
+                    PersonalLexiconImporter.shared.refresh()
+                }
                 .onOpenURL { url in
                     // Typr: "Fix in Typr" from the keyboard opens the dictation log, not a session.
                     if TyprFeedbackRouter.shared.handle(url) {
@@ -54,6 +65,7 @@ struct TyprApp: App {
                     dictation.handleKeyboardLaunch(request)
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { PersonalLexiconImporter.shared.refresh(force: true) }
                     if phase == .background {
                         dictation.noteSceneDidEnterBackground()
                         openedFromKeyboard = false
