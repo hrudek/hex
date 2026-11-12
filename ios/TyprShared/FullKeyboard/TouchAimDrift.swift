@@ -14,7 +14,8 @@ import Foundation
 /// `fast` exponentially forgetting ridge regressions. Each memory is scored on a label
 /// BEFORE it learns from it; a fixed share lets any memory take over again, so returning
 /// to the original grip recovers within a few labels. Typr's shared affine field replaces
-/// iikb's per-key memories. No points are stored: 2 × 13 sums plus three weights.
+/// iikb's per-key memories. No points are stored: 2 × 12 sufficient sums plus three weights
+/// (SIMD padding and fixed decay lengths are included in the byte-bound tests).
 nonisolated struct TouchAimDrift: Equatable, Sendable {
     nonisolated struct Memory: Equatable, Sendable {
         let length: Double
@@ -92,7 +93,8 @@ nonisolated struct TouchAimDrift: Equatable, Sendable {
 
     /// One trusted label at pitch position (x, y) for a key whose slow physical density is `slow`.
     mutating func update(x: Double, y: Double, slow: SpatialTouchCalibration.Key, features φ: SIMD3<Double>) {
-        guard x.isFinite, y.isFinite, φ[0] == 1 else { return }
+        guard x.isFinite, y.isFinite, φ[0] == 1,
+              φ[1].isFinite, φ[2].isFinite, abs(φ[1]) <= 1, abs(φ[2]) <= 1 else { return }
         // Score BEFORE learning, in log space, then mix in the fixed share. All memories share
         // the slow width, so they compete on their predicted centres only.
         let scores = offsets(φ).map { -0.5 * slow.mahalanobis(x: x - $0.x, y: y - $0.y) }

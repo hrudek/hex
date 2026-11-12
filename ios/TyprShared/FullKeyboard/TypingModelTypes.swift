@@ -44,7 +44,14 @@ nonisolated struct SpatialTouchCalibration: Equatable, Sendable {
 
         /// Normalized full-covariance Gaussian. Sanitized by the snapshot initializer.
         func logDensity(x: Double, y: Double) -> Double {
-            -0.5 * mahalanobis(x: x, y: y) - log(2 * Double.pi) - 0.5 * log(determinant)
+            if covarianceXY == 0 {
+                // Exact origin/main diagonal expression; also avoids unnecessary covariance
+                // arithmetic on the learning-off and slow-diagonal benchmark paths.
+                let dx = x - offsetX, dy = y - offsetY
+                return -0.5 * (dx * dx / (sigmaX * sigmaX) + dy * dy / (sigmaY * sigmaY))
+                    - log(2 * Double.pi * sigmaX * sigmaY)
+            }
+            return -0.5 * mahalanobis(x: x, y: y) - log(2 * Double.pi) - 0.5 * log(determinant)
         }
     }
 

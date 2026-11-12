@@ -142,8 +142,9 @@ learned/neural model or resources. The existing iikb MIT notice above
 also covers these adaptations; it is not duplicated here.
 
 The aggregate-aim extension additionally translates full covariance, pooled shrinkage,
-30/3-style aim memories, predictive fixed-share weighting and covariance-display/test
-ideas from `TouchModel.swift`, `Aim.swift`, `Tap.swift` and `TypingModelTests.swift` at
+multiple-timescale aim, predictive fixed-share weighting and covariance-display/test
+ideas (rewritten with Typr's shared 40/8-label affine drift, not upstream per-key
+30/3 banks) from `TouchModel.swift`, `Aim.swift`, `Tap.swift` and `TypingModelTests.swift` at
 [iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765),
 MIT, Copyright (c) 2026 Bassim Shahidy. The same full MIT notice above applies;
 [PORTS.md](PORTS.md) lists exact paths and exclusions. No upstream recent-tap

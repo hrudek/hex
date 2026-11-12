@@ -10,6 +10,10 @@ nonisolated struct SpatialWordLexicon: Sendable {
     let nodeCount: Int
     let total: Double
     private var subtreeCounts: [UInt32] = []
+    /// Min/max letters to a terminal, packed in two saturated UInt8 lanes.
+    private var suffixLengths: [UInt16] = []
+    /// Immediate child alphabet, derived once with the validated subtree index.
+    private var childLabels: [UInt32] = []
 
     init?(data: Data) {
         guard data.count >= 36, data.count <= Self.maxBytes,
@@ -28,10 +32,13 @@ nonisolated struct SpatialWordLexicon: Sendable {
         // once, in reverse (edges are forward-only). Also establish the unique
         // spelling per node required by max-path state dominance below.
         subtreeCounts = [UInt32](repeating: 0, count: nodes)
+        suffixLengths = [UInt16](repeating: 255, count: nodes)
+        childLabels = [UInt32](repeating: 0, count: nodes)
         var parents = [Bool](repeating: false, count: nodes)
         for index in (0..<nodes).reversed() {
             guard let record = node(index) else { return nil }
             var maximum = UInt32(record.count)
+            var minimumLength = record.count > 0 ? 0 : 255, maximumLength = 0
             var labels: UInt32 = 0
             for child in record.children {
                 // Forward children were already validated in this reverse pass.
@@ -41,8 +48,14 @@ nonisolated struct SpatialWordLexicon: Sendable {
                 labels |= bit
                 parents[child] = true
                 maximum = max(maximum, subtreeCounts[child])
+                if subtreeCounts[child] > 0 {
+                    minimumLength = min(minimumLength, min(255, Int(suffixLengths[child] & 255) + 1))
+                    maximumLength = max(maximumLength, min(255, Int(suffixLengths[child] >> 8) + 1))
+                }
             }
             subtreeCounts[index] = maximum
+            childLabels[index] = labels
+            suffixLengths[index] = UInt16(minimumLength | (maximumLength << 8))
         }
         guard parents.dropFirst().allSatisfy({ $0 }) else { return nil }
     }
@@ -50,6 +63,25 @@ nonisolated struct SpatialWordLexicon: Sendable {
     /// Upper bound on the terminal prior of any descendant (including this node).
     func bestLogPrior(at index: Int) -> Double {
         log(Double(subtreeCounts[index]) / total)
+    }
+
+    /// A length-incompatible subtree cannot finish, regardless of touch likelihood.
+    /// Saturation at 255 is conservative for the decoder's <=32 remaining taps.
+    func canFinish(at index: Int, remaining: Int, editAvailable: Bool) -> Bool {
+        let span = suffixLengths[index], allowance = editAvailable ? 1 : 0
+        return Int(span & 255) <= remaining + allowance && Int(span >> 8) >= remaining - allowance
+    }
+
+    /// Best possible NEXT aligned density. With an edit already spent, the next
+    /// tap must name an immediate child. Works on frozen full-covariance scores,
+    /// not an axis-aligned geometric approximation. No allocation or trie reads.
+    func bestNextDensity(at index: Int, scores: [Double], rankedLabels: [Int], finiteMask: UInt32) -> Double {
+        let mask = childLabels[index] & finiteMask
+        guard mask != 0 else { return -.infinity }
+        // Tap scores have few finite neighbours. Their order is frozen once per tap;
+        // usually the first or second one is a child, instead of scanning up to 30 edges.
+        for label in rankedLabels where mask & (UInt32(1) << label) != 0 { return scores[label] }
+        return -.infinity
     }
 
     struct Node {
@@ -172,6 +204,9 @@ final class SpatialWordDecoder {
     // Conservatively cover rounding from regrouping <= 32 finite density terms.
     private static let boundSlack = 1e-10
     private var lexicons: [Language: SpatialWordLexicon]
+    // Internal baseline seam for performance/oracle tests, not a product switch.
+    // true retains origin/main's per-pair density work and suffix-only search bound.
+    private let usesLegacySearch: Bool
     private let bundle: Bundle?
     private var loadTask: Task<Void, Never>?
     private var personalScan: PersonalLexiconSnapshot.ScanList?
@@ -180,14 +215,16 @@ final class SpatialWordDecoder {
     private static let corpusMemoLimit = 4_096
     private(set) var isResourceLoading = false
 
-    init(lexicons: [Language: SpatialWordLexicon]) {
+    init(lexicons: [Language: SpatialWordLexicon], usesLegacySearch: Bool = false) {
         self.lexicons = lexicons
         self.bundle = nil
+        self.usesLegacySearch = usesLegacySearch
     }
 
     init(bundle: Bundle) {
         self.bundle = bundle
         self.lexicons = [:]
+        self.usesLegacySearch = false
         isResourceLoading = true
     }
 
@@ -340,6 +377,33 @@ final class SpatialWordDecoder {
         }
     }
 
+    /// Prepared once per physical key, not once per tap/key pair. All covariance
+    /// inverses and normalizers are immutable throughout the search. No extra score
+    /// approximation: the independent frozen-score DP checks this representation too.
+    nonisolated private struct FrozenKey {
+        let frame: CGRect
+        let pitchX: Double, pitchY: Double
+        let offsetX: Double, offsetY: Double
+        let inverseXX: Double, inverseXY: Double, inverseYY: Double, normalizer: Double
+
+        init(frame: CGRect, gap: CGFloat, rowGap: CGFloat, key: SpatialTouchCalibration.Key) {
+            self.frame = frame
+            pitchX = Double(frame.width + gap); pitchY = Double(frame.height + rowGap)
+            offsetX = key.offsetX; offsetY = key.offsetY
+            let xx = key.sigmaX * key.sigmaX, yy = key.sigmaY * key.sigmaY, xy = key.covarianceXY
+            let determinant = xx * yy - xy * xy
+            inverseXX = yy / determinant; inverseXY = -xy / determinant; inverseYY = xx / determinant
+            normalizer = -log(2 * Double.pi) - 0.5 * log(determinant)
+        }
+
+        func score(_ point: CGPoint) -> Double {
+            let dx = Double(point.x - frame.midX) / pitchX - offsetX
+            let dy = Double(point.y - frame.midY) / pitchY - offsetY
+            guard dx * dx + dy * dy <= 1.6 * 1.6 else { return -.infinity }
+            return -0.5 * max(0, inverseXX * dx * dx + 2 * inverseXY * dx * dy + inverseYY * dy * dy) + normalizer
+        }
+    }
+
     func decode(_ word: KeyboardTouchWord, languages: Set<Language>,
                 budget: Int = SpatialWordDecoder.searchBudget,
                 calibration: SpatialTouchCalibration? = nil,
@@ -371,6 +435,17 @@ final class SpatialWordDecoder {
         for (index, letter) in alphabet.enumerated() {
             if let key = word.layout.key(.character(String(letter))) { frames[index] = key.frame }
         }
+        var prepared = [FrozenKey?](repeating: nil, count: alphabet.count)
+        if !usesLegacySearch {
+            for (index, frame) in frames {
+                let key = calibration?.keys[alphabet[index]] ?? SpatialTouchCalibration.Key(
+                    offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma, sigmaY: SpatialTouchCalibration.staticSigma)
+                let frozen = FrozenKey(frame: frame, gap: word.layout.metrics.gap, rowGap: word.layout.metrics.rowGap, key: key)
+                guard frame.width > 0, frame.height > 0, frozen.pitchX.isFinite, frozen.pitchY.isFinite,
+                      frozen.pitchX > 0, frozen.pitchY > 0 else { return .unavailable(.evidence) }
+                prepared[index] = frozen
+            }
+        }
         var likelihoods: [[Double]] = []
         var bestScores: [Double] = []
         var literalSpatial = 0.0
@@ -385,6 +460,10 @@ final class SpatialWordDecoder {
             }
             var scores = [Double](repeating: -.infinity, count: alphabet.count)
             for index in alphabet.indices {
+                if !usesLegacySearch {
+                    scores[index] = prepared[index]?.score(sample.point) ?? -.infinity
+                    continue
+                }
                 guard let frame = frames[index] else { continue }
                 let width = Double(frame.width + word.layout.metrics.gap)
                 let height = Double(frame.height + word.layout.metrics.rowGap)
@@ -396,7 +475,8 @@ final class SpatialWordDecoder {
                 let x = Double(sample.point.x - frame.midX) / width
                 let y = Double(sample.point.y - frame.midY) / height
                 // The entire density is frozen before search, preserving max-path bounds.
-                if pow(x - key.offsetX, 2) + pow(y - key.offsetY, 2) <= 1.6 * 1.6 {
+                let dx = x - key.offsetX, dy = y - key.offsetY
+                if dx * dx + dy * dy <= 1.6 * 1.6 {
                     scores[index] = key.logDensity(x: x, y: y)
                 }
             }
@@ -408,6 +488,14 @@ final class SpatialWordDecoder {
             bestScores.append(best)
             for index in scores.indices where scores[index] < best - 6 { scores[index] = -.infinity }
             likelihoods.append(scores)
+        }
+        let rankedLabels: [[Int]] = !usesLegacySearch ? likelihoods.map { scores in
+            scores.indices.filter { scores[$0].isFinite }.sorted {
+                scores[$0] == scores[$1] ? $0 < $1 : scores[$0] > scores[$1]
+            }
+        } : []
+        let finiteLabelMasks = rankedLabels.map { labels in
+            labels.reduce(UInt32(0)) { $0 | (UInt32(1) << $1) }
         }
         let floorPrior = sources.map { log(1 / $0.1.total) }.max() ?? 0
         let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
@@ -507,8 +595,30 @@ final class SpatialWordDecoder {
                 let depth = state.depth + letters.count
                 guard depth <= Self.maxLetters else { return }
                 let penalty = edit == .none ? 0 : Self.editPenalty
-                let bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
-                    + maxBonus + Self.boundSlack
+                let bound: Double
+                if usesLegacySearch {
+                    // Original expression retained for same-run baseline timing/work.
+                    bound = spatial + penalty + suffix[tap] + Self.priorWeight * source.bestLogPrior(at: node)
+                        + maxBonus + Self.boundSlack
+                } else {
+                    guard source.canFinish(at: node, remaining: count - tap,
+                                           editAvailable: allowsEdits && edit == .none) else { return }
+                    let fixed = spatial + penalty + Self.priorWeight * source.bestLogPrior(at: node)
+                        + maxBonus + Self.boundSlack
+                    let loose = fixed + suffix[tap]
+                    // Most proposals already fail the cheap bound; do not look ahead on them.
+                    guard loose >= threshold || loose + (edit == .none ? Self.editPenalty : 0) >= belowThreshold else { return }
+                    // Once the edit is spent (or disabled), the next tap MUST match a
+                    // child. Unedited paths retain the old bound because they may skip
+                    // or swap, and the below-literal proof assumes that suffix-only bound.
+                    // Later terms remain optimistic maxima, including positive densities.
+                    let remaining: Double
+                    if (edit != .none || !allowsEdits), tap < count {
+                        remaining = source.bestNextDensity(at: node, scores: likelihoods[tap],
+                                                           rankedLabels: rankedLabels[tap], finiteMask: finiteLabelMasks[tap]) + suffix[tap + 1]
+                    } else { remaining = suffix[tap] }
+                    bound = fixed + remaining
+                }
                 let essential = bound >= threshold
                 guard essential || bound + (edit == .none ? Self.editPenalty : 0) >= belowThreshold else { return }
                 frontier.push(State(source: state.source, node: node, tap: tap, depth: depth,

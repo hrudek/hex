@@ -159,6 +159,42 @@ final class PersonalTypingAimTests: XCTestCase {
         XCTAssertEqual(session.calibration(for: grid), PersonalTypingModel(state: before).calibration(for: grid))
     }
 
+    func testAffineRidgeAgainstIndependentNormalEquationReference() {
+        var memory = TouchAimDrift.Memory(length: 8)
+        var gram = Array(repeating: Array(repeating: 0.0, count: 3), count: 3)
+        var cross = [0.0, 0.0, 0.0]
+        for i in 0..<80 {
+            let f = [1.0, Double(i % 7 - 3) / 3, Double(i % 5 - 2) / 2]
+            let residual = 0.3 - 0.2 * f[1] + 0.1 * f[2]
+            for j in 0..<3 {
+                cross[j] = 0.875 * cross[j] + f[j] * residual
+                for k in 0..<3 { gram[j][k] = 0.875 * gram[j][k] + f[j] * f[k] }
+            }
+            memory.update(features: SIMD3(f[0], f[1], f[2]), residualX: residual, residualY: -residual)
+        }
+        XCTAssertLessThanOrEqual(memory.gram[0], 8)
+        // Independent explicit 3×3 adjugate inverse, NOT production Cholesky.
+        let a = gram[0][0] + 1, b = gram[0][1], c = gram[0][2]
+        let d = gram[1][1] + 2, e = gram[1][2], f = gram[2][2] + 2
+        let cofactors = [[d * f - e * e, c * e - b * f, b * e - c * d],
+                         [c * e - b * f, a * f - c * c, b * c - a * e],
+                         [b * e - c * d, b * c - a * e, a * d - b * b]]
+        let determinant = a * cofactors[0][0] + b * cofactors[0][1] + c * cofactors[0][2]
+        let solution = memory.coefficients
+        for j in 0..<3 {
+            let reference = (0..<3).reduce(0.0) { $0 + cofactors[j][$1] * cross[$1] } / determinant
+            XCTAssertEqual(solution.x[j], reference, accuracy: 1e-12)
+            XCTAssertEqual(solution.y[j], -reference, accuracy: 1e-12)
+        }
+        var drift = TouchAimDrift()
+        let before = drift
+        let slow = SpatialTouchCalibration.Key(offsetX: 0, offsetY: 0, sigmaX: 0.2, sigmaY: 0.2)
+        for position in [SIMD3(1.0, Double.nan, 0), SIMD3(1.0, 0, Double.infinity), SIMD3(1.0, 1.1, 0)] {
+            drift.update(x: 0.3, y: 0, slow: slow, features: position)
+            XCTAssertEqual(drift, before)
+        }
+    }
+
     func testMigrationRepairAndFastPrivacy() throws {
         let model = warm()
         model.keep("hallo"); model.recordWord("hello"); model.rejectCorrection(typed: "hallo", replacement: "hello")
@@ -212,6 +248,17 @@ final class PersonalTypingAimTests: XCTestCase {
         XCTAssertLessThan(slowPayload + fastPayload, 16 * 1024)
         XCTAssertEqual(model.state.layouts.count, 1)
         print("EVAL P7_memory slowPayloadMaxBytes=\(slowPayload) fastPayloadMaxBytes=\(fastPayload) fourLayoutEncodedBytes=\(touchBytes) storeLimitBytes=\(KeyboardLearningStore.maximumLearningBytes) heapOverheadExcluded=true")
+        var fileBytes = 0, nodes = 0
+        for language in SpatialWordDecoder.Language.allCases {
+            let url = try XCTUnwrap(Bundle.main.url(forResource: "keyboard-\(language.rawValue)", withExtension: "words", subdirectory: "WordData"))
+            let data = try Data(contentsOf: url)
+            let lexicon = try XCTUnwrap(SpatialWordLexicon(data: data))
+            fileBytes += data.count; nodes += lexicon.nodeCount
+        }
+        let indexBytes = nodes * MemoryLayout<UInt32>.stride
+        let lengthBytes = nodes * MemoryLayout<UInt16>.stride
+        XCTAssertLessThan(fileBytes + 2 * indexBytes + lengthBytes, 8 * 1024 * 1024, "shipping data plus subtree priors, child masks and length spans, not RSS")
+        print("EVAL P7_lexiconMemory mappedFileBytes=\(fileBytes) priorIndexBytes=\(indexBytes) continuationMaskBytes=\(indexBytes) lengthSpanBytes=\(lengthBytes) totalFileAndIndexBytes=\(fileBytes + 2 * indexBytes + lengthBytes) transientAndHeapOverheadExcluded=true")
         let start = ProcessInfo.processInfo.systemUptime
         for _ in 0..<200 { XCTAssertNotNil(model.calibration(for: grid)) }
         let snapshotMs = (ProcessInfo.processInfo.systemUptime - start) * 1000 / 200

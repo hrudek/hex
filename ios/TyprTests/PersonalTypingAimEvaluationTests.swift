@@ -116,12 +116,19 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         }
     }
 
-    private func train(_ model: PersonalTypingModel, _ stream: inout LabelStream, count: Int, grip: Grip) {
-        for _ in 0..<count {
+    @discardableResult
+    private func train(_ model: PersonalTypingModel, _ stream: inout LabelStream, count: Int, grip: Grip) -> Int {
+        var accepted = 0, offered = 0
+        // Checkpoints count ACCEPTED trusted labels, not rejected outliers or physical taps.
+        // Explicit cap keeps even a broken generator bounded and fails rather than hanging.
+        while accepted < count, offered < 4 * count + 100 {
             let letter = stream.next()
-            model.learn([TouchLabel(point: tap(letter, grip, &stream.random), letter: letter)],
-                        layout: grid, source: .manualPick)
+            accepted += model.learn([TouchLabel(point: tap(letter, grip, &stream.random), letter: letter)],
+                                    layout: grid, source: .manualPick).accepted
+            offered += 1
         }
+        XCTAssertEqual(accepted, count)
+        return offered
     }
 
     /// Exact origin/main inference contract, recomputed from the SAME slow per-key aggregates
@@ -142,13 +149,13 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         return keys.isEmpty ? nil : SpatialTouchCalibration(keys: keys)
     }
 
-    private func decoder() throws -> SpatialWordDecoder {
+    private func decoder(usesLegacySearch: Bool = false) throws -> SpatialWordDecoder {
         var sources: [SpatialWordDecoder.Language: SpatialWordLexicon] = [:]
         for language in SpatialWordDecoder.Language.allCases {
             let url = try XCTUnwrap(Bundle.main.url(forResource: "keyboard-\(language.rawValue)", withExtension: "words", subdirectory: "WordData"))
             sources[language] = try XCTUnwrap(SpatialWordLexicon(data: Data(contentsOf: url)))
         }
-        return SpatialWordDecoder(lexicons: sources)
+        return SpatialWordDecoder(lexicons: sources, usesLegacySearch: usesLegacySearch)
     }
 
     // MARK: - Metrics
@@ -224,36 +231,61 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
     /// per-checkpoint [static, old, new] metrics summed over groups, and per-group curves.
     private func runScenario(_ away: Grip) throws -> [(phase: String, rows: [(labels: Int, variants: [Metrics])])] {
         let decoder = try decoder()
+        let originDecoder = try self.decoder(usesLegacySearch: true)
+        var measuredWork = [Metrics(), Metrics(), Metrics()]
         let groups = self.groups
         XCTAssertTrue(groups.allSatisfy { $0.1.count >= 100 }, "at least 100 words per group")
         var (model, stream) = matureModel()
         var output: [(phase: String, rows: [(labels: Int, variants: [Metrics])])] = []
         for (phase, grip) in [("away", away), ("back", Grip.twoThumbs)] {
-            var trained = 0
+            var trained = 0, offered = 0
             var rows: [(labels: Int, variants: [Metrics])] = []
             var curves: [String: [String]] = [:]
             var staticMetrics: [String: Metrics] = [:]
             for labels in checkpoints {
-                train(model, &stream, count: labels - trained, grip: grip)
+                offered += train(model, &stream, count: labels - trained, grip: grip)
                 trained = labels
                 let calibrations = [nil, originMainCalibration(model.state), model.calibration(for: grid)]
+                let slowOnly = phase == "away" && [0, 10, 20, 30].contains(labels)
+                    ? PersonalTypingModel(state: model.state).calibration(for: grid) : nil
+                print("EVAL P7_labels scenario=\(away.rawValue) phase=\(phase) accepted=\(labels) offered=\(offered)")
                 var total = [Metrics(), Metrics(), Metrics()]
                 for (groupIndex, (group, words)) in groups.enumerated() {
                     var metrics = [Metrics(), Metrics(), Metrics()]
+                    var slowMetrics = Metrics()
                     for (ordinal, word) in words.enumerated() {
                         // Identical evidence at every checkpoint of a phase and for every variant.
                         let seed = 0x4752_4950 &+ UInt64(groupIndex) &* 1_000_003 &+ UInt64(ordinal) &* 7_919
                             &+ (grip == .twoThumbs ? 0 : 0x9999)
                         let input = evidence(word, grip, seed: seed)
+                        if let slowOnly {
+                            observe(input, intended: word, calibration: slowOnly, decoder: decoder, into: &slowMetrics)
+                        }
                         for variant in 0..<3 {
                             // Static is checkpoint-independent: decode it once per phase.
                             if variant == 0, staticMetrics[group] != nil { continue }
-                            observe(input, intended: word, calibration: calibrations[variant], decoder: decoder, into: &metrics[variant])
+                            observe(input, intended: word, calibration: calibrations[variant],
+                                    decoder: variant == 2 ? decoder : originDecoder, into: &metrics[variant])
                         }
                     }
+                    for variant in 0..<3 { measuredWork[variant].add(metrics[variant]) }
                     if let cached = staticMetrics[group] { metrics[0] = cached } else { staticMetrics[group] = metrics[0] }
                     for variant in 0..<3 { total[variant].add(metrics[variant]) }
                     let m = metrics
+                    // Stratified safety/reversal: German may not hide behind English gains.
+                    // Two words/group is a declared fixture tolerance, NOT a statistical CI.
+                    let context = "\(away) \(phase) \(group) labels=\(labels)"
+                    XCTAssertGreaterThanOrEqual(m[2].recall1, m[1].recall1 - 2, context)
+                    XCTAssertGreaterThanOrEqual(m[2].recall3, m[1].recall3 - 2, context)
+                    XCTAssertLessThanOrEqual(m[2].wrongAuto, m[1].wrongAuto + 1, context)
+                    XCTAssertEqual(m[2].unwanted, 0, context)
+                    if slowOnly != nil {
+                        if away == .oneHandRight, (10...30).contains(labels) {
+                            XCTAssertGreaterThanOrEqual(Double(m[2].recall1 - slowMetrics.recall1), 0.08 * Double(m[2].typos),
+                                                        "fast drift must help independently of covariance tempering: \(context)")
+                        }
+                        print("EVAL P7_fastAblation scenario=\(away.rawValue) group=\(group) labels=\(labels) typos=\(m[2].typos) slowNewRecall1=\(slowMetrics.recall1) newRecall1=\(m[2].recall1) slowNewRecall3=\(slowMetrics.recall3) newRecall3=\(m[2].recall3) wrongTypoAuto=\(slowMetrics.wrongAuto)/\(m[2].wrongAuto)")
+                    }
                     curves[group, default: []].append("\(labels):\(m[0].recall1)/\(m[1].recall1)/\(m[2].recall1):\(m[0].recall3)/\(m[1].recall3)/\(m[2].recall3):\(m[0].wrongAuto)/\(m[1].wrongAuto)/\(m[2].wrongAuto):\(m[0].unwanted)/\(m[1].unwanted)/\(m[2].unwanted)")
                     if labels == checkpoints[0] {
                         XCTAssertEqual(m[0].typos, m[2].typos)
@@ -280,8 +312,7 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
             output.append((phase, rows))
         }
         // Decode work on identical inputs, all checkpoints and phases of this scenario.
-        var work = [Metrics(), Metrics(), Metrics()]
-        for phase in output { for row in phase.rows { for v in 0..<3 { work[v].add(row.variants[v]) } } }
+        let work = measuredWork // Static is really decoded only once per phase, not at every checkpoint.
         func mean(_ values: [Double]) -> Double { values.reduce(0, +) / Double(max(1, values.count)) }
         for (v, name) in ["static", "old", "new"].enumerated() {
             let ms = work[v].milliseconds, visits = work[v].visits, clean = work[v].cleanVisits
@@ -303,18 +334,15 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         return output
     }
 
-    private func recall(_ result: [(phase: String, rows: [(labels: Int, variants: [Metrics])])],
-                        _ phase: String, _ labels: Int, _ variant: Int) -> Int {
-        result.first { $0.phase == phase }!.rows.first { $0.labels == labels }!.variants[variant].recall1
-    }
-
     /// Steady state (mature two-thumb model, same grip): valid and out-of-lexicon literals typed
     /// as intended must not be changed, and decode work is compared with origin/main on
     /// identical evidence. Same control lists as the fixed spatial evaluation.
     func testSteadyStateControlsAndDecodeWork() throws {
         let decoder = try decoder()
+        let originDecoder = try self.decoder(usesLegacySearch: true)
         let (model, _) = matureModel()
-        let calibrations = [nil, originMainCalibration(model.state), model.calibration(for: grid)]
+        let calibrations = [nil, originMainCalibration(model.state), model.calibration(for: grid), model.calibration(for: grid)]
+        let names = ["originMainStatic", "originMainSlow", "new", "newDensityLegacySearch"]
         let inLexicon = (SpatialTypoEvaluationFixtures.german + SpatialTypoEvaluationFixtures.english
             + SpatialTypoEvaluationFixtures.germanNouns + SpatialTypoEvaluationFixtures.short
             + SpatialTypoEvaluationFixtures.rare).map { $0.lowercased() }
@@ -324,7 +352,8 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(usable.count, 300)
             for edits in [false, true] {
                 var rows: [String] = []
-                var unwanted = [0, 0, 0]
+                var unwanted = [0, 0, 0, 0]
+                var meanTimes: [Double] = [], meanVisits: [Double] = []
                 for (v, calibration) in calibrations.enumerated() {
                     var ms: [Double] = [], visits: [Double] = [], incomplete = 0
                     for (ordinal, word) in usable.enumerated() {
@@ -335,20 +364,34 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
                             return .init(text: String(letter), point: tap(letter, .twoThumbs, &random), key: key)
                         })
                         let start = ProcessInfo.processInfo.systemUptime
-                        let result = decoder.decode(input, languages: [.german, .english], calibration: calibration, allowsEdits: edits)
+                        let result = (v == 2 ? decoder : originDecoder).decode(input, languages: [.german, .english], calibration: calibration, allowsEdits: edits)
                         ms.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
                         guard let result else { continue }
                         visits.append(Double(result.visits))
                         if !result.complete { incomplete += 1 }
                         if case .replace = result.automaticDecision(literalIsValid: result.literalInLexicon) { unwanted[v] += 1 }
                     }
+                    meanTimes.append(ms.reduce(0, +) / Double(ms.count))
+                    meanVisits.append(visits.reduce(0, +) / Double(max(1, visits.count)))
+                    XCTAssertEqual(incomplete, 0)
+                    XCTAssertLessThan(ms.max() ?? 0, 2000)
                     rows.append(String(format: "%@:unwanted=%d,incomplete=%d,meanMs=%.3f,p95Ms=%.3f,visits=%.1f/%.0f/%.0f",
-                                       ["static", "old", "new"][v], unwanted[v], incomplete, ms.reduce(0, +) / Double(ms.count),
+                                       names[v], unwanted[v], incomplete, ms.reduce(0, +) / Double(ms.count),
                                        Self.percentile(ms, 0.95), visits.reduce(0, +) / Double(max(1, visits.count)),
                                        Self.percentile(visits, 0.95), visits.max() ?? 0))
                 }
                 print("EVAL P7_controls set=\(set) variant=\(edits ? "B" : "A") n=\(usable.count) \(rows.joined(separator: " ")) visits=mean/p95/max platform=local_debug_not_iPhone")
                 XCTAssertEqual(unwanted[2], 0, "no unwanted automatic change of a correctly typed control")
+                XCTAssertEqual(unwanted[3], 0, "bound changes work, not automatic policy")
+                // Current requirement: no material regression versus the original slow model
+                // on the exact same controls. Wall-clock tolerance is deliberately CI-safe.
+                // A has only ~10-20 visits; allow eight absolute pops (<.5 ms) there.
+                // B's hundreds of edit-search visits must stay within ten percent.
+                XCTAssertLessThanOrEqual(meanVisits[2], 1.10 * meanVisits[1] + (edits ? 0 : 8))
+                XCTAssertLessThanOrEqual(meanTimes[2], 1.20 * meanTimes[1] + 0.5)
+                print(String(format: "EVAL P7_originComparison set=%@ variant=%@ newOverOriginStaticVisits=%.3f newOverOriginStaticMeanMs=%.3f newOverOriginSlowVisits=%.3f newOverOriginSlowMeanMs=%.3f pruningVisitsRatio=%.3f",
+                             set, edits ? "B" : "A", meanVisits[2] / meanVisits[0], meanTimes[2] / meanTimes[0],
+                             meanVisits[2] / meanVisits[1], meanTimes[2] / meanTimes[1], meanVisits[2] / meanVisits[3]))
             }
         }
     }
@@ -385,7 +428,6 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
                 }
             }
         }
-        _ = recall
     }
 
     private func point(_ letter: Character, x: Double, y: Double) -> CGPoint {

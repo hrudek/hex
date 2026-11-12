@@ -95,7 +95,7 @@ and rejected word pairs: it is sensitive personal data, not anonymized data.
 | --- | --- |
 | Layout signatures | At most 4; orientation, width rounded to nearest 8 pt, suggestion strip and globe; least recently updated layout evicted |
 | Slow touch statistics | Up to 26 keys plus one global aggregate/layout: capped effective count, mean x/y offset and full xx/xy/yy covariance in pitch units; layout last-update time, no raw points |
-| Fast aim (never stored) | One active layout, at most 26 key banks plus one shared global bank; each has ~30-tap and ~3-tap decayed means/counts and three predictive weights, no point reservoir |
+| Fast aim (never stored) | One active layout, two shared affine ridge regressions (~40/~8 trusted-label decay) plus three predictive weights; 24 sufficient sums, no per-key fast banks or point reservoir |
 | Kept words and trusted word counts | **One combined bound: kept ∪ counted ≤2,000 words**; normalized lowercase NFC, 2–32 letters, ≤256 UTF-8 bytes; keeps have priority. Evict unkept counts by lowest count then oldest update, then oldest keeps (with their counts); spelling breaks timestamp ties. Keeps store last-kept time; counts saturate at 10,000 and store last-update time |
 | Rejected typed→replacement pairs | At most 512 unique normalized pairs, FIFO; repeated rejection does not refresh order |
 | Diagnostics (separate statistics epoch) | Fixed known counters, accepted labels by source (`literalValid`, `keep`, `undo`, `manualPick`), rejected labels by reason, since/updated dates and two seven-bucket latency histograms; each count saturates at Int32.max |
@@ -111,9 +111,9 @@ lifetime tap count.
 ### Slow covariance and fast aim
 
 Slow effective counts cap at **256**; update weight is `max(1/n, 1/64)`.
-The population update retains xx/xy/yy covariance. The shared spread pools within-key
-covariances in sorted key order, weighted by effective count, plus **20** static
-`.35²` prior observations. Per-key covariance shrinks by `n/(n+20)` toward that
+The population update retains xx/xy/yy covariance. The shared physical spread pools
+within-key covariances in sorted key order, weighted by effective count, plus **20**
+`.20²` prior observations. Per-key covariance shrinks by `n/(n+20)` toward that
 pool; slow centers shrink toward zero by the same factor. This is a bounded Gaussian
 translation of iikb's hierarchical/multiple-memory ideas, **not** its NIW/Student-t
 model or an explicit grip classifier.
@@ -121,16 +121,30 @@ model or an explicit grip classifier.
 Calibration starts after **20 pooled trusted labels**, including for unseen keys;
 scarce keys borrow spread and a shared global center/shift. A migrated diagonal-only
 model retains its per-key 20-label threshold until 20 new pooled labels exist.
-For both global aim and each key's residual aim, ~30-tap and ~3-tap decayed means
-compete with the slow mean. Weights use each memory's predictive likelihood **before**
-learning the tap, normalized in log space, with **.01 fixed share** so the slow or
-fast memory can regain influence after a grip returns. Disagreeing means broaden
-the moment-matched Gaussian. Per-key RAM aim learns the residual after the global
-shift, preventing double-counting while transferring drift to infrequent keys.
+`TouchAimDrift` replaces sparse per-key fast memories with one shared affine field:
+`drift(u,v) = W × [1,u,v]`, where key positions are normalized to [-1,1] in the letter
+plane. It can explain both translation and position-dependent reach/tilt without
+waiting for 20 labels on every key. Two exponentially forgetting ridge regressions
+have ~**40/~8** label memories and diagonal ridge penalties **[1,2,2]** toward no
+drift. They learn residuals from the pre-update slow physical model. A stable
+no-drift memory competes with them; prequential likelihood weights (scored **before**
+learning) use **.02 fixed share**. Disagreeing means broaden the moment-matched
+Gaussian. There is no discrete posture state, sensor, raw reservoir or per-key fast
+bank. The affine field is Typr's transfer mechanism, not a copied upstream algorithm.
 Only independent trusted labels advance any memory; ordinary automatic output does
-not accelerate adaptation. Recovery is measured in **trusted labels**, not all taps.
+not accelerate adaptation. Recovery is measured in **accepted trusted labels**, not
+all physical taps; real alignment/feedback gates can make it substantially slower.
 
-Inference offsets clamp independently to **±.25 pitch**. Marginal sigma stays
+Physical covariance is tempered by **(.35/.20)² = 3.0625** before decoder use, so a
+.20-pitch physical cloud has the original .35-pitch scoring width. Directly using
+a mature narrow physical cloud with unchanged prior/margin weights was overconfident
+in the synthetic controls. The physical prequential model has eigen-sigma bounds
+.10–.50; the final frozen inference density retains the bounds below. Saved diagnostic
+ellipses show shrunk slow statistics, not the live/tempered inference distribution.
+
+Inference offsets clamp independently to **±.50 pitch**, enough to represent a
+far-side thumb undershoot; static hit targets and the one-pitch trust gate do not move.
+Marginal sigma stays
 **.22–.50**, and xy is bounded so **both covariance eigenvalues** stay in
 **[.22², .50²]**, hence determinant ≥ **.22⁴**. Densities include the determinant
 normalizer. Calibration is an immutable value frozen for each decode; scoring never
@@ -144,7 +158,7 @@ but retain fast aggregate aim (including the manual choice's just-trained labels
 There is no raw recent-point reservoir, even in the diagnostic model.
 
 Maximum numeric slow payload is **5,184 bytes** (4×27 statistics, Swift stride 48),
-fast payload **2,160 bytes** (27 banks, stride 80) on the tested Linux target;
+fast payload **320 bytes** (one `TouchAimDrift`, including SIMD padding) on the tested Linux target;
 dictionary/string/allocator overhead, snapshots and encoding transients are extra,
 not measured extension RSS. Stored byte ceilings and collection caps are unchanged.
 The word bonus is

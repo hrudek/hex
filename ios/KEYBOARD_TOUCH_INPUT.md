@@ -64,8 +64,9 @@ not labels. Full signal rules, distance/layout/finite guards and reset epochs
 are defined in [KEYBOARD_LEARNING.md](KEYBOARD_LEARNING.md#trusted-signals).
 
 For touch data, **only slow aggregated per-key/global counts, offsets and full
-xx/xy/yy covariance are persisted**, not the word's points or order. Shared and
-per-key ~30/~3-tap aim memories/weights stay RAM-only with no recent-point reservoir;
+xx/xy/yy covariance are persisted**, not the word's points or order. The shared
+~40/~8-label affine drift regressions and predictive weights stay RAM-only with no
+per-key fast banks or recent-point reservoir;
 they use exactly the same independent labels and reset on evidence discontinuities
 (field/host/layout/lifecycle, ambiguous gestures, etc.), not ordinary word boundaries.
 These memories change frozen word-recognition densities, never immediate hit attribution. The separate personal lexicon also

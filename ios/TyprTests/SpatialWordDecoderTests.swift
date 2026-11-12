@@ -801,15 +801,40 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertNil(SpatialWordDecoder.align(word: "hello", taps: Array("heo")))
     }
 
+    func testContinuationBoundsRetainOneEditAndSaturateDeepResources() throws {
+        let source = lexicon([("hello", 100), ("help", 1)])
+        XCTAssertTrue(source.canFinish(at: 0, remaining: 4, editAvailable: false))
+        XCTAssertFalse(source.canFinish(at: 0, remaining: 3, editAvailable: false))
+        XCTAssertTrue(source.canFinish(at: 0, remaining: 3, editAvailable: true), "one missing letter")
+        XCTAssertTrue(source.canFinish(at: 0, remaining: 6, editAvailable: true), "one extra tap")
+        XCTAssertFalse(source.canFinish(at: 0, remaining: 7, editAvailable: true))
+        let alphabet = SpatialWordLexicon.alphabet
+        let a = try XCTUnwrap(alphabet.firstIndex(of: "a")), h = try XCTUnwrap(alphabet.firstIndex(of: "h"))
+        var scores = [Double](repeating: -.infinity, count: alphabet.count)
+        scores[a] = 10; scores[h] = -2
+        XCTAssertEqual(source.bestNextDensity(at: 0, scores: scores, rankedLabels: [a, h],
+                                             finiteMask: (1 << a) | (1 << h)), -2, "the globally best key is not a child")
+        XCTAssertEqual(source.bestNextDensity(at: 0, scores: scores, rankedLabels: [a], finiteMask: 1 << a), -.infinity)
+        let deep = lexicon([(String(repeating: "z", count: 300), 1)])
+        for remaining in 0...32 {
+            XCTAssertFalse(deep.canFinish(at: 0, remaining: remaining, editAvailable: true),
+                           "255 saturation must not wrap a long path into an eligible word")
+        }
+    }
+
     func testCompleteSearchMatchesExhaustiveFrozenScoreDP() throws {
         let english: [(String, UInt32)] = [("hello", 500_000), ("jello", 100_000), ("hell", 2_000), ("heallo", 1_000), ("help", 4_000)]
         let german: [(String, UInt32)] = [("hallo", 600_000), ("hello", 700_000), ("helgo", 10_000)]
         let sources = [(SpatialWordDecoder.Language.english, english), (.german, german)]
-        let decoder = SpatialWordDecoder(lexicons: [.english: lexicon(english), .german: lexicon(german)])
-        let calibrations: [SpatialTouchCalibration?] = [nil,
-            SpatialTouchCalibration(keys: Dictionary(uniqueKeysWithValues: "abcdefghijklmnopqrstuvwxyz".map {
-                ($0, .init(offsetX: 0.08, offsetY: -0.04, sigmaX: 0.30, sigmaY: 0.40, covarianceXY: 0.035))
-            }))]
+        let lexicons: [SpatialWordDecoder.Language: SpatialWordLexicon] = [.english: lexicon(english), .german: lexicon(german)]
+        let decoder = SpatialWordDecoder(lexicons: lexicons)
+        let originBound = SpatialWordDecoder(lexicons: lexicons, usesLegacySearch: true)
+        let calibrations: [SpatialTouchCalibration?] = [nil] + [0.08, -0.5, 0.5].map { offset in
+            SpatialTouchCalibration(keys: Dictionary(uniqueKeysWithValues: "abcdefghijklmnopqrstuvwxyz".enumerated().map { index, letter in
+                (letter, .init(offsetX: offset, offsetY: -offset / 2, sigmaX: 0.30, sigmaY: 0.40,
+                               covarianceXY: index % 2 == 0 ? 0.035 : -0.035))
+            }))
+        }
         let pairs = [("gello", "hello"), ("helo", "helo"), ("heallo", "heallo"), ("hlelo", "hlelo")]
         let scenarios = calibrations.flatMap { c in pairs.map { ($0.0, $0.1, c) } }
         for (typed, aimed, calibration) in scenarios {
@@ -837,6 +862,13 @@ final class SpatialWordDecoderTests: XCTestCase {
             for edits in [false, true] {
                 let result = try XCTUnwrap(decoder.decode(word, languages: [.english, .german], calibration: calibration, allowsEdits: edits))
                 XCTAssertTrue(result.complete)
+                let baseline = try XCTUnwrap(originBound.decode(word, languages: [.english, .german], calibration: calibration, allowsEdits: edits))
+                XCTAssertTrue(baseline.complete)
+                XCTAssertEqual(result.suggestions.map(\.word), baseline.suggestions.map(\.word))
+                for (candidate, original) in zip(result.suggestions, baseline.suggestions) {
+                    XCTAssertEqual(candidate.score, original.score, accuracy: 1e-10)
+                }
+                XCTAssertLessThanOrEqual(result.visits, baseline.visits)
                 var expected: [String: Double] = [:]
                 var structural: [String: Double] = [:]
                 for (_, entries) in sources {

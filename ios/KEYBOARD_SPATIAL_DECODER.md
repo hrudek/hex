@@ -61,8 +61,9 @@ learning is off; off supplies no labels/counts.
   `−½ dᵀΣ⁻¹d − log(2π) − ½ log(det Σ)`, so different spreads remain comparable.
   [Slow/fast aggregate aim](KEYBOARD_LEARNING.md#slow-covariance-and-fast-aim) supplies
   pooled/shrunk xx/xy/yy and shared drift, with eigenvalues in [.22², .50²] and
-  each center component within ±.25 pitch. All tap/key densities are frozen before
-  search, so the unchanged max-path bounds and completeness proof still apply. The candidate gate is
+  each center component within ±.50 pitch. Physical covariance is tempered by
+  (.35/.20)² before these bounds. All tap/key densities, inverses and normalizers
+  are frozen before search; the max-path objective and completeness proof still apply. The candidate gate is
   radius 1.6 pitches from the model center and within six log units of the best
   key for that tap. The literal is scored separately, without the relative gate.
 - Score = spatial log density + structural edit penalty +
@@ -79,7 +80,13 @@ learning is off; off supplies no labels/counts.
 - One deterministic best-first heap interleaves both language tries. Shared caps:
   **6,000 pops, 12,000 generated states and 12,000 spelling-trail records**, depth
   at most 32; at most eight distinct above-literal alternatives. Subtree maximum
-  priors and state dominance tighten bounds without changing scoring. Selected
+  priors and state dominance tighten bounds without changing scoring. Two additional
+  resource indexes hold child alphabet masks (UInt32/node) and saturated terminal
+  suffix-length spans (UInt16/node). Length-incompatible subtrees are pruned; when
+  the edit is spent or disabled, the next tap's maximum must name a child, not any
+  key on the keyboard. This bound uses the frozen full-covariance scores, including
+  positive densities. Unedited paths keep the optimistic suffix bound because they
+  may still skip/swap. No below-literal result gains automatic authority. Selected
   resources are mapped, fully validated and subtree-indexed in a detached task
   started on keyboard appearance with Autocorrect on, then installed on the main
   actor. Until ready, decode immediately reports unavailable(resource), so spelling
@@ -272,51 +279,101 @@ timings. No real typing or personal-learning benefit is established. A later Lin
 Swift 6.2 optimized rerun on both seeds preserved every recorded non-timing
 metric (including pops/generated summaries) versus the prior Linux final runs.
 
-### Aggregate-aim synthetic ablation (P7)
+### Aggregate-aim synthetic ablation (P7b)
 
-`PersonalTypingAimTests` checks independent covariance/pooling/weight references,
-Gaussian normalization, diagonal equivalence, eigenvalue/determinant floors,
-nonfinite/singular data, sparse/global transfer, shift-back, snapshot freezing,
-migration/repair and numeric/encoded memory bounds. The exhaustive frozen-score DP
-oracle additionally runs with nonzero xy covariance. Existing integration tests
-still protect independent labels, edits, undo, literal validity and boundaries.
+This replaces P7's too-easy 20-word/small-translation evaluation.
+`PersonalTypingAimTests` checks independent covariance/pooling/affine-ridge
+references, prequential switching, normalization, eigenvalue/determinant floors,
+nonfinite data, rare-key transfer, return/reset, migration and bounded memory.
+The exhaustive frozen-score DP compares both search implementations, including
+positive/negative xy and ±.50-pitch centers. Length-bound tests retain one edit and
+reject deep saturated paths without integer wraparound.
 
-`PersonalTypingAimEvaluationTests` uses fixed public DE/EN/mixed groups of 20 words,
-seeded .22-pitch Gaussian noise, +6/+4 pt translation and a .055-radian linearized
-one-hand rotation. Decoding is observed at 0/3/12/30/60 new trusted labels in each
-phase; slow diagonal baseline and adaptive model receive identical labels and
-coordinates. Labels are synthetic known intentions, not auto-accepted output.
-It prints recall@1/@3, wrong **typo** automatic replacements and evidence refusals,
-plus wall-clock mean/p95/max (debug Linux, not iPhone). The diagonal ablation preserves
-the old 20-per-key threshold and ignores new xy/global/fast state.
+`PersonalTypingAimEvaluationTests` uses **128 public fixture words per DE/EN/mixed
+group**, both languages enabled, identical deterministic seeded Gaussian coordinates
+for each variant/checkpoint, and static hit-testing to produce neighbor-typo literals.
+Two scenarios start with 3,000 accepted two-thumb labels, switch for 120 labels, then
+return: (1) right-thumb undershoot toward a base below the bottom-right corner,
+growing to **.6 horizontal pitches** at the far side, with .21–.28 pitch noise;
+(2) **4° posture tilt** plus .15 pitch vertical translation, .22 pitch noise.
+Two-thumb noise is .21 pitch with a small fixed per-key bias. Checkpoints are
+**0/5/10/20/30/60/120 accepted trusted labels**, not all physical taps. Training
+words are disjoint from evaluation words; offered/rejected counts are printed.
+Synthetic perfect intentions are not evidence of actual manual-feedback coverage.
 
-Observed Linux results are **mixed**, not a general accuracy claim: rotated DE/EN
-recall@1 improves by one word/20 by 12–30 labels, and mixed rotated recall reaches
-20/20 by 12 labels versus 18/20 slow-only. Translation-only EN is already 20/20;
-DE reaches 19/20 at 30 labels versus 18/20, but returns to 18/20 at 60 labels. Some
-mixed checkpoints lose one evidence sample; shift-back DE at 12 labels has one extra
-wrong typo auto and one fewer top-1 result than baseline, recovered at 30 labels.
-Regression bounds allow ≤2 fewer recall@1/20, ≥18 recall@3/20, ≤1 extra wrong typo
-auto/20 and ≤1 unavailable sample/20. These are small synthetic fixture bounds,
-not a validated release-quality rate. **Valid-control unwanted changes remain 0**
-on 14 words/names/compounds/identifiers ×3 decisions under 2,600 adversarial allowed
-labels, and scoring/boundaries produce no self-training updates.
+The three primary columns are static/no learning, **origin/main's slow diagonal
+contract** (same accepted slow updates, per-key n≥20, shrink n/(n+20), ±.25 centers,
+.22–.50 sigma), and the new model. The legacy test path retains the original
+per-pair diagonal scoring and suffix-only search bound; it is a same-process
+algorithm ablation at origin/main `15754813`, not a second iOS binary. A fourth
+control variant holds the new density fixed with legacy search; a fast-disabled
+new-model ablation separates drift benefit from covariance tempering. No baseline
+numbers from a previous machine/run are used in these comparisons.
 
-The existing total/spatial/runner-up thresholds are retained after these ablations,
-the full frozen-score oracle and existing learning-off fixed-seed evaluation, not
-merely because covariance compiles. They are not posterior probabilities. This
-small development set does not establish general grip-recovery superiority, a
-held-out human rate or safety on all words. Device acceptance must examine the
-shift-back transient and false changes separately from suggestion recall.
+Recall denominators include **typo words only** (correct hit-tested words have no
+reason to suggest themselves). One-hand has 312/384 typos: 105 DE, 107 EN, 100 mixed;
+tilt has 169/384; return has 59/384. At 10/20/30 labels, one-hand pooled recall@1
+is **304/307/299 of 312**, versus old **155/171/172** and static **236**; recall@3 is
+**307/309/305** versus old **157/173/173** and static **241**. This is discriminative
+but still synthetic/development evidence. Much of the gain precedes shift labels:
+new is already 257 at label 0, and fast-disabled new is 249 versus old 154. Most
+of that initial gap is the new slow density/tempering, not new grip evidence.
+Holding the new slow model fixed but disabling fast drift gives **258/264/264** at 10/20/30, so the measured fast contribution is **46/43/35**
+additional top-1 words, not the entire old-to-new gain. Tests require ≥8 percentage
+points of typo recall benefit per language group from fast drift in that window.
 
-Observed Swift 6.4.2 Linux x86_64 debug run: 2,400 timed decodes, mean **9.629 ms**,
-p95 **14.610 ms**, max **17.883 ms**; 200 snapshots averaged **.519 ms**, 200 trusted
-single-label updates **.028 ms**. Four populated layouts encoded to **20,363 bytes**;
-maximum numeric slow/fast payloads were **5,184 / 2,160 bytes**, excluding dictionary,
-string and allocator overhead. These are not extension RSS or device budgets.
-The full harness ran **256 cases: 246 passed, 9 skipped, 1 known Linux-only
-`isExcludedFromBackup` metadata failure**; no new failures. No harness adaptations
-were needed; Apple build, simulator and physical typing remain unverified.
+On return, one-hand new recall@1/@3 stays **59/59** at every checkpoint versus old
+54/59. Tilt return has one DE top-1/top-3 loss at **0 labels** (21/22 versus 22/22),
+recovered by **5 labels**; the pooled new result is still 58/59 versus old 52/59.
+There are no extra wrong typo autos in these curves. Declared regression tolerances
+are two words per group (also two pooled) and at most one extra wrong typo auto,
+at every checkpoint; these are deterministic fixture tolerances, **not confidence
+intervals or calibrated human error bounds**. Observed unwanted changes of
+correctly typed controls remain zero, including the existing 14-word adversarial
+integration control (42 decisions, 2,600 allowed labels, zero self-training).
+
+**A** disables structural edits (same-length spatial substitutions only).
+**B** enables one missing/extra/swapped letter plus best-effort below-literal
+edit suggestions for out-of-corpus literals. Thus outside B explores hundreds of
+states even with learning off, whereas A takes about 20: most of this gap predates
+P7, not a covariance regression. The new density can broaden search further, so
+P7b adds length/next-child pruning, cheap finite-mask rejection and once-per-key
+inverse/normalizer preparation. The performance evaluation prints mean/p95/max,
+visits, completeness and ratios against both static and slow-diagonal legacy
+paths on identical evidence; no incomplete result authorizes replacement.
+Tests bound outside-B mean visits to old +10%, A to old +10%+8 pops, and control
+mean latency to old ×1.20 +.5 ms (generous Linux-debug/CI tolerance, not a device
+budget). The original total/spatial/runner-up margins are retained only with these
+quality/safety ablations and the oracle; they are not posterior probabilities.
+
+Observed Swift 6.4.2 Linux x86_64 debug control timings, same run (ms):
+
+| Controls | Static legacy mean/p95 | Slow diagonal legacy mean/p95 | New mean/p95 | Mean visits static / slow / new |
+| --- | --- | --- | --- | --- |
+| In corpus A (437) | .715 / 1.049 | .681 / .940 | .751 / 1.108 | 12.5 / 11.5 / 11.8 |
+| In corpus B (437) | 1.266 / 1.897 | 1.063 / 1.365 | 1.337 / 2.056 | 13.5 / 16.0 / 12.9 |
+| Outside A (352) | 1.038 / 1.460 | .789 / 1.084 | 1.036 / 1.438 | 21.5 / 12.6 / 16.1 |
+| Outside B (352) | 10.133 / 15.060 | 6.674 / 10.931 | 7.685 / 11.528 | 422.3 / 291.2 / 195.2 |
+
+Outside B with the **new density but legacy search** takes 10.912 / 16.593 ms,
+454.8 mean visits: the added bounds reduce its visits by 57% and mean latency by
+30%. New beats the original static baseline, but **does not beat the old learned
+narrow diagonal density in wall time**: outside-B mean is +15.2%, p95 +5.5%; other
+small control groups have up to .274 ms mean overhead. On grip fixtures new versus
+old means are 4.947 versus 3.933 ms (one-hand) and 3.083 versus 2.622 ms (tilt),
+while visits fall to 114.4 versus 140.5 and 61.8 versus 85.4. Better recall explores
+more plausible readings and the lookahead itself costs time. These remaining costs
+are explicit, not a universal speedup claim. All measured searches are complete.
+Snapshots average .535 ms and trusted single-label updates .048 ms separately.
+
+Numeric slow/fast payload ceilings are **5,184 / 320 bytes**, excluding dictionaries,
+strings, snapshots and allocator overhead. Shipping lexical files plus subtree
+priors, child masks and length spans occupy **5,396,164 bytes** (<8 MiB); this is not
+RSS, and loading/validation transients are extra. Four populated layouts encode to
+20,363 bytes, under the unchanged 256 KiB store ceiling. The full Linux harness ran
+**260 tests: 250 passed, 9 baseline skips, 1 known Linux-only backup-exclusion
+metadata failure**; no new failure. No harness adaptation was needed. Apple SDK compilation, simulator, actual dictionaries, real feedback
+coverage, physical grip recovery and extension latency/memory remain unverified.
 
 ## Required owner iPhone checks
 
