@@ -194,6 +194,7 @@ final class FullKeyboardEngine {
     /// Call when the keyboard appears or the field changes.
     func configureForField() {
         suggestionsAreActive = true
+        autocorrect.contextResources.prepare { [weak self] in self?.refreshSuggestions() }
         switch KeyboardFieldRouting.route(for: target.keyboardType) {
         case .keys(let kind, let initialLayer):
             field = kind
@@ -257,8 +258,10 @@ final class FullKeyboardEngine {
         // No decoder, checker, personal snapshot construction or lexicon scan on this path.
         let evidence = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
         let ownership = suggestionOwnership
+        // No current word: only corpus next-word predictions after a separator (no tap evidence).
         guard showsStrip, field == .text, ownership.permitsCorrection,
-              let token = ownership.token, token.count <= Self.suggestionTokenLimit, token.utf8.count <= 256 else {
+              ownership.token.map({ $0.count <= Self.suggestionTokenLimit && $0.utf8.count <= 256 })
+                ?? autocorrect.canPredictNextWord(after: ownership.context) else {
             suggestionWorker.cancel()
             publishSuggestions([], ownership: ownership, evidence: evidence, final: true)
             return
@@ -269,13 +272,16 @@ final class FullKeyboardEngine {
             // ranking without flicker, re-owned by this revision while the checker step reruns.
             publishSuggestions(suggestions.map { var owned = $0; owned.ownership = ownership; return owned },
                                ownership: ownership, evidence: evidence, final: true)
-        } else {
+        } else if let token = ownership.token {
             // Clear old alternatives immediately. The current literal is safe and remains pickable
             // while ranking is delayed, including during rapid rollover or after undo.
             publishSuggestions([
                 .init(displayText: "“\(token)”", replacement: token, kind: .keepLiteral, ownership: ownership),
                 .init(displayText: token, replacement: token, kind: .primary(autoReplace: false), ownership: ownership)
             ], ownership: ownership, evidence: evidence, final: false)
+        } else {
+            // Never leave the previous word's chips pickable while predictions are prepared.
+            publishSuggestions([], ownership: ownership, evidence: evidence, final: false)
         }
         suggestionWorker.submit(prepare: { [weak self] in
             guard let self, self.textRevision == ownership.revision,

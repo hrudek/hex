@@ -6,6 +6,17 @@ replaces the old kept-word store; it is **not RAM-only**. It is not a typed-text
 history, raw tap archive, contextual language model or accuracy measurement.
 The keyboard never accesses the microphone, speech model or network.
 
+The separate [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions)
+uses bundled public DE/EN statistics for after-space predictions and display-only
+reranking. It reads at most a 256-character/2,048-byte field suffix in RAM,
+recomputes a bounded language-evidence state per request, and stores **no personal
+context, pair counts, posterior or history**. It adds no learning schema or switch;
+Autocorrect and its selected languages govern it, independently of Learn from my
+typing. Picking a next-word prediction has no aligned current-token evidence and
+teaches no touch labels or personal count. Ordinary typed-prefix completion picks
+retain the existing trusted-count/no-label rules. Full Access-gated personal
+persistence, resets, keeps and rejected pairs below are unchanged.
+
 [Keyboard correction path](KEYBOARD_SPATIAL_DECODER.md) is the single reference
 for candidate scoring and automatic replacement. [Touch evidence](KEYBOARD_TOUCH_INPUT.md)
 defines the ephemeral capture contract. Implementation owners are
@@ -179,12 +190,14 @@ Issue #101. With **Learn from my typing** on, prefix completions in the strip us
 same local personal snapshot as the spatial decoder:
 
 - **Candidates kept:** Typr corpus prefix completions and `UITextChecker.completions`
-  stay in the list, in today's order (corpus first, system list sorted by length then
-  alphabetically, at most 64 considered).
+  stay in the baseline list (corpus first, system list sorted by length then
+  alphabetically, at most 64 considered for personal promotion). The separate public
+  corpus context layer can then rerank the bounded union before choosing visible chips.
 - **Personal words move up:** a candidate that is kept, or counted at least twice (the
   decoder's personal-word threshold), is placed ahead of the other completions. Order:
   higher count, then kept, then the original position; equal weights keep the system/
-  corpus order. Unweighted candidates are not reordered among themselves.
+  corpus order. Personal ranking alone does not reorder unweighted candidates.
+  Context gain may subsequently reorder both weighted and unweighted completions.
 - **Missing personal words join:** kept or twice-counted words that strictly extend the
   typed prefix (2–31 letters, case- and NFC-insensitive; ä/ö/ü/ß are distinct letters)
   may be added after equally weighted baseline words. The store is case-folded, so a
@@ -207,7 +220,16 @@ pending intervals; no keystroke scans all 2,000 words. The index stores no extra
 beyond the snapshot's words (payload below 192 KiB in tests; not RSS). The corpus and
 personal lookups run on the suggestion worker; the main actor only calls the checker,
 merges at most 72 baseline and 8 personal candidates and applies casing. Nothing new
-is persisted, and there is no next-word prediction or context history.
+is persisted by personal completion ranking; it has no personal next-word prediction
+or context history. The separate corpus next-word/display ranker is independent of
+Learn from my typing: **off removes all personal completion/count/calibration influence,
+not public-corpus context gain**. Off with retained counts and off with empty counts
+produce identical context-ranked completions (keeps/rejected protections remain
+independently active). With no usable context, #115's exact old order and work budget
+remain. In the deferred worker finish, at most eight promotions, eight trie results
+and eight system completions join fewer than eight preceding alternatives (≤32 total);
+contact, automatic, explicit-revert and literal slots remain pinned. All source
+completion/personal-pick flags survive the display rerank, and no completion teaches taps.
 
 `KeyboardSuggestionPersonalRankingTests` covers index order/ties/oracle, case,
 German nouns, umlauts/ß/NFD, switch-off identity, contacts/rejections/automatic
@@ -221,7 +243,11 @@ replacement differences, automatic completions and highlighted personal chips we
 **0**. With a full 2,000-word snapshot, the index build took **0.68 ms**, a lookup
 averaged **0.014 ms** (max 0.026 ms) and strip assembly **0.13 ms** on versus **0.07 ms**
 off, with a **90,904-byte** index payload. These are synthetic Linux numbers, not
-iPhone latency, real typing benefit or Apple checker behavior.
+iPhone latency, real typing benefit or Apple checker behavior. Latency measurements
+remain EVAL diagnostics only; deterministic entry/result and byte bounds gate
+regressions rather than noisy shared-runner timing. The same applies to aim
+snapshot/trusted-label update timings; numeric/encoded byte limits remain asserted.
+See [evaluation regression gates](KEYBOARD_SPATIAL_DECODER.md#evaluation-regression-gates).
 
 ## Manual boundary choices
 

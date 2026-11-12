@@ -176,7 +176,15 @@ The read-only reference was inspected, never built or executed.
 
 | Source path at this pin | Translated algorithm | Destination files |
 | --- | --- | --- |
-| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy; Typr-authored F2 regressions gate deterministic work/bytes and blocked-worker independence, retaining timing as EVAL diagnostics only | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+
+F2 keeps this same pin/scope and existing MIT notice (© 2026 Bassim Shahidy):
+`AutocorrectEngine.swift` now preserves the automatic highlight for explicit
+prefix-extending `.autoRule` text replacements, with a Typr-authored regression in
+`ios/TyprTests/SpatialPrefixSearchTests.swift`. This is a local policy/UI fix, not
+another upstream algorithm/test adoption. No new source, data or dependency is
+imported; all exclusions below remain, including swipe typing, emoji, themes,
+layouts, clipboard, network, neural weights and dictation changes.
 
 The P1 review follow-up keeps this same pin/scope: current-token republication after
 evidence/learning/resource invalidation, state-preserving suggestion resume, completed
@@ -197,6 +205,27 @@ dictation changes, upstream resources/dependencies, contextual learning, new
 automatic policies and upstream controller/UI implementations. No file is copied
 wholesale from iikb. Frozen-fixture equivalence and device-proof limits are
 documented in [KEYBOARD_SPATIAL_DECODER.md](ios/KEYBOARD_SPATIAL_DECODER.md).
+
+## Offline corpus context suggestions (iikb)
+
+Owner-requested P3 scoped translation, pinned separately to
+**`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, MIT, © 2026 Bassim Shahidy.
+The source checkout was read only, never built/run. Historical adoptions above
+retain their own pins and exclusions.
+
+| Source paths at this pin | Translated ideas | Destination files | Exclusions / license |
+| --- | --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LanguageModel.swift` (discount/backoff), `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (prediction pool / contextual completion scoring) | Corpus-only absolute-discount backoff, bounded merged next-word suggestions and additive display-candidate scoring, including the #115 system/trie/personal completion union in the deferred worker finish; rewritten for Typr TBG1 sidecars and D3b bilingual evidence, not copied files | `ios/TyprShared/FullKeyboard/KeyboardContextModel.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`; `ios/TyprTests/KeyboardContextModelTests.swift`, `KeyboardContextEvaluationTests.swift`, `KeyboardContextCompletionTests.swift` | MIT, © 2026 Bassim Shahidy; no personal context counts, per-app histories, trigrams, neural weights/training, automatic-best policy, dynamic targets, swipe, emoji, themes, layouts, clipboard, network or dictation changes |
+| Common Voice sentence collectors at `cd9dbfeeed7f2c377d6e9792f4d7a583c0ad3538`; Tatoeba DE/EN detailed exports 7 November 2026 (hash-pinned, named owners only) | Independently prepared training-only sparse bigram statistics and observed display spellings, fixed N=8,000/K=3/min=10; Typr's explicit offline deterministic compiler, input hashes and test fixture | `ios/tools/keyboard_context/`, `ios/TyprShared/FullKeyboard/WordData/keyboard-{de,en}.tbg`, `ATTRIBUTION.md`, `tatoeba-contributors.tsv`, reference/test JSON | CC0 1.0 + CC BY 2.0 FR, **not MIT**; no FrequencyWords counts/casing, no iikb resources or executable dependency. Full attribution/source-ID mapping and licenses linked from WordData and THIRD_PARTY_NOTICES.md |
+
+Only a ≤256-character/2,048-byte suffix is read ephemerally; no field context,
+posterior, pair counts or history is serialized. Automatic decisions/margins and
+personal storage schema remain unchanged. New corpus suggestions follow selected
+Autocorrect languages; no new switch. Corpus context is independent of Learn from
+my typing; off supplies no personal completion/count/calibration influence. Existing contact/system name suggestions
+remain independent of the corpus stock-name suppression list. See
+[context behavior and proof limits](ios/KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions).
+The existing full iikb MIT notice applies without duplication.
 
 ## Carried keyboard PR paths
 

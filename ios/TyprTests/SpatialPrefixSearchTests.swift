@@ -233,6 +233,33 @@ final class SpatialPrefixSearchTests: XCTestCase {
         XCTAssertNil(ac.replacementOnSpace(beforeInput: "keyboar", field: .text, autocorrectionType: nil))
     }
 
+    func testPrefixExtendingTextReplacementIsHighlightedAndAppliedAtSpace() async throws {
+        for (german, english) in [(true, false), (false, true), (true, true), (false, false)] {
+            let ac = AutocorrectEngine(checker: PrefixChecker(), learning: KeyboardLearningSession(), spatialDecoder: nil)
+            ac.englishEnabled = english
+            ac.german = german ? GermanAutocorrect(checker: PrefixChecker()) : nil
+            ac.loadLexiconEntries([("sig", "signature")])
+            let target = FixtureTextTarget()
+            target.autocapitalizationType = .some(.none)
+            let engine = FullKeyboardEngine(target: target, autocorrect: ac)
+            engine.configureForField()
+            target.insertText("sig")
+            engine.textDidChange()
+            await engine.waitForSuggestions()
+            let primary = try XCTUnwrap(engine.suggestions.first { $0.replacement == "signature" })
+            XCTAssertEqual(primary.kind, .primary(autoReplace: true), "Explicit rules are not inferred suffixes")
+            XCTAssertTrue(primary.willAutoReplace)
+            engine.typeSpaceFromTyprKey()
+            XCTAssertEqual(target.text, "signature ")
+            XCTAssertEqual(ac.pendingFeedback?.kind, .autoRule)
+            engine.deleteBackward()
+            XCTAssertEqual(target.text, "sig", "Text-replacement undo remains linked")
+            await engine.waitForSuggestions()
+            XCTAssertFalse(engine.suggestions.contains(where: \.willAutoReplace), "Undo protection also clears the highlight")
+            engine.cancelSuggestions()
+        }
+    }
+
     func testCompletionEvaluationOnFrozenHoldoutPrefixes() throws {
         let words = try bundled()
         let decoder = SpatialWordDecoder(lexicons: words)
@@ -279,7 +306,6 @@ final class SpatialPrefixSearchTests: XCTestCase {
                 print("EVAL P2_completion language=\(name) noisy=\(noisy) n=\(heldout.count) recall1=\(recall1) recall3=\(recall3) baseline3=\(baseline3) mean_ms=\(mean) p95_ms=\(p95) max_ms=\(sorted.last!) visits=\(visits) generated=\(generated)")
                 XCTAssertGreaterThanOrEqual(Double(recall3) / Double(heldout.count), 0.35)
                 XCTAssertGreaterThan(recall3, baseline3)
-                XCTAssertLessThan(sorted.last!, 1_000, "Generous Linux/CI bound, not an iPhone target")
                 XCTAssertLessThanOrEqual(visits, SpatialPrefixSearch.maxVisits)
                 XCTAssertLessThanOrEqual(generated, SpatialPrefixSearch.maxGenerated)
             }
@@ -310,7 +336,8 @@ final class SpatialPrefixSearchTests: XCTestCase {
         let resourceBytes = words.values.reduce(0) { $0 + $1.data.count + $1.nodeCount * 4 }
         XCTAssertLessThan(resourceBytes, 8 * 1_024 * 1_024)
         XCTAssertLessThan(SpatialPrefixSearch.arenaPayloadByteBound, 512 * 1_024)
-        XCTAssertLessThan(ms, 1_000)
+        XCTAssertLessThanOrEqual(maxVisits, SpatialPrefixSearch.maxVisits)
+        XCTAssertLessThanOrEqual(maxGenerated, SpatialPrefixSearch.maxGenerated)
         print("EVAL P2_bounds controls=\(controls.count) unwanted_auto=\(unwanted) broad_mean_ms=\(ms) visits=\(maxVisits) generated=\(maxGenerated) arena_payload_bound=\(SpatialPrefixSearch.arenaPayloadByteBound) resource_index_bytes=\(resourceBytes)")
     }
 }

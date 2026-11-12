@@ -48,11 +48,16 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
     }
 
     private func keyboard(worker: KeyboardSuggestionWorker? = nil,
-                          session: KeyboardLearningSession? = nil) -> (FullKeyboardEngine, FixtureTextTarget, Checker) {
+                          session: KeyboardLearningSession? = nil,
+                          context: KeyboardContextResources? = nil) -> (FullKeyboardEngine, FixtureTextTarget, Checker) {
         let target = FixtureTextTarget()
         let checker = Checker()
+        // Freeze the original worker-policy fixtures without corpus context. Otherwise a
+        // real asynchronous bundled load can refresh a continuation-gated job mid-test,
+        // and Space now legitimately queues a prediction instead of leaving no job.
         let engine = FullKeyboardEngine(target: target,
-                                        autocorrect: AutocorrectEngine(checker: checker, learning: session, spatialDecoder: nil),
+                                        autocorrect: AutocorrectEngine(checker: checker, learning: session, spatialDecoder: nil,
+                                                                       contextResources: context ?? .init(model: nil)),
                                         suggestionWorker: worker)
         engine.width = 393
         engine.configureForField()
@@ -276,7 +281,7 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
         let gate = Gate()
         let worker = KeyboardSuggestionWorker(rank: { await gate.rank($0) })
         let target = FixtureTextTarget()
-        let ac = AutocorrectEngine(checker: Checker(), spatialDecoder: source)
+        let ac = AutocorrectEngine(checker: Checker(), spatialDecoder: source, contextResources: .init(model: nil))
         let engine = FullKeyboardEngine(target: target, autocorrect: ac, suggestionWorker: worker)
         engine.configureForField()
         try type("teh", engine)
@@ -335,13 +340,46 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
         XCTAssertEqual(engine.autocorrect.touchInput.evidence(beforeInput: target.text)?.text, "Teh")
         let start = ContinuousClock.now
         engine.typeSpaceFromTyprKey()
-        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        let boundaryDuration = start.duration(to: .now)
+        // The continuation is still blocked: returning with the correction proves independence
+        // from the worker, without asserting scheduler-dependent elapsed time.
+        XCTAssertTrue(worker.isRunning)
+        let rankedCalls = await gate.count()
+        XCTAssertEqual(rankedCalls, 1)
+        XCTAssertEqual(worker.queuedCount, 0)
         XCTAssertEqual(target.text, "The ", "Authoritative fallback does not await a blocked worker")
+        print("EVAL P1_blockedBoundary duration=\(boundaryDuration) rankedCalls=\(rankedCalls) maxRunning=1 queued=\(worker.queuedCount) workerStillBlocked=true")
         await gate.release()
         await engine.waitForSuggestions()
         XCTAssertTrue(engine.suggestions.isEmpty)
         engine.deleteBackward()
         XCTAssertEqual(target.text, "Teh", "Immediate undo remains linked")
+        engine.cancelSuggestions()
+    }
+
+    func testBoundaryQueuesPredictionsWithoutWaitingAndPreservesImmediateUndo() async throws {
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        let gate = Gate()
+        let worker = KeyboardSuggestionWorker(rank: { await gate.rank($0) })
+        let (engine, target, _) = keyboard(worker: worker, context: .init(model: model))
+        try type("teh", engine)
+        await waitForJob(gate)
+        engine.typeSpaceFromTyprKey()
+        XCTAssertEqual(target.text, "The ", "Space must not wait for the blocked current-word job")
+        XCTAssertTrue(engine.suggestions.isEmpty, "Never leave prior-token chips pickable")
+        XCTAssertEqual(worker.queuedCount, 1, "One replaceable latest prediction, not another worker")
+        await gate.release()
+        await waitForJob(gate, count: 2)
+        let prediction = await gate.request(at: 1)
+        XCTAssertNil(prediction.ownership.token)
+        XCTAssertNil(prediction.evidence)
+        XCTAssertTrue(engine.suggestions.isEmpty, "Stale current-word result was dropped")
+        await gate.release()
+        await engine.waitForSuggestions()
+        XCTAssertEqual(engine.suggestions.count, 3)
+        XCTAssertTrue(engine.suggestions.allSatisfy { !$0.willAutoReplace && $0.kind != .keepLiteral })
+        engine.deleteBackward()
+        XCTAssertEqual(target.text, "Teh", "Prediction publication must not clear the boundary undo")
         engine.cancelSuggestions()
     }
 

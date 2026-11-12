@@ -1,6 +1,6 @@
 # Bundled keyboard word data
 
-Only `keyboard-de.words` and `keyboard-en.words` are derived word data, licensed
+`keyboard-de.words` and `keyboard-en.words` are derived spatial word data, licensed
 under **Creative Commons Attribution-ShareAlike 4.0 International**, not Typr's MIT
 code license. Full terms accompany them in `CC-BY-SA-4.0.txt`:
 https://creativecommons.org/licenses/by-sa/4.0/ . No endorsement is implied.
@@ -56,3 +56,48 @@ attribution and license, is bundled in both app and keyboard, never the widgets.
 These counts are not a spelling dictionary: subtitles contain names, slang and
 errors and do not establish German noun casing. No accuracy claim follows from
 inclusion. In particular, missing technical terms and compounds are expected.
+
+## Corpus context sidecars (TBG1)
+
+`keyboard-{de,en}.tbg` are **separate** Common Voice CC0 + named-owner Tatoeba
+CC BY 2.0 FR adaptations, not FrequencyWords/CC BY-SA or MIT data. See
+[ATTRIBUTION.md](ATTRIBUTION.md), [tatoeba-contributors.tsv](tatoeba-contributors.tsv)
+and the linked full sentence source mapping. Preserve all three when redistributing.
+The [explicit offline compiler](../../../tools/keyboard_context/README.md) pins
+all input hashes and documents rebuilds; no acquisition or input files are bundled.
+
+| Resource | Lexical words | Edges | Bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| keyboard-de.tbg | 8,000 | 8,263 | 323,104 | `3efe6edcec45e6a134eaa80ee336e2549d173a432ff57c4b37b8d81c0ad04e79` |
+| keyboard-en.tbg | 8,000 | 14,255 | 339,689 | `26bdef6715570b7e7b8890467fc165c586974b417d3cc7f0ae8791a52b3578d9` |
+
+Combined packs: **662,793 bytes**, below 1 MiB. They contain no audio, raw sentences,
+neural weights, personal data or network URLs. Observed display casing is manual
+suggestion spelling, never authority for automatic German noun correction. Stock
+corpus names `tom`, `mary`, `maria`, `john` are suppressed in next-word predictions,
+but remain contexts/evidence; real contact/system/explicit suggestions are unaffected.
+
+TBG1 little-endian header is 64 bytes (`<4sHH2sHIIIIIIQfIHHII`): magic, version=1,
+header size, two-byte language, zero flags, record/edge counts, word/edge/string
+section offsets, total file size, UInt64 retained unigram count, Float32 discount=.5,
+configured N/K/min-count, payload CRC32, reserved zero. Each 20-byte word record is
+five UInt32 values: key/display NUL-terminated UTF-8 pool offsets, unigram count,
+first edge index, full context total (including OOV/pruned followers). Next record's
+first edge ends the row, or total edge count for the final row. Each 8-byte edge:
+UInt16 follower ID, UInt16 zero, UInt32 count. ID 0 is `<s>` with unigram zero;
+lexical keys are NFC lowercase and UTF-8 sorted, not ß-folded. Rows sort descending
+count then follower ID. Runtime validates the entire format/checksum/strings/counts,
+not just visited rows: ≤8,001 records, K≤16, ≤1 MiB combined, ≤128 UTF-8 bytes and
+32 characters per spelling. Unsupported or missing selected language abstains.
+
+`p0(w)=(u(w)+.5)/(U+.5*N)`, `boost=(count-.5)/C(h)`,
+`lambda=1-sum(retained boosts)`, `P(w|h)=lambda*p0(w)+boost(w)`;
+unknown/no-total contexts use lambda=1. Pruned/OOV continuation mass backs off,
+not renormalization of only stored edges. Unknown context is not `<s>`.
+The only resident index is sorted unigram IDs, **32,000 bytes combined**.
+Mapped file+index payload is 694,793 bytes, not an extension RSS measurement.
+
+`context-heldout-cc0.json` is a small **CC0 Common Voice** test fixture with source
+revision/selection recorded inside. `swift-reference-vectors.json` is Typr-generated
+numeric reference output for the fixed bilingual formulas. Both are inert test
+resources, not runtime model inputs. Neither changes the sidecar training counts.
