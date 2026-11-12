@@ -233,7 +233,10 @@ and captured geometry. Any reattribution makes the **entire word ineligible for
 labels and word counts**, including a subsequent keep, unchanged-literal settlement,
 manual pick or deletion/retyping. This includes partially observed prefixes whose
 older taps are unavailable. It also prevents #122 personal pair endpoints from
-being seeded by attributed words. Explicit keep/rejection protections still work.
+being seeded by attributed words. They also cannot seed #123's previous-word/real-Space
+window: attribution drops that boundary window and makes the current word unusable
+for boundary hypotheses. Resetting the backspace veto at Space does **not** discard
+an ordinary intact real-Space window. Explicit keep/rejection protections still work.
 This deliberately sacrifices some learning coverage rather than teaching the model
 its own guess. No new text/tap persistence or learning schema; the only new saved
 value is a saturating text-free `Reattributed letter taps` diagnostic counter under
