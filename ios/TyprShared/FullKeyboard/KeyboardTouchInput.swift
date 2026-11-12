@@ -6,7 +6,9 @@ nonisolated struct KeyboardTouchWord: Equatable, Sendable {
     struct Sample: Equatable, Sendable {
         let text: String
         let point: CGPoint
+        /// Original geometric hit; never silently relabeled by the attribution map.
         let key: KeyboardKey
+        var attributedKey: KeyboardKey? = nil
     }
 
     let layout: KeyboardLayout
@@ -27,6 +29,9 @@ final class KeyboardTouchInput {
     // Survives loss of all samples, so delete-all/retype cannot regain learning trust.
     private var editedWord = false
     var isLearningIntact: Bool { !editedWord }
+    // One RAM-only bit, independent of complete tap evidence (also covers partial words).
+    // Backspacing is explicit disagreement: the rest of this word must stay geometric.
+    private(set) var attributionSuppressed = false
 
     func clear() { word = nil; previous = nil; space = nil; editedWord = false }
 
@@ -39,6 +44,13 @@ final class KeyboardTouchInput {
         }
         return touch.isUsable ? touch : nil
     }
+
+    func clearAtBoundary() {
+        clear()
+        resetAttributionSuppression()
+    }
+
+    func resetAttributionSuppression() { attributionSuppressed = false }
 
     func evidence(beforeInput: String?) -> KeyboardTouchWord? {
         guard let word else {
@@ -56,10 +68,10 @@ final class KeyboardTouchInput {
     }
 
     func append(text: String, point: CGPoint, key: KeyboardKey, layout: KeyboardLayout,
-                before: String?, after: String?) {
+                before: String?, after: String?, attributedKey: KeyboardKey? = nil) {
         if text == " " {
             let completed = evidence(beforeInput: before)
-            clear() // A second space never carries a window forward.
+            clearAtBoundary() // A second space never carries a window forward.
             if let before, after == before + " ", let completed, completed.learningIntact,
                completed.layout == layout, completed.samples.count < KeyboardBoundaryTouch.maxSamples,
                key.kind == .space, point.x.isFinite, point.y.isFinite {
@@ -68,9 +80,15 @@ final class KeyboardTouchInput {
             }
             return
         }
+        if attributedKey != nil {
+            // Disqualify even a partially observed word: a later keep must not count our guess.
+            editedWord = true
+            word?.learningIntact = false
+            previous = nil; space = nil
+        }
         guard before != nil, text.count == 1, text.first?.isLetter == true,
               point.x.isFinite, point.y.isFinite, layout.layer == .letters,
-              layout.field == .text, key.character?.lowercased() == text.lowercased(),
+              layout.field == .text, (attributedKey ?? key).character?.lowercased() == text.lowercased(),
               AutocorrectEngine.currentToken(in: after) == (AutocorrectEngine.currentToken(in: before) ?? "") + text else {
             word = nil; previous = nil; space = nil
             return
@@ -87,13 +105,14 @@ final class KeyboardTouchInput {
             }
             word = KeyboardTouchWord(layout: layout, samples: [], learningIntact: !editedWord)
         }
-        word?.samples.append(.init(text: text, point: point, key: key))
+        word?.samples.append(.init(text: text, point: point, key: key, attributedKey: attributedKey))
         if (previous?.samples.count ?? 0) + (word?.samples.count ?? 0) + 1 > KeyboardBoundaryTouch.maxSamples {
             previous = nil; space = nil
         }
     }
 
     func deletedBackward(before: String?, after: String?) {
+        attributionSuppressed = true
         let evidence = evidence(beforeInput: before)
         editedWord = true
         previous = nil; space = nil

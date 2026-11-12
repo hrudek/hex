@@ -4,7 +4,110 @@ This is the correction-path reference for manual German/English typing in Typr's
 full keyboard. [Touch evidence](KEYBOARD_TOUCH_INPUT.md) describes capture and
 invalidation; [Personal typing learning and diagnostics](KEYBOARD_LEARNING.md)
 defines trusted feedback, storage, settings and counters. Dictation, visible keys,
-gestures, static hit-testing and the three suggestion slots are unchanged.
+gestures and the three suggestion slots are unchanged. The separate
+[bounded letter-gap attribution](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution)
+layer can change immediate letter insertion, never drawn keycaps or function-key cells.
+
+## Immediate letter attribution
+
+Before submitting deferred suggestions, edits synchronously prepare a ≤26-entry
+`KeyboardKeyMap`. It combines #114's frozen learned xy covariance/aim density with
+exact prefix continuation masses from existing TSW1 tries and bounded personal
+prefix sums. The map is revalidated at insertion order, including rollover; stale
+text/layout/configuration/model/epoch or non-prose/off states use geometry. No
+checker, prefix search, word decode or worker wait is part of map preparation.
+
+See [touch input](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution) for
+all gates and memory/work bounds. P8b is deliberately **gap-only, horizontal
+neighbors only**, with a **1.5%-width/half-gap** ceiling (previously 10%). It needs
+four letters of known continuation (previously two), a 90% uniform novelty floor
+(previously 50%), >ln(4) density / >ln(16) posterior margins (previously ln(2)/ln(4))
+and agreement of both neighboring learned clouds. Unknown prefixes stop adapting;
+backspace suppresses attribution for the remainder of the word, even after loss of
+samples/layout refresh. Every drawn-keycap point stays literal. Attributed words
+cannot teach labels/counts/pair endpoints; explicit keep protections still work.
+
+Observed Swift 6.4.2 Linux debug synthetic evaluation (same existing public words,
+one right-shifted trained model, identical fixed gap coordinates for both paths):
+
+| Mode | Words / taps | Static → P8 → P8b hit errors | Wrong P8b reattributions | Candidate recall@1 / @3, static and P8b |
+| --- | --- | --- | --- | --- |
+| DE | 128 / 683 | 126 → 5 → 92 | 0 | 128/128 at both cutoffs |
+| EN | 128 / 659 | 132 → 8 → 97 | 0 | 128/128 at both cutoffs |
+| Mixed | 256 / 1,342 | 251 → 17 → 191 | 0 | 256/256 at both cutoffs |
+
+P8 numbers are the earlier recorded baseline, not a second production engine.
+Candidate recall is decoder retrieval (shared calibrated density, above-literal
+candidates followed by literal/edit suggestions), **not** final strip rank or Space
+precision. It was already saturated. The safer policy sacrifices about three
+quarters of the earlier gap-probe benefit: it fixes 34/35/60 errors, not 121/124/234.
+Seventeen center-tapped valid/homograph/name/compound/code-switch controls retain
+zero changed taps and unwanted Space changes. The original `thrax → theax` case
+is now **0/1 harmed** because its prefix is too short.
+
+### OOV harm and attribution trade-off
+
+`KeyboardKeyMapEvaluationFixtures` is an original list filtered against **both**
+TSW1 packs: **455 unique absent items**, broken down in the touch reference.
+Each is typed with precise, Gaussian, shifted Gaussian and deliberate correct-side
+gap noise in each language mode. The common in-vocabulary fixtures also receive
+those profiles. All policies see identical coordinates and frozen learned density;
+there is no learning from these probes. Lowercase names deliberately remove the
+capitalization shortcut. The noise model and off-letter-tail handling are documented
+in [touch input](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution).
+
+Harm means changing a **correct geometric hit** to a wrong letter. Tap denominator
+is correct geometric taps; word harm counts runs containing any such change divided
+by all OOV runs (not just final text mismatch). Static attribution has zero attribution harm by definition,
+though it still has hit errors. Per language mode: **1,820 OOV runs / 22,124 taps /
+21,841 correct geometric hits**; known-word runs are 512 DE/EN or 1,024 mixed.
+
+| Frozen policy | OOV harmed taps / words, DE / EN / mixed | Known errors fixed, DE / EN / mixed | Known correct taps harmed, DE / EN / mixed |
+| --- | --- | --- | --- |
+| Previous P8: 10%, 50% floor, two-letter prefix | 20 / 28 / 24 (one tap per harmed word) | 11 / 12 / 23 | 7 / 3 / 10 |
+| Prefix ≥4 only, previous other gates | 1 / 4 / 4 | 5 / 5 / 11 | 0 / 0 / 0 |
+| **P8b selected: 1.5%, 90% floor, ≥4, stronger margins + consistency** | **1 / 1 / 1** | **1 / 2 / 2** | **0 / 0 / 0** |
+| 0.5%, 95% floor, ≥4, ln(8)/ln(32) + consistency | 1 / 1 / 1 | 0 / 0 / 1 | 0 / 0 / 0 |
+
+For P8b, per-mode OOV tap harm is **1/21,841 = .00458%** and word harm
+**1/1,820 = .05495%**, below .2% / 1%. This is not just dilution by precise taps:
+precise/Gaussian/shifted profiles have **0 harm**; deliberate gap stress has
+**1/5,531 correct taps = .01808%**, **1/455 words = .21978%**, also gated below the
+same bounds. Residual harm is `fahrradlieferzeit`, a productive compound with a
+known prefix before the gap. Within the compound gap-stress stratum that is **1/80
+words = 1.25%**; no per-category ≤1% claim is made. Identical coordinates still
+cannot prove intent. Prefix-only gives more gain but more EN/mixed harm; narrowing
+further loses nearly all gain without fixing this residual case. Hence the selected
+conservative setting, not a claim of optimal tuning or zero risk.
+
+On these more natural-noise known fixtures, static errors are **25 / 25 / 55**,
+P8b errors **24 / 23 / 53**: only **4% / 8% / 3.6%** fewer. The map helps a tiny
+subset of gaps, not drawn-keycap-interior or vertical errors. A real-engine replay
+of all 455 OOV items (noise profiles cycled, inside German `das ist …` context,
+both languages) matches map-only errors exactly, with **0/5,472 correct taps and
+0/455 words harmed**; static errors **59**, adaptive **56**. Retrieval and automatic
+Space replacement are separate from these immediate-insertion metrics.
+
+These are deterministic **development** fixtures, not an untouched distribution,
+population harm estimate, human-benefit claim or proof of all names/compounds.
+Final full Linux run map-call p95 was **.283 ms**, max **.343 ms**; insertion p95
+**.79–1.17 ms**, max **1.67 ms**, report-only and excluding asynchronous ranking.
+Map element payload remains **4,160 bytes**, plus a ≤64-byte policy and one RAM
+recovery bit; new two-pack continuation indexes **1,962,224 bytes**, full personal
+index **112,392 bytes**. Existing indexes and mapped bytes are additional; TSW1
+total **7,358,388 bytes** before context/runtime overhead, not RSS. No wall-clock
+assertions, new resources, persistence schema, switch, network or dictation changes.
+UIKit compilation, Apple checker/traits, actual thumb gaps/grip changes, learning
+coverage, correction burden and extension footprint still require real iPhone proof.
+
+Final P8b full Linux harness (Swift 6.4.2, debug): **385 cases, 375 passed,
+nine skipped, one known Foundation backup-metadata failure** (`isExcludedFromBackup`
+reads nil). All **15 attribution tests** pass, including complete/partial-word
+same-spot backspace/retyping, repeated retries and preservation of ordinary intact
+real-Space boundary windows. Source status and input hashes remained unchanged.
+Python repository/dictation/word/context checks passed **76/25/4/7** cases; shell
+syntax, ShellCheck, Actionlint and diff checks passed. Scratch Swift warning build
+passed with no P8 slow-expression warnings. These are Linux checks, not an iOS build.
 
 ## One boundary, one decision
 

@@ -169,12 +169,13 @@ in the synthetic controls. The physical prequential model has eigen-sigma bounds
 ellipses show shrunk slow statistics, not the live/tempered inference distribution.
 
 Inference offsets clamp independently to **±.50 pitch**, enough to represent a
-far-side thumb undershoot; static hit targets and the one-pitch trust gate do not move.
+far-side thumb undershoot; drawn keycaps and the one-pitch trust gate do not move.
 Marginal sigma stays
 **.22–.50**, and xy is bounded so **both covariance eigenvalues** stay in
 **[.22², .50²]**, hence determinant ≥ **.22⁴**. Densities include the determinant
 normalizer. Calibration is an immutable value frozen for each decode; scoring never
-updates it. Hit testing and immediate inserted keys stay static.
+updates it. The separately bounded [letter-gap attribution](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution)
+uses the same frozen snapshot; all drawn-keycap taps remain literal.
 
 Fast state/weights are never Codable and never enter saved summaries. They reset
 with evidence discontinuities (field/host/layout/lifecycle invalidation, cancellation,
@@ -190,6 +191,36 @@ not measured extension RSS. Stored byte ceilings and collection caps are unchang
 The word bonus is
 `min(1.0, .25 × log2(1 + count))` log units. These bounds limit influence; they
 are not evidence of calibration quality or improved typing.
+
+## Attribution and learning trust
+
+Bounded adaptive letter-gap attribution follows Learn from my typing **and**
+Autocorrect; off uses geometric insertion. Its same-row, gap-only, strict-density/
+posterior gates are defined in [touch input](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution).
+P8b requires four letters of known continuation, a 90% uniform novel-word floor,
+consistent neighboring learned densities and a 1.5%-width boundary band. Backspace
+vetoes attribution for the rest of the word, even with partial/missing evidence;
+the RAM-only bit survives layout refresh and resets at a separator/field preparation.
+It never adds training eligibility. No positional/retyping history is stored.
+Geometric hits and attributed letters stay separate in RAM evidence. A word with
+any automatic reattribution is disqualified from **all touch labels and word counts**,
+even on a later keep/manual choice or unchanged-literal settlement, including a
+partially observed prefix. They cannot become personal pair endpoints either. Explicit keep
+and rejection protections still work. This prevents self-confirming covariance,
+aim, counts or personal continuation priors. Other trusted-word rules are unchanged.
+
+No new persisted text, raw taps, context history or schema. TSW1 continuation indexes
+are immutable derived public-resource data; the personal index adds bounded prefix
+sums to its existing snapshot. The map itself is RAM-only and ownership checked.
+`Reattributed letter taps` counts actual changed insertions, not success, intention
+or accuracy; it saturates and follows the existing Full Access-gated diagnostics
+save/statistics-reset contract. A deliberate novel-name gap tap remains ambiguous;
+all visual keycap taps are protected, but gap reattributions need physical-iPhone
+acceptance. A 455-unique-OOV evaluation now measures harm, including precise,
+Gaussian, shifted and deliberate gap probes: one harmed tap/word per 1,820 runs in
+each language mode, below the stated synthetic bounds but not zero. The original
+short `thrax` regression is protected. These development fixtures do not establish
+human typing benefit; the stricter gates reduce in-vocabulary gain substantially.
 
 ## Personal completion ranking
 

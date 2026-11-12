@@ -21,6 +21,8 @@ nonisolated struct PersonalCompletionIndex: Sendable {
     let entries: [Entry]
     private let tree: [Int32]
     private let base: Int
+    /// Prefix sums of bounded personal counts (keeps have at least one vote).
+    private let masses: [UInt64]
 
     /// `words` must be sorted, unique and normalized (the scan list already is).
     init(sortedWords words: [String], kept: Set<String>, counts: [String: Int]) {
@@ -41,6 +43,9 @@ nonisolated struct PersonalCompletionIndex: Sendable {
             }
         }
         self.tree = tree
+        var masses: [UInt64] = [0]
+        for entry in entries { masses.append(masses.last! + UInt64(max(1, entry.count))) }
+        self.masses = masses
     }
 
     /// Higher count first, then kept, then lexical (entries are sorted, so the lower index).
@@ -56,7 +61,30 @@ nonisolated struct PersonalCompletionIndex: Sendable {
     /// Element payload plus UTF-8 spelling bytes; not allocator overhead or RSS.
     var payloadBytes: Int {
         entries.count * MemoryLayout<Entry>.stride + tree.count * MemoryLayout<Int32>.stride
+            + masses.count * MemoryLayout<UInt64>.stride
             + entries.reduce(0) { $0 + $1.word.utf8.count }
+    }
+
+    /// Thirty pairs of binary searches, independent of personal collection size except log N.
+    /// No per-edit personal-word scan and no new strings retained beyond this snapshot.
+    func nextLetterMass(after prefix: String) -> [Double] {
+        guard prefix.utf8.count <= 256, prefix.count <= 31 else {
+            return [Double](repeating: 0, count: SpatialWordLexicon.alphabet.count)
+        }
+        func boundary(_ value: String, upper: Bool) -> Int {
+            var low = 0, high = entries.count
+            while low < high {
+                let middle = (low + high) / 2, word = entries[middle].word
+                if word < value || (upper && word.hasPrefix(value)) { low = middle + 1 }
+                else { high = middle }
+            }
+            return low
+        }
+        return SpatialWordLexicon.alphabet.map { letter in
+            let value = prefix + String(letter)
+            let low = boundary(value, upper: false), high = boundary(value, upper: true)
+            return Double(masses[high] - masses[low])
+        }
     }
 
     /// Strict extensions of `rawPrefix` (2–31 letters, case/NFC-insensitive), best first.
