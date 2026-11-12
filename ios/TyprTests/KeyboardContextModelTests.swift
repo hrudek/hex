@@ -91,6 +91,16 @@ final class KeyboardContextModelTests: XCTestCase {
         XCTAssertEqual(model.context(before: "ich habe. ", currentToken: nil).previous, "<s>")
         XCTAssertEqual(model.context(before: "ich habe...!? ", currentToken: nil).state.value,
                        model.context(before: "ich habe. ", currentToken: nil).state.value)
+        // A line break is a sentence start: no cross-line pair, the state halves once.
+        XCTAssertEqual(model.context(before: "ich habe\n", currentToken: nil).previous, "<s>")
+        XCTAssertEqual(model.context(before: "ich habe.\n\n", currentToken: nil).state.value,
+                       model.context(before: "ich habe. ", currentToken: nil).state.value)
+        XCTAssertEqual(model.context(before: "ich habe\nmeeting ", currentToken: nil).previous, "meeting")
+        XCTAssertFalse(model.context(before: "\n\n", currentToken: nil).canPredict)
+        XCTAssertEqual(KeyboardContextModel.stripOrder([1, 2, 3]), [2, 1, 3])
+        XCTAssertEqual(KeyboardContextModel.stripOrder([1]), [1])
+        XCTAssertTrue(model.supports(german: true, english: true))
+        XCTAssertFalse(try XCTUnwrap(KeyboardContextModel(de: nil, en: model.en)).supports(german: true, english: true))
         for input: String? in [nil, "", "   ", "123 ", "ich 123 ", "https://example.com ", "x@y.com ", "camel_case "] {
             XCTAssertFalse(model.context(before: input, currentToken: nil).canPredict, "\(input ?? "nil")")
         }
@@ -101,6 +111,20 @@ final class KeyboardContextModelTests: XCTestCase {
                        model.context(before: "ich habe ", currentToken: nil).state.value)
         let ranked = model.rerank(["glaube", "bin", "habe"], context: model.context(before: "ich ", currentToken: nil), german: true, english: false)
         XCTAssertEqual(ranked, ["bin", "habe", "glaube"])
+        // Noisy channel within spatial readings: bounded gain, never across evidence kinds.
+        let ich = model.context(before: "ich ", currentToken: nil)
+        XCTAssertEqual(model.contextGain("habe", context: ich, german: true, english: false), log(20), accuracy: 1e-12)
+        XCTAssertEqual(model.contextGain("velqora", context: ich, german: true, english: true), 0)
+        XCTAssertEqual(model.contextGain("habe", context: model.context(before: "123 ", currentToken: nil),
+                                         german: true, english: true), 0)
+        XCTAssertEqual(model.rerank(["hase", "habe"], spatialScores: ["hase": -2, "habe": -2.5], context: ich,
+                                    german: true, english: false), ["habe", "hase"])
+        XCTAssertEqual(model.rerank(["hase", "habe"], spatialScores: ["hase": -1, "habe": -5], context: ich,
+                                    german: true, english: false), ["hase", "habe"])
+        XCTAssertEqual(model.rerank(["glaube", "hase", "habe"], spatialScores: ["hase": -2], context: ich,
+                                    german: true, english: false), ["habe", "hase", "glaube"])
+        XCTAssertEqual(model.rerank(["velqora", "hase"], spatialScores: ["velqora": -2, "hase": -2.1], context: ich,
+                                    german: true, english: true), ["velqora", "hase"])
         XCTAssertEqual(model.rerank(Array(repeating: "word", count: 100), context: c, german: true, english: true).count, 32)
     }
 

@@ -175,6 +175,16 @@ nonisolated struct KeyboardContextModel: Sendable {
     }
 
     static func key(_ word: String) -> String { word.lowercased().precomposedStringWithCanonicalMapping }
+
+    /// Every selected language needs its pack; Typr never silently substitutes the other one.
+    func supports(german: Bool, english: Bool) -> Bool {
+        (german || english) && (!german || de != nil) && (!english || en != nil)
+    }
+
+    /// Strip slots for ranked predictions: second, best (centre), third.
+    static func stripOrder<T>(_ ranked: [T]) -> [T] {
+        ranked.count >= 2 ? [ranked[1], ranked[0]] + ranked.dropFirst(2) : ranked
+    }
     func logRatio(_ word: String) -> Double {
         let key = Self.key(word), d = de?.count(key) ?? 0, e = en?.count(key) ?? 0
         guard key != Self.bos, d > 0 || e > 0, let de, let en else { return 0 }
@@ -203,7 +213,7 @@ nonisolated struct KeyboardContextModel: Sendable {
     /// the seen set is request-local, never a history/cache. No fixed top-16 approximation.
     func suggestions(after context: String?, weightDE: Double, german: Bool = true, english: Bool = true,
                      suppress: Set<String> = Self.suppressed) -> [Suggestion] {
-        guard (!german || de != nil), (!english || en != nil), german || english else { return [] }
+        guard supports(german: german, english: english) else { return [] }
         let d = german ? de : nil, e = english ? en : nil
         let a = german ? (english ? min(1, max(0, weightDE.isFinite ? weightDE : 0.5)) : 1) : 0
         let dd = d?.distribution(context) ?? Pack.Distribution(), ed = e?.distribution(context) ?? Pack.Distribution()
@@ -271,39 +281,74 @@ nonisolated struct KeyboardContextModel: Sendable {
             } else { result.previous = nil; result.canPredict = false }
             token = ""
         }
-        for segment in suffix.replacingOccurrences(of: "’", with: "'").split(whereSeparator: { $0.isWhitespace }) {
-            // Non-prose spans are barriers, including their punctuation (not a fake BOS
-            // inside a URL/email/identifier/number). Ordinary comma/quotes separate words.
-            if segment.contains(where: { $0.isNumber || "@/:_#-\\\\".contains($0) }) {
-                result.previous = nil; result.canPredict = false
-                continue
-            }
-            for ch in segment {
-                if ch.isLetter || ch == "'" { token.append(ch) }
-                else {
-                    flush()
-                    if ".!?…".contains(ch) {
-                        if !atSentenceBoundary { result.state.sentenceBoundary() }
-                        result.previous = Self.bos; result.canPredict = true; atSentenceBoundary = true
+        func sentenceBoundary() {
+            if !atSentenceBoundary { result.state.sentenceBoundary() }
+            result.previous = Self.bos; result.canPredict = true; atSentenceBoundary = true
+        }
+        let text = suffix.replacingOccurrences(of: "’", with: "'")
+        for (index, line) in text.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }).enumerated() {
+            // A line break starts a new sentence (no cross-line pair); a leading break invents nothing.
+            if index > 0, result.previous != nil || result.canPredict || result.state.value != 0 { sentenceBoundary() }
+            for segment in line.split(whereSeparator: { $0.isWhitespace }) {
+                // Non-prose spans are barriers, including their punctuation (not a fake BOS
+                // inside a URL/email/identifier/number). Ordinary comma/quotes separate words.
+                if segment.contains(where: { $0.isNumber || "@/:_#-\\\\".contains($0) }) {
+                    result.previous = nil; result.canPredict = false
+                    continue
+                }
+                for ch in segment {
+                    if ch.isLetter || ch == "'" { token.append(ch) } else {
+                        flush()
+                        if ".!?…".contains(ch) { sentenceBoundary() }
                     }
                 }
+                flush()
             }
-            flush()
         }
         // At an empty/unknown document start do not pretend a sentence boundary was seen.
         return result
     }
 
-    /// Bounded additive natural-log term over an existing ordered candidate pool.
-    /// Original rank is the base score; context contributes [-1.5, 0]. Literal,
-    /// automatic and explicit-revert slots are protected by the caller.
-    func rerank(_ candidates: [String], context: Context, german: Bool, english: Bool) -> [String] {
-        let pool = Array(candidates.prefix(Self.candidateLimit))
-        guard context.canPredict else { return pool }
-        return pool.enumerated().map { i, word in
-            let p = probability(word, after: context.previous, weightDE: context.state.weightDE, german: german, english: english)
-            return (word, -0.2 * Double(i) + 0.10 * max(-15, log(max(p, exp(-15)))))
-        }.sorted { $0.1 == $1.1 ? $0.0.utf8.lexicographicallyPrecedes($1.0.utf8) : $0.1 > $1.1 }.map(\.0)
+    /// Weight of the context gain, equal to the spatial decoder's unigram prior weight, so the
+    /// term is on the decoder's own language-model scale (noisy channel: spatial + LM).
+    static let gainWeight = 0.35
+    /// Gain cap: log(20). At most +1.05 nats; context never penalizes a candidate.
+    static let gainLimit = log(20.0)
+    /// Unscored alternatives (system guesses/completions, contact terms) keep rank spacing.
+    static let rankWeight = 0.2
+
+    /// Bounded, non-negative context evidence: clip(log(P_mix(w|h) / P_mix(w)), 0, log 20)
+    /// with the same language weights for both terms. Only retained followers of h can gain;
+    /// words with no corpus probability (names, compounds, OOV) and plain non-followers get 0.
+    func contextGain(_ word: String, context: Context, german: Bool, english: Bool) -> Double {
+        guard context.canPredict, let previous = context.previous else { return 0 }
+        let weight = context.state.weightDE
+        let base = probability(word, after: nil, weightDE: weight, german: german, english: english)
+        guard base > 0 else { return 0 }
+        let p = probability(word, after: previous, weightDE: weight, german: german, english: english)
+        return min(Self.gainLimit, max(0, log(p / base)))
+    }
+
+    /// Reorders an existing ordered display pool (at most 32 entries), only WITHIN each evidence
+    /// kind and in the slots that kind already occupies: spatial candidates by
+    /// `spatialScore + 0.35*gain`, unscored alternatives by `-0.2*rank + 0.35*gain`. A context
+    /// can never lift an unscored guess above a spatial reading or vice versa. Literal,
+    /// automatic and explicit-revert slots are pinned by the caller. Ties keep original order.
+    func rerank(_ candidates: [String], spatialScores: [String: Double] = [:], context: Context,
+                german: Bool, english: Bool) -> [String] {
+        var pool = Array(candidates.prefix(Self.candidateLimit))
+        guard context.canPredict, context.previous != nil else { return pool }
+        let gains = pool.map { Self.gainWeight * contextGain($0, context: context, german: german, english: english) }
+        guard gains.contains(where: { $0 > 0 }) else { return pool }
+        for scored in [true, false] {
+            let slots = pool.indices.filter { (spatialScores[pool[$0]] != nil) == scored }
+            let ordered = slots.enumerated().map { rank, slot in
+                (slot: slot, key: (scored ? spatialScores[pool[slot]]! : -Self.rankWeight * Double(rank)) + gains[slot])
+            }.sorted { $0.key == $1.key ? $0.slot < $1.slot : $0.key > $1.key }
+            let words = ordered.map { pool[$0.slot] }
+            for (slot, word) in zip(slots, words) { pool[slot] = word }
+        }
+        return pool
     }
 }
 

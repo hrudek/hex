@@ -174,6 +174,14 @@ final class AutocorrectEngine {
         return languages
     }
 
+    /// Cheap gate for after-separator corpus predictions: autocorrect on, prepared packs for
+    /// every selected language (a missing selected pack abstains), caret after whitespace.
+    func canPredictNextWord(after beforeInput: String?) -> Bool {
+        guard isEnabled, beforeInput?.last?.isWhitespace == true,
+              let model = contextResources.model else { return false }
+        return model.supports(german: german != nil, english: englishEnabled)
+    }
+
     /// Called only by the worker's deferred preparation, never by key insertion.
     func suggestionRequest(ownership: KeyboardSuggestionOwnership,
                            evidence: KeyboardTouchWord?) -> KeyboardSuggestionWorker.Request {
@@ -476,12 +484,14 @@ final class AutocorrectEngine {
         let activeToken = Self.currentToken(in: beforeInput)
         let context = contextResources.model?.context(before: beforeInput, currentToken: activeToken)
         guard let token = activeToken else {
-            guard isEnabled, let beforeInput, beforeInput.last?.isWhitespace == true,
-                  let context, context.canPredict, let model = contextResources.model else { return [] }
-            return model.suggestions(after: context.previous, weightDE: context.state.weightDE,
-                                     german: german != nil, english: englishEnabled).enumerated().map { index, word in
+            guard canPredictNextWord(after: beforeInput), let context, context.canPredict,
+                  let model = contextResources.model else { return [] }
+            let words = model.suggestions(after: context.previous, weightDE: context.state.weightDE,
+                                          german: german != nil, english: englishEnabled)
+            // Most likely word in the centre slot, like the current-word strip; never automatic.
+            return KeyboardContextModel.stripOrder(words).map { word in
                 KeyboardSuggestion(displayText: word.display, replacement: word.display,
-                                   kind: index == 1 ? .primary(autoReplace: false) : .secondary,
+                                   kind: word == words.first ? .primary(autoReplace: false) : .secondary,
                                    isCompletion: true)
             }
         }
@@ -491,6 +501,7 @@ final class AutocorrectEngine {
         let spatial = spatialResult(for: token, evidence: evidence, forSuggestions: true)
         var pool: [String] = []
         var completions: Set<String> = []
+        var spatialScores: [String: Double] = [:]
         let poolLimit = isEnabled && contextResources.model != nil ? 8 : 2
 
         if let pair = reversibleRejection, pair.typed == PersonalLexiconSnapshot.normalize(token) {
@@ -502,6 +513,8 @@ final class AutocorrectEngine {
         } else if englishEnabled, let suggested = Self.suggestOnlyContractions[lower] {
             pool.append(Self.matchCase(of: token, onto: suggested))
         }
+        // Explicit revert, automatic choice and suggest-only contraction keep their slots.
+        let pinnedCount = pool.count
 
         // Spatial words (including above-literal one-edit candidates) use the same slots, never changing
         // typed characters. Display-only, below-literal structural edit suggestions follow, only for a
@@ -513,7 +526,10 @@ final class AutocorrectEngine {
             if candidate.edit != .none && protectsLiteral { continue }
             let text = spatialSpelling(candidate, token: token).text
             if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text) { continue }
-            if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { pool.append(text) }
+            if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) {
+                pool.append(text)
+                spatialScores[text] = candidate.score
+            }
         }
 
         // Prefix matches from Contacts / lexicon terms.
@@ -560,13 +576,12 @@ final class AutocorrectEngine {
             }
         }
 
-        // Context only reorders display alternatives. Keep the automatic or explicit revert
-        // first (Space and its highlight must still describe the unchanged decision).
+        // Context only reorders display alternatives. The automatic choice or explicit revert
+        // stays first (Space and its highlight must still describe the unchanged decision).
         if isEnabled, let context, let model = contextResources.model {
-            let pinned = autoFix != nil || reversibleRejection?.typed == PersonalLexiconSnapshot.normalize(token)
-            let head = pinned ? Array(pool.prefix(1)) : []
-            pool = head + model.rerank(Array(pool.dropFirst(head.count)), context: context,
-                                       german: german != nil, english: englishEnabled)
+            pool = Array(pool.prefix(pinnedCount)) + model.rerank(Array(pool.dropFirst(pinnedCount)),
+                                                                  spatialScores: spatialScores, context: context,
+                                                                  german: german != nil, english: englishEnabled)
         }
 
         let literal = KeyboardSuggestion(displayText: "“\(token)”", replacement: token, kind: .keepLiteral)

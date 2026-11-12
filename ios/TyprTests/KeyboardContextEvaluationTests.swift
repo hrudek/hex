@@ -85,6 +85,145 @@ final class KeyboardContextEvaluationTests: XCTestCase {
         }
     }
 
+    private static func heldout() throws -> [String: [[String]]] {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "context-heldout-cc0", withExtension: "json", subdirectory: "WordData"))
+        struct Fixture: Decodable { let sentences: [String: [[String]]] }
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url)).sentences
+    }
+
+    /// D3b.5-style alternating held-out sentences (DE→EN for even, EN→DE for odd indices),
+    /// both languages selected. Compares the exact decaying posterior with naive 50/50 and
+    /// a hard language switch on identical rankers; the target is never consumed early.
+    func testHeldoutAlternatingMixedWrongLanguageRate() throws {
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        let sentences = try Self.heldout()
+        let de = try XCTUnwrap(sentences["de"]), en = try XCTUnwrap(sentences["en"])
+        var pairs = 0, switchPairs = 0
+        var hits = [0, 0, 0], wrong = [0, 0, 0], switchWrong = [0, 0, 0]
+        for k in 0..<min(de.count, en.count) {
+            let (first, second, gold) = k % 2 == 0 ? (de[k], en[k], -1) : (en[k], de[k], 1)
+            var state = KeyboardContextModel.State()
+            for word in first { state.consume(KeyboardContextModel.key(word), model: model) }
+            state.sentenceBoundary()
+            for i in 0..<(second.count - 1) {
+                let h = KeyboardContextModel.key(second[i]), target = KeyboardContextModel.key(second[i + 1])
+                state.consume(h, model: model)
+                let hard = state.value > 0 ? 1.0 : state.value < 0 ? 0.0 : 0.5
+                for (scheme, weight) in [state.weightDE, 0.5, hard].enumerated() {
+                    let keys = model.suggestions(after: h, weightDE: weight).map(\.key)
+                    if keys.contains(target) { hits[scheme] += 1 }
+                    // Fixed smoothed 4:1 corpus-ratio label; shared words never count as wrong.
+                    let bad = keys.filter { gold == 1 ? model.logRatio($0) <= -log(4) : model.logRatio($0) >= log(4) }.count
+                    wrong[scheme] += bad
+                    if i < 3 { switchWrong[scheme] += bad }
+                }
+                pairs += 1
+                if i < 3 { switchPairs += 1 }
+            }
+        }
+        func rate(_ value: Int, _ n: Int) -> Double { Double(value) / Double(max(1, n)) }
+        print(String(format: "EVAL context_mixed_alternating pairs=%d posterior_recall3=%.4f naive_recall3=%.4f hard_recall3=%.4f posterior_wrong=%.4f naive_wrong=%.4f hard_wrong=%.4f first3_after_switch_posterior_wrong=%.4f first3_naive_wrong=%.4f source=CC0_CV_heldout",
+                     pairs, rate(hits[0], pairs), rate(hits[1], pairs), rate(hits[2], pairs),
+                     rate(wrong[0], pairs * 3), rate(wrong[1], pairs * 3), rate(wrong[2], pairs * 3),
+                     rate(switchWrong[0], switchPairs * 3), rate(switchWrong[1], switchPairs * 3)))
+        XCTAssertLessThan(wrong[0], wrong[1])
+        XCTAssertGreaterThanOrEqual(hits[0], hits[1])
+        XCTAssertLessThan(rate(wrong[0], pairs * 3), 0.10)
+    }
+
+    /// Integrated noisy-touch typos of every eligible held-out target word with its real left
+    /// context. Same seeded taps, decoder and injected validity proxy for both variants; only
+    /// the context resources differ. Automatic decisions must be identical.
+    @MainActor
+    func testHeldoutNoisyTouchSuggestionsAndAutomaticNonregression() throws {
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        let sentences = try Self.heldout()
+        var lexicons: [SpatialWordDecoder.Language: SpatialWordLexicon] = [:]
+        for l in SpatialWordDecoder.Language.allCases {
+            let url = try XCTUnwrap(Bundle.main.url(forResource: "keyboard-\(l.rawValue)", withExtension: "words", subdirectory: "WordData"))
+            lexicons[l] = try XCTUnwrap(SpatialWordLexicon(data: Data(contentsOf: url, options: .mappedIfSafe)))
+        }
+        let decoder = SpatialWordDecoder(lexicons: lexicons)
+        let grid = KeyboardLayout(width: 393, orientation: .portrait, layer: .letters, field: .text, showsGlobe: false, showsStrip: true)
+        let de = try XCTUnwrap(sentences["de"]), en = try XCTUnwrap(sentences["en"])
+        // Validity proxy: every held-out spelling is "valid" (not Apple's dictionary).
+        let vocabulary = Set((de + en).flatMap { $0 }.flatMap { [$0, $0.lowercased()] })
+        let mixed = (0..<min(de.count, en.count)).map { k in
+            k % 2 == 0 ? (de[k] + ["."] + en[k], de[k].count + 1) : (en[k] + ["."] + de[k], en[k].count + 1)
+        }
+        let groups: [(String, [([String], Int)])] = [("de", de.map { ($0, 1) }), ("en", en.map { ($0, 1) }), ("mixed", mixed)]
+        var ordinal = 0
+        var milliseconds = [[Double](), [Double]()]
+        for (name, cases) in groups {
+            var n = 0, controls = 0, top1 = [0, 0], top3 = [0, 0], wrongAuto = [0, 0], unwanted = [0, 0], changed = 0
+            var hard = 0, hardTop1 = [0, 0], wins = 0, losses = 0, reordered = 0
+            for (words, start) in cases {
+                for i in max(1, start)..<words.count {
+                    let target = words[i].lowercased()
+                    guard target.count >= 3, target.count <= 12,
+                          // Umlauts/ß come from the accent menu, not a tap; those words are excluded here.
+                          target.allSatisfy({ "abcdefghijklmnopqrstuvwxyz".contains($0) }) else { continue }
+                    let prefix = words[..<i].joined(separator: " ").replacingOccurrences(of: " .", with: ".") + " "
+                    ordinal += 1
+                    // One and two neighbour substitutions, plus the correctly typed control.
+                    for error in [SpatialTypoEvaluationEvidence.ErrorClass.neighbour1, .neighbour2, nil] {
+                        let word = try SpatialTypoEvaluationEvidence.evidence(target, grid: grid, error: error, ordinal: ordinal,
+                                                                              seed: 0x5033, sigma: 0.18)
+                        var autos: [String?] = [], firsts: [Bool] = [], strips: [[String]] = []
+                        for variant in 0...1 {
+                            let checker = Checker(valid: vocabulary, guesses: [])
+                            let ac = AutocorrectEngine(checker: checker, learning: KeyboardLearningSession(), spatialDecoder: decoder,
+                                                       contextResources: .init(model: variant == 1 ? model : nil))
+                            ac.german = GermanAutocorrect(checker: checker)
+                            var before = prefix
+                            for sample in word.samples {
+                                let after = before + sample.text
+                                ac.touchInput.append(text: sample.text, point: sample.point, key: sample.key, layout: grid,
+                                                     before: before, after: after)
+                                before = after
+                            }
+                            if error != nil {
+                                let clock = ContinuousClock.now
+                                let strip = ac.suggestions(beforeInput: before, field: .text, autocorrectionType: .default)
+                                let elapsed = clock.duration(to: .now).components
+                                milliseconds[variant].append(Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15)
+                                let keys = strip.map { KeyboardContextModel.key($0.replacement) }
+                                strips.append(keys)
+                                let first = keys.count > 1 && keys[1] == target
+                                firsts.append(first)
+                                if error == .neighbour2, first { hardTop1[variant] += 1 }
+                                if first { top1[variant] += 1 }
+                                if keys.contains(target) { top3[variant] += 1 }
+                            }
+                            let auto = ac.replacementOnSpace(beforeInput: before, field: .text, autocorrectionType: .default)?.replacement
+                            autos.append(auto)
+                            if let auto, KeyboardContextModel.key(auto) != target {
+                                if error == nil { unwanted[variant] += 1 } else { wrongAuto[variant] += 1 }
+                            }
+                        }
+                        if autos[0] != autos[1] { changed += 1 }
+                        if error == nil { controls += 1 } else { n += 1 }
+                        if error == .neighbour2 { hard += 1 }
+                        if strips.count == 2, strips[0] != strips[1] { reordered += 1 }
+                        if firsts.count == 2, firsts[0] != firsts[1] { if firsts[1] { wins += 1 } else { losses += 1 } }
+                    }
+                }
+            }
+            print("EVAL context_noisy_heldout_\(name) typos=\(n) baseline_recall1=\(top1[0]) context_recall1=\(top1[1]) baseline_recall3=\(top3[0]) context_recall3=\(top3[1]) two_neighbour=\(hard) two_neighbour_recall1=\(hardTop1[0])->\(hardTop1[1]) first_slot_wins=\(wins) first_slot_losses=\(losses) strips_changed=\(reordered) wrong_auto_baseline=\(wrongAuto[0]) wrong_auto_context=\(wrongAuto[1]) correct_controls=\(controls) unwanted_auto_baseline=\(unwanted[0]) unwanted_auto_context=\(unwanted[1]) changed_auto_decisions=\(changed) validity=injected_heldout_vocabulary")
+            XCTAssertEqual(changed, 0, name)
+            XCTAssertEqual(unwanted[1], unwanted[0], name)
+            XCTAssertGreaterThanOrEqual(top3[1], top3[0], name)
+            XCTAssertGreaterThanOrEqual(top1[1], top1[0], name)
+        }
+        func summary(_ values: [Double]) -> String {
+            let sorted = values.sorted()
+            return String(format: "mean_ms=%.3f p95_ms=%.3f max_ms=%.3f", sorted.reduce(0, +) / Double(sorted.count),
+                          sorted[Int(Double(sorted.count - 1) * 0.95)], sorted.last!)
+        }
+        print("EVAL context_noisy_heldout_latency calls=\(milliseconds[1].count) baseline_\(summary(milliseconds[0])) context_\(summary(milliseconds[1])) timing=Linux_debug")
+        XCTAssertLessThan(milliseconds[1].max()!, 2_000)
+    }
+
     @MainActor
     func testIntegratedNoisyTouchAndZeroAddedAutomaticChanges() throws {
         let model = try XCTUnwrap(KeyboardContextModelTests.model)
@@ -140,7 +279,7 @@ final class KeyboardContextEvaluationTests: XCTestCase {
     }
 
     @MainActor
-    func testEngineAfterSpaceAcceptAndSettings() throws {
+    func testEngineAfterSpaceAcceptAndSettings() async throws {
         let model = try XCTUnwrap(KeyboardContextModelTests.model)
         let guessChecker = Checker(valid: [], guesses: ["hallo", "habe"])
         let ranked = AutocorrectEngine(checker: guessChecker, spatialDecoder: nil, contextResources: .init(model: model))
@@ -156,14 +295,52 @@ final class KeyboardContextEvaluationTests: XCTestCase {
         let ac = AutocorrectEngine(checker: Checker(valid: [], guesses: []), spatialDecoder: nil, contextResources: .init(model: model))
         let target = FixtureTextTarget(text: "i am ")
         let engine = FullKeyboardEngine(target: target, autocorrect: ac)
+        engine.width = 393
         engine.configureForField()
+        // Predictions go through the deferred suggestion worker; the old chips never stay pickable.
+        XCTAssertTrue(engine.suggestions.isEmpty)
+        await engine.waitForSuggestions()
         XCTAssertEqual(engine.suggestions.count, 3)
         XCTAssertTrue(engine.suggestions.allSatisfy { !$0.willAutoReplace && $0.kind != .keepLiteral })
-        let first = try XCTUnwrap(engine.suggestions.first)
-        engine.acceptSuggestion(first)
-        XCTAssertEqual(target.text, "i am " + first.replacement + " ")
+        let ranking = model.suggestions(after: "am", weightDE: model.context(before: "i am ", currentToken: nil).state.weightDE,
+                                        german: false, english: true)
+        XCTAssertEqual(engine.suggestions.map(\.replacement), KeyboardContextModel.stripOrder(ranking).map(\.display))
+        XCTAssertEqual(engine.suggestions[1].kind, .primary(autoReplace: false))
+        let best = engine.suggestions[1]
+        engine.acceptSuggestion(best)
+        XCTAssertEqual(target.text, "i am " + best.replacement + " ")
         XCTAssertTrue(ac.learning.model.lexicon.counts.isEmpty)
         XCTAssertEqual(ac.learning.diagnostics.acceptedLabels, 0)
+        // Accepting a prediction chains into the next prediction for the new last word.
+        await engine.waitForSuggestions()
+        XCTAssertEqual(engine.suggestions.count, 3)
+        XCTAssertNotEqual(engine.suggestions.map(\.replacement), KeyboardContextModel.stripOrder(ranking).map(\.display))
+        // Typing a letter replaces predictions with the current word's chips.
+        let key = try XCTUnwrap(engine.layout.key(.character("t"))).frame
+        engine.touchBegan(id: 1, at: CGPoint(x: key.midX, y: key.midY))
+        engine.touchEnded(id: 1, at: CGPoint(x: key.midX, y: key.midY))
+        XCTAssertEqual(engine.suggestions.first?.kind, .keepLiteral)
+        await engine.waitForSuggestions()
+        XCTAssertEqual(engine.suggestions.first?.kind, .keepLiteral)
+        // Space after the typed word predicts its followers again.
+        let space = try XCTUnwrap(engine.layout.key(.space)).frame
+        engine.touchBegan(id: 2, at: CGPoint(x: space.midX, y: space.midY))
+        engine.touchEnded(id: 2, at: CGPoint(x: space.midX, y: space.midY))
+        await engine.waitForSuggestions()
+        XCTAssertTrue(target.text.hasSuffix(" "))
+        XCTAssertEqual(engine.suggestions.count, 3)
+        // A missing selected pack abstains in the engine instead of using the other language.
+        let english = try XCTUnwrap(KeyboardContextModel(de: nil, en: model.en))
+        let partial = AutocorrectEngine(checker: Checker(valid: [], guesses: []), spatialDecoder: nil,
+                                        contextResources: .init(model: english))
+        partial.german = GermanAutocorrect(checker: Checker(valid: [], guesses: []))
+        let other = FullKeyboardEngine(target: FixtureTextTarget(text: "ich bin "), autocorrect: partial)
+        other.width = 393
+        other.configureForField()
+        await other.waitForSuggestions()
+        XCTAssertTrue(other.suggestions.isEmpty)
+        partial.german = nil
+        XCTAssertEqual(partial.suggestions(beforeInput: "ich bin ", field: .text, autocorrectionType: .default).count, 3)
         ac.isEnabled = false
         XCTAssertTrue(ac.suggestions(beforeInput: "i am ", field: .text, autocorrectionType: .default).isEmpty)
         ac.isEnabled = true; ac.englishEnabled = false
