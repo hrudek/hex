@@ -223,12 +223,35 @@ averaged **0.014 ms** (max 0.026 ms) and strip assembly **0.13 ms** on versus **
 off, with a **90,904-byte** index payload. These are synthetic Linux numbers, not
 iPhone latency, real typing benefit or Apple checker behavior.
 
+## Manual boundary choices
+
+The strip can offer exact omitted-space splits and conservative exact joins; see
+[the boundary policy](KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
+These are **suggestion-only**, with no automatic application at Space/punctuation/
+Typr-key boundaries. A manual pick replaces an owned suffix as one undoable step.
+Neither picking nor undoing a boundary hypothesis teaches touch labels, a phrase
+count, or constituent-word counts. No missing space is fabricated as a tap; joins
+retain no earlier-word touch evidence. The manual-alternative pick counter can
+increase; boundary undo is not counted as an automatic-correction undo.
+
+Boundary phrase rejections use a **64-pair FIFO in session RAM only**, bounded to
+two words / 32 combined letters, with no new file or schema. The existing saved
+letter/apostrophe-only word-pair contract is unchanged. Undo offers the immediate
+explicit reversal; picking it removes the new session rejection. New typing,
+selection/field/layout/lifecycle discontinuities end that immediate association,
+not the session rejection itself. Learning reset clears session boundary pairs;
+ordinary learning-off retains them and kept-word protections. Boundary picks do
+not count as personal-word evidence while learning is either on or off. Persistent
+protections, individual deletion and Full Access rules for existing word learning
+remain unchanged. No personal next-word history, boundary-tap archive or network.
+
 ## Suggestion snapshot isolation
 
 The [suggestion worker](KEYBOARD_SPATIAL_DECODER.md#suggestion-worker-and-boundary-authority)
 receives immutable Sendable calibration/personal-prior values. All live learning,
 protection/rejection mutations, diagnostics and pending feedback stay on MainActor;
-worker output alone never teaches. Results and chips must match learning generation
+worker output alone never teaches. Boundary jobs additionally share bounded personal
+snapshots for exact two-part lookup; a latest-only retrieval cache owns no text history. Results and chips must match learning generation
 **and** feedback/reset epoch, including a statistics-only reset. Switching learning
 off or deleting/resetting saved data invalidates older results rather than letting
 their ranking/protection state cross that change. If acceptance itself observes a new

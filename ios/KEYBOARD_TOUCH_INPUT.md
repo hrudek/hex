@@ -106,6 +106,20 @@ before capturing evidence for feedback. Delayed completion, suspension, blocked
 worker and overlapping-held-tap tests live in `KeyboardSuggestionWorkerTests`;
 Linux does not prove real host callback/lifecycle ordering or iPhone latency.
 
+## Exact boundary suggestions
+
+The suggestion worker can compare exact two-part splits without new touch evidence.
+For spelling-preserving splits, observed-letter densities cancel against the literal;
+existing whole-word spatial readings remain competitors. Exact joins inspect only
+one adjacent textual suffix separated by one ASCII space, not a retained previous
+word/space-tap window. No missing-space position or boundary label is invented.
+Manual split/join choices and immediate undo teach **no taps or word counts**;
+acceptance still revalidates full ownership and the exact suffix before editing.
+The boundary retrieval cache is cleared on evidence invalidation. Current/pending
+raw taps, static hit-testing, Space/Typr gestures, double-space period and all
+existing capture invalidations remain unchanged. This is not spatial boundary-error
+recovery; see [the policy and limits](KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
+
 ## Proof limits
 
 `KeyboardTouchInputTests` covers geometry, rollover, deletion/retyping, undo,

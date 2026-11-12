@@ -119,6 +119,33 @@ hit targets, raw tap storage, dictation changes and upstream automatic policy.
 The existing iikb MIT notice was checked against this pin's LICENSE and is reused,
 not duplicated. See the keyboard documents for bounds and proof limits.
 
+## Exact omitted-space splits and joins (iikb, P5)
+
+Owner-approved scoped translation from **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
+**MIT, © 2026 Bassim Shahidy**. The reference was read only, never built/run.
+This narrowly supersedes the historical split/join exclusion for exact two-part
+manual suggestions only; earlier adoptions retain their pins and exclusions.
+
+| Source paths at this pin | Translated algorithm | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (`joined`, `missedSpaces`, `Run.keep`, lines 513–707, 717–765) | Exact two-part segmentation, missing-boundary penalty, comparison against whole-word/OOV readings and bounded deterministic retention. Typr uses its own full-prior/relative-spatial comparison over existing TSW1/personal data, not upstream's multiword/context/neural decoder or automatic policy. Exact join removal protects two plausible parts without context. | `ios/TyprShared/FullKeyboard/KeyboardBoundaryDecoder.swift`, `KeyboardSuggestionWorker.swift`, `AutocorrectEngine.swift` (all in the same directory) |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (boundary handling and owned suffix/revert, lines 259–417); `Packages/KeyboardModules/Tests/KeyboardCoreTests/AutocorrectTests.swift` (boundary scenarios) | Owned textual suffix, one-step revert; rewritten for Typr's revision-checked chips and existing undo path. Test scenarios reauthored with public synthetic text, not upstream fixture copies. | `ios/TyprShared/FullKeyboard/FullKeyboardEngine.swift`, `AutocorrectEngine.swift`; `ios/TyprTests/KeyboardBoundaryDecoderTests.swift`, `KeyboardBoundaryEvaluationTests.swift` |
+
+All boundary candidates are **suggestion-only**. Session phrase rejections cap at
+64 pairs, never widen the existing persistent word-pair schema. Picks/undo teach
+no tap labels or word counts. The tiny one/two-letter closed-class supplement is
+Typr original hand-curated work, not upstream/D3 data; no resource/license payload
+is added. Existing separately licensed TSW1 data, Full Access/privacy and German/
+English automatic protections remain unchanged. The existing full iikb MIT notice
+was verified against this pin's LICENSE and extended descriptively, not duplicated.
+
+Excluded: per-part spelling noise, multiword beam, space-tap/letter reinterpretation,
+number/unit runs, neural/context prediction, phrase persistence, upstream fixtures,
+resources/dependencies, dynamic hit attribution, swipe typing, emoji, themes,
+layouts, clipboard, network, neural weights and dictation changes. No upstream
+file is copied wholesale. Bounds, controls and Apple/iPhone proof limits are in
+[the correction reference](ios/KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
+
 ## Aggregate touch aim on multiple timescales (iikb, P7)
 
 Owner-approved scoped translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,

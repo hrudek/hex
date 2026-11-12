@@ -171,8 +171,9 @@ Full Access/lifecycle races and peak physical footprint remain unverified.
 - Match/spatial substitution can consume each observed tap. At most **one**
   structural edit is allowed: missing candidate letter, extra observed tap, or
   adjacent transposition. Each costs `log(0.01)`. An extra tap contributes its
-  best gated key density, without an intended-letter label. No split/join,
-  cross-word context, neural model or swipe. A missing final letter is flagged as
+  best gated key density, without an intended-letter label. This single-word search
+  does not split/join; the separate suggestion-only boundary stage is described below.
+  No cross-word prediction, neural model or swipe. A missing final letter is flagged as
   a manual completion; separate bounded prefix retrieval is described below.
 - One deterministic best-first heap interleaves both language tries. Shared caps:
   **6,000 pops, 12,000 generated states and 12,000 spelling-trail records**, depth
@@ -341,6 +342,125 @@ neighbor; both seeds retained zero wrong/control autos. Accent competitors can
 increase ambiguity: neighbor correct-auto totals were 237 tune / 225 holdout,
 versus historical 243 / 227, not an asserted improvement. No iOS build or device
 performance/accuracy follows from this Linux run.
+
+## Omitted spaces and exact joins
+
+`KeyboardBoundaryDecoder` adds **manual-only** alternatives such as `greatday → great day`,
+`ichhabe → ich habe`, `thisis → this is` and `Tasta tur → Tastatur`. It runs in the
+serial suggestion worker after the existing whole-word decode. It does not depend on
+the contextual-model work. Space, sentence punctuation and the Typr key **never apply
+these hypotheses automatically**, even when the worker has a ready result. Existing
+whole-word rules/corrections keep their precedence and automatic policy.
+
+- Exactly two letter-only parts, each at most **20 letters**, total **3–32** for
+  splitting; one extra space may be removed from two adjacent tokens of at most 32
+  combined letters. No per-part spelling errors, invented letters, consumed taps,
+  numbers/units, generalized segmentation, selection rewrite or space-key geometry.
+- Examine every bounded split point. Parts must exist in selected TSW1 resources,
+  a small hand-curated closed-class short-word list, or the enabled personal model
+  (kept or counted twice). All selected language packs must be present. Short words
+  such as `I`, `a`, `in`, `am`, `is`, `zu`, `es` were previously filtered out by the
+  resource compiler. The **42 language-specific entries** are Typr original work,
+  not new third-party data: only one/two-letter closed-class words, fixed `.01` pseudo-prior.
+- Score exact parts with their best full lexical log priors plus the existing bounded
+  personal bonuses, charging **ln(.01)** for the missing space. Compare against the
+  whole literal's lexical/OOV floor and up to eight existing whole-word readings.
+  Existing `.35`-weighted scores are converted to the full-prior scale, retaining
+  relative spatial density and structural penalty; exact split letters' spatial
+  density cancels. This is a ranking heuristic, **not a probability of correctness**.
+  Corpus membership alone is not validity: packs contain noisy entries like `inthe`
+  and `iam`. Even those must lose the whole-vs-parts comparison before retrieval.
+- Joins charge the same edit penalty and require a **ln(100)** lead over separate
+  lexical/OOV readings. If both parts are known, abstain regardless of frequency.
+  In particular **`some thing` stays separate**: without contextual evidence there
+  is no authority to call that valid pair accidental. No previous-word taps are kept.
+- MainActor then vetoes splits for literals valid in either enabled dictionary
+  (including German noun casing), and vetoes joins of two dictionary-valid parts.
+  Explicit keeps, counted personal whole words, Contacts/lexicon terms, shortcuts,
+  shorthand, internal capitals, acronyms, identifiers and non-prose token contexts
+  retain protection. German noun casing uses the existing checker, not corpus casing.
+  Umlauts/ß stay distinct; NFC is normalized, not folded to digraphs.
+- The quoted literal remains. Boundary alternatives precede speculative spatial and
+  prefix alternatives, but not an authoritative automatic fix or immediate rejection
+  reversal. A chip carries its exact original suffix as well as the existing full
+  field/context/revision ownership. Acceptance rechecks both before one suffix edit.
+  One immediate Backspace restores the entire original suffix, including a join's
+  original space. No constituent-word counts or tap labels are inferred from a pick.
+
+Undo records a **session-only FIFO of at most 64 boundary rejection pairs**. These
+phrases cannot enter the existing letter/apostrophe-only persistent pair schema;
+no schema, file, Full Access permission or retention change. The immediate undo
+strip offers the explicit reversal, as for existing word rejections; picking it
+removes the new session pair. New typing/discontinuities end that special offer,
+not the bounded session protection. Learning reset clears it; ordinary learning-off
+retains protection. See [learning](KEYBOARD_LEARNING.md#manual-boundary-choices).
+
+Work is capped at **74 lexical queries**, each visiting at most 32 letters × 30
+child edges in each of two tries (**142,080 edge checks**, deliberately loose).
+No per-part decoder calls or personal-word scans. At most three retained results
+plus one insertion transient; deterministic 1e-9 score buckets and lexical ties.
+The per-call candidate element/string payload bound on Linux 64-bit is **1,000 bytes**
+(including raw NFD originals: a join may retain two 64-byte inputs plus a space);
+the short-word element/UTF-8 payload is **754 bytes**, the 32-character scratch
+array payload **512 bytes**, and the session-pair element/string payload bound
+**10,368 bytes**. Shared personal/resource snapshots, other temporary strings,
+Swift container/capacity/hash/allocator
+overhead and other stages are additional; these are **not RSS or extension peaks**.
+The single latest retrieval is reused only for equal job/evidence/learning/resource
+inputs; this preserves worker reuse on unchanged refresh. Geometry invalidation
+clears it. Normal production retrieval stays off insertion and checker finish; the
+synchronous logic API/injected rankers can use the same bounded fallback.
+
+`KeyboardBoundaryDecoderTests` / `KeyboardBoundaryEvaluationTests` cover exact
+splits/joins, short/personal words, DE/EN selection, NFC, caps/ties, whole spatial
+competition, checker/contact/keep/identifier controls, ownership, one-step undo,
+rejection/reversal, no learning, noisy-touch recall, controls, time and byte bounds.
+Evaluation distinguishes decoder retrieval from the actual two alternative chips
+and from automatic decisions. Automatic precision is **N/A**, not 100%: the policy
+abstains on all boundary hypotheses. OOV productive compounds/names can still look
+like omitted spaces, so manual suggestions are not an assertion that the original
+is wrong. Apple dictionary behavior, UIKit compilation, rapid pick/Space/cursor
+ordering, Full Access storage and physical latency/footprint need Apple/iPhone
+checks; a Linux synthetic run does not prove real typing benefit.
+
+### Observed P5 Linux synthetic check
+
+Swift **6.4.2**, Swift 6 language mode, x86_64 debug; **12 targeted tests passed**.
+Two fixed synthetic touch seeds (σ .18), exact typed letters and corpus-membership
+checkers, not Apple dictionaries or real typing. Recall counts:
+
+| Group | n | Retrieval @1 / @3 | Final alternatives @1 / @3 | No-boundary strip @3 |
+| --- | ---: | ---: | ---: | ---: |
+| DE | 48 | 45 / 45 | 43 / 43 | 0 |
+| EN | 48 | 36 / 36 | 20 / 20 | 0 |
+| Mixed | 32 | 27 / 27 | 25 / 25 | 0 |
+
+The final strip contains only two alternatives plus the literal; @3 is the requested
+upper cutoff, not three new phrase slots. Corpus-whole controls number 4/22/2 by
+mode; the checker protects even source-noise tokens like `inthe`/`iam`, explaining
+some retrieval-to-strip loss. These are small development fixtures, not an untouched
+independent benchmark. All **6 exact join fixtures** reached the strip; **12 plausible
+pairs** had zero join chips. Across **604 valid controls (602 unique)**, unwanted
+automatic changes and valid-literal split chips were zero (validity is explicitly
+injected). The 312 separately untrusted OOV controls produced **3 split chips**:
+productive compounds can be ambiguous, reinforcing suggestion-only policy. Boundary
+automatic recall is **0**, precision **N/A**. Complete-evidence split/join picks each
+left accepted labels, word counts and stored touch state unchanged; 100 rejection
+attempts retained 64 session pairs and zero persistent phrase pairs.
+
+Direct boundary retrieval mean/p95/max was **.512/.855/.937 ms DE**,
+**.514/.691/.915 ms EN**, **1.020/1.475/1.761 ms mixed**; join mean/max
+**.690/1.106 ms**. The 128 adversarial length calls with 2,000 personal words
+averaged **.551 ms**, max **2.383 ms**, at most **25 lexical queries** (cap 74).
+These exclude whole-word decode, prefix search, snapshot/checker/UI time, resource
+loading and scheduling; they do not predict iPhone end-to-end latency or memory.
+The final full Linux harness executed **317 tests: 307 passed, 9 existing platform
+skips, one known Linux backup-metadata failure** (`isExcludedFromBackup` reads nil).
+All 12 boundary tests and all existing worker/nonregression suites passed, with
+source hashes/status unchanged during the run. No harness adaptation or new skip.
+Repository Python suites passed 76 + 25 tests; word-data tooling passed 4 tests;
+shell syntax, ShellCheck, Actionlint and diff checks passed. None is UIKit,
+simulator or physical-iPhone verification.
 
 ## Sources and checks
 

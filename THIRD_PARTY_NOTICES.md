@@ -167,6 +167,16 @@ finish and compatible-cache adoption from
 adaptation; [PORTS.md](PORTS.md#deferred-keyboard-suggestions-iikb) records exact
 paths and exclusions. No upstream controller, resources or neural weights are bundled.
 
+Exact two-part omitted-space suggestions, whole-vs-split comparison and owned boundary
+revert additionally translate ideas from `Correction/Corrector.swift`,
+`Typing/TypingEngine+Words.swift` and boundary scenarios in `AutocorrectTests.swift` at
+[iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765).
+The same **MIT, Copyright (c) 2026 Bassim Shahidy** notice above, verified against
+that pin's LICENSE, applies without duplication. These are rewritten manual-only
+Typr algorithms, not copied files, upstream test data, language data or dependencies;
+[PORTS.md](PORTS.md#exact-omitted-space-splits-and-joins-iikb-p5) lists paths and exclusions.
+The small closed-class short-word supplement is Typr original hand-curated work.
+
 The bundled `keyboard-de.words` and `keyboard-en.words` are derived from **Hermit Dave /
 FrequencyWords**, revision `525f9b560de45753a5ea01069454e72e9aa541c6`, 2018 DE/EN
 50k lists, originating from **OpenSubtitles 2018 / OpenSubtitles**. **Their content
