@@ -125,7 +125,8 @@ final class KeyboardLearningStore {
                 var modelData = try JSONEncoder().encode(Saved(epoch: loadedEpochs.learning, value: bounded))
                 while modelData.count > Self.maximumLearningBytes {
                     // Batches avoid quadratic re-encoding at the largest allowed word collections.
-                    let batch = max(1, (bounded.kept.count + bounded.counts.count + bounded.rejected.count) / 16)
+                    let batch = max(1, (bounded.kept.count + bounded.counts.count + bounded.rejected.count
+                                        + (bounded.bigrams?.pairCount ?? 0)) / 16)
                     guard bounded.dropOldestLexiconEntries(batch) else { throw CocoaError(.fileWriteOutOfSpace) }
                     modelData = try JSONEncoder().encode(Saved(epoch: loadedEpochs.learning, value: bounded))
                 }

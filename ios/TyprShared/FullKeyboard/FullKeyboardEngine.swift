@@ -293,7 +293,8 @@ final class FullKeyboardEngine {
                   result.request.ownership == ownership,
                   self.suggestionOwnership == ownership, self.showsStrip else { return }
             let next = self.autocorrect.finishSuggestions(result).map { suggestion in
-                var owned = suggestion
+                // After-space predictions show (and insert) the host's auto-capitalization.
+                var owned = ownership.token == nil ? self.casedPrediction(suggestion, before: ownership.context) : suggestion
                 owned.ownership = ownership
                 return owned
             }
@@ -355,14 +356,11 @@ final class FullKeyboardEngine {
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
         } else {
-            // Prediction picks have no independently typed current word.
+            // Prediction picks have no independently typed word: no unigram, label or pair.
             autocorrect.discardFeedback()
         }
-        let capitalizePrediction = token == nil && AutoCapitalization.shouldCapitalize(
-            mode: AutoCapitalization.Mode(target.autocapitalizationType), before: before, hasText: target.hasText)
-        let replacement = capitalizePrediction
-            ? suggestion.replacement.prefix(1).uppercased() + suggestion.replacement.dropFirst()
-            : suggestion.replacement
+        // Idempotent with the published chip: a prediction at a sentence start is capitalized.
+        let replacement = token == nil ? casedPrediction(suggestion, before: before).replacement : suggestion.replacement
         invalidateTouchEvidence(resetFastAim: false)
         if let token {
             for _ in 0..<token.count {
@@ -376,6 +374,26 @@ final class FullKeyboardEngine {
         }
         // The suggestion's separator counts as the first space of double-space period.
         lastSpaceAt = clock()
+    }
+
+    /// Host auto-capitalization for a next-word prediction: first letter after `. ! ?`, a line
+    /// break or at the field start (sentences/words modes), every letter for all-characters.
+    /// Never lowercases, so dictionary-cased German nouns and names keep their capitals.
+    static func casedPrediction(_ word: String, mode: AutoCapitalization.Mode, before: String?, hasText: Bool) -> String {
+        guard AutoCapitalization.shouldCapitalize(mode: mode, before: before, hasText: hasText) else { return word }
+        return mode == .allCharacters ? word.uppercased() : word.prefix(1).uppercased() + word.dropFirst()
+    }
+
+    private func casedPrediction(_ suggestion: KeyboardSuggestion, before: String?) -> KeyboardSuggestion {
+        let mode = AutoCapitalization.Mode(target.autocapitalizationType)
+        let replacement = Self.casedPrediction(suggestion.replacement, mode: mode, before: before, hasText: target.hasText)
+        guard replacement != suggestion.replacement else { return suggestion }
+        var cased = KeyboardSuggestion(
+            displayText: Self.casedPrediction(suggestion.displayText, mode: mode, before: before, hasText: target.hasText),
+            replacement: replacement, kind: suggestion.kind, isCompletion: suggestion.isCompletion)
+        cased.ownership = suggestion.ownership
+        cased.isPersonal = suggestion.isPersonal
+        return cased
     }
 
     // MARK: - Touches

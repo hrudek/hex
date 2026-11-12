@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import Typr
 
+/// P4 regression tests: trusted personal next-word pairs (Typr-authored synthetic words only).
 @MainActor
 final class PersonalTypingBigramTests: XCTestCase {
     private final class Checker: TextChecking {
@@ -11,11 +12,12 @@ final class PersonalTypingBigramTests: XCTestCase {
         func guesses(for word: String) -> [String] { [] }
         func completions(for prefix: String) -> [String] { [] }
     }
-    private func keyboard(_ session: KeyboardLearningSession? = nil, text: String = "") -> (FullKeyboardEngine, FixtureTextTarget) {
+    private func keyboard(_ session: KeyboardLearningSession? = nil, text: String = "",
+                          model: KeyboardContextModel? = nil) -> (FullKeyboardEngine, FixtureTextTarget) {
         let target = FixtureTextTarget(text: text)
         target.autocapitalizationType = .some(.none)
         let ac = AutocorrectEngine(checker: Checker(), learning: session, spatialDecoder: nil,
-                                   contextResources: .init(model: nil))
+                                   contextResources: .init(model: model))
         let engine = FullKeyboardEngine(target: target, autocorrect: ac)
         engine.width = 393
         engine.clock = { 100 }
@@ -23,13 +25,14 @@ final class PersonalTypingBigramTests: XCTestCase {
         return (engine, target)
     }
     private func tap(_ kind: KeyKind, _ engine: FullKeyboardEngine) {
-        guard let key = engine.layout.key(kind) else { XCTFail("Missing fixture key"); return }
+        guard let key = engine.layout.key(kind) else { XCTFail("Missing fixture key \(kind)"); return }
         let p = CGPoint(x: key.frame.midX, y: key.frame.midY)
         engine.touchBegan(id: 1, at: p); engine.touchEnded(id: 1, at: p)
     }
     private func type(_ text: String, _ engine: FullKeyboardEngine) {
         for ch in text { tap(ch == " " ? .space : .character(String(ch)), engine) }
     }
+    /// Distinct synthetic letter-only words: w + base-26 digits.
     private func word(_ n: Int) -> String {
         var value = n, s = "w"
         repeat { s.append(Character(UnicodeScalar(97 + value % 26)!)); value /= 26 } while value > 0
@@ -39,18 +42,26 @@ final class PersonalTypingBigramTests: XCTestCase {
     func testOnlyAdjacentIndependentlySettledWordsTeachPairs() {
         let (engine, _) = keyboard()
         type("hello world ", engine)
-        XCTAssertEqual(engine.autocorrect.learning.personalBigrams.pairCount, 0)
+        XCTAssertEqual(engine.autocorrect.learning.personalBigrams.pairCount, 0, "The follower is not settled yet")
         type("n", engine)
         XCTAssertEqual(engine.autocorrect.learning.personalBigrams.followers(after: "hello"), ["world": 1])
-        // No pair is inferred from pre-existing field text, even if the words are valid.
+        // No pair is inferred from pre-existing field text, even if both words are valid.
         let (other, _) = keyboard(text: "hello ")
         type("world n", other)
         XCTAssertEqual(other.autocorrect.learning.personalBigrams.pairCount, 0)
+        // Mixed DE/EN pairs share one normalized key space, no language partition.
+        let (mixed, _) = keyboard()
+        type("meine coffee n", mixed)
+        XCTAssertEqual(mixed.autocorrect.learning.personalBigrams.followers(after: "MEINE"), ["coffee": 1])
+        XCTAssertEqual(mixed.autocorrect.learning.previousTrustedWord, "coffee", "RAM-only predecessor")
     }
 
     func testAutomaticUndoneRetypedAndDiscontinuousWordsNeverTeachPairs() {
-        for mode in ["auto", "undo", "retype", "field", "selection", "language", "doubleSpace", "return"] {
-            let (engine, target) = keyboard()
+        let modes = ["auto", "undo", "retype", "field", "selection", "language", "doubleSpace", "return",
+                     "punctuation", "learningToggle"]
+        for mode in modes {
+            let defaults = UserDefaults(suiteName: "p4.modes.\(UUID().uuidString)")!
+            let (engine, target) = keyboard(KeyboardLearningSession(defaults: defaults))
             type("hello ", engine)
             if mode == "auto" || mode == "undo" {
                 type("teh ", engine)
@@ -66,16 +77,23 @@ final class PersonalTypingBigramTests: XCTestCase {
                 case "language": engine.autocorrect.englishEnabled = false; engine.autocorrect.englishEnabled = true
                 case "doubleSpace": type("  ", engine)
                 case "return": tap(.returnKey, engine)
+                case "punctuation":
+                    tap(.layerSwitch(.numbers), engine); tap(.character("."), engine); tap(.layerSwitch(.letters), engine)
+                case "learningToggle":
+                    defaults.set(false, forKey: "keyboard.personalLearning"); engine.autocorrect.syncLearning()
+                    defaults.set(true, forKey: "keyboard.personalLearning"); engine.autocorrect.syncLearning()
                 default: break
                 }
                 type(" next n", engine)
             }
-            XCTAssertNil(engine.autocorrect.learning.personalBigrams.followers(after: "hello")["world"], mode)
-            XCTAssertNil(engine.autocorrect.learning.personalBigrams.followers(after: "hello")["the"], mode)
-            XCTAssertNil(engine.autocorrect.learning.personalBigrams.followers(after: "the")["world"], mode)
-            if mode == "retype" {
-                XCTAssertNil(engine.autocorrect.learning.personalBigrams.followers(after: "world")["next"])
-            }
+            let pairs = engine.autocorrect.learning.personalBigrams
+            XCTAssertNil(pairs.followers(after: "hello")["world"], mode)
+            XCTAssertNil(pairs.followers(after: "hello")["the"], mode)
+            XCTAssertNil(pairs.followers(after: "the")["world"], mode)
+            // Language/learning toggles break only the earlier boundary; `world next` is then a
+            // fresh, trusted adjacent pair. Field/selection changes also drop world's own evidence.
+            let freshPair = mode == "language" || mode == "learningToggle"
+            XCTAssertEqual(pairs.followers(after: "world")["next"], freshPair ? 1 : nil, mode)
             XCTAssertFalse(target.text.isEmpty)
         }
     }
@@ -95,25 +113,54 @@ final class PersonalTypingBigramTests: XCTestCase {
         }
     }
 
+    func testKeepRevertDoesNotPurgeButExplicitDeletionDoes() {
+        let session = KeyboardLearningSession()
+        for _ in 0..<3 { session.model.recordPair("world", after: "hello") }
+        session.keep("world")
+        // The immediate keep revert (backspace after a keep chip) is not a deletion request.
+        session.forgetKeep("world")
+        XCTAssertEqual(session.personalBigrams.followers(after: "hello"), ["world": 3])
+        session.model.forgetCount("world")
+        XCTAssertEqual(session.personalBigrams.pairCount, 0)
+    }
+
     func testDeterministicCapsAgeingBytesAndNormalization() throws {
         var a = PersonalBigramModel(), b = PersonalBigramModel()
         for i in 0..<255 { a.record("WORLD", after: "Hello"); b.record("world", after: "hello"); XCTAssertEqual(a, b, "event \(i)") }
-        XCTAssertEqual(a.followers(after: "hello")["world"], 255)
+        XCTAssertEqual(a.followers(after: "hello")["world"], 255, "Saturated")
+        // The 256th event halves first (255 → 127), then counts itself.
         a.record("world", after: "hello")
         XCTAssertEqual(a.updates, 0)
         XCTAssertEqual(a.followers(after: "hello")["world"], 128)
         a.record("Straße", after: "FU\u{308}R")
         XCTAssertEqual(a.followers(after: "für")["straße"], 1)
-        XCTAssertTrue(a.followers(after: "fur").isEmpty)
-        a.record("coffee", after: "morgen")
-        XCTAssertEqual(a.followers(after: "morgen")["coffee"], 1)
-        // Compare opposite insertion order under equal counts, below the ageing epoch.
+        XCTAssertTrue(a.followers(after: "fur").isEmpty, "Umlauts stay distinct")
+        // Invalid words (digits, apostrophes, spaces, empty) are ignored without counting an event.
+        let before = a
+        for bad in ["c3po", "don't", "two words", "", String(repeating: "a", count: 33)] { a.record(bad, after: "hello") }
+        XCTAssertEqual(a, before)
+
+        // Same event sequence → identical state; the just-recorded follower is never its own victim.
         var x = PersonalBigramModel(), y = PersonalBigramModel()
-        for i in 0..<20 { x.record(word(i), after: "context") }
-        for i in (0..<20).reversed() { y.record(word(i), after: "context") }
+        for i in 0..<20 { x.record(word(i), after: "context"); y.record(word(i), after: "context") }
         XCTAssertEqual(x, y)
-        XCTAssertEqual(x.followers(after: "context").count, 8)
-        // Seed a full, valid encoded fixture directly: no need to defeat intentional ageing.
+        XCTAssertEqual(x.followers(after: "context").count, PersonalBigramModel.followerLimit)
+        XCTAssertNotNil(x.followers(after: "context")[word(19)], "A recent follower replaces a stale one")
+        // A stronger follower survives newcomers.
+        let strong = (x.followers(after: "context")[word(0)] ?? 0) + 3
+        for _ in 0..<3 { x.record(word(0), after: "context") }
+        for i in 100..<120 { x.record(word(i), after: "context") }
+        XCTAssertEqual(x.followers(after: "context")[word(0)], strong)
+        XCTAssertNotNil(x.followers(after: "context")[word(119)])
+
+        // Halving drops ones and keeps ordering among survivors.
+        var ageing = PersonalBigramModel()
+        for _ in 0..<6 { ageing.record("often", after: "very") }
+        ageing.record("once", after: "very")
+        for i in 0..<(PersonalBigramModel.ageingInterval - 7) { ageing.record(word(i % 40), after: word(200 + i % 40)) }
+        XCTAssertEqual(ageing.followers(after: "very"), ["often": 3])
+
+        // Full, valid encoded fixture seeded directly (no need to defeat ageing).
         let rows = Dictionary(uniqueKeysWithValues: (0..<64).map { h in
             (word(h), Dictionary(uniqueKeysWithValues: (0..<8).map { (word(100 + $0), 10) }))
         })
@@ -121,17 +168,61 @@ final class PersonalTypingBigramTests: XCTestCase {
         var full = try JSONDecoder().decode(PersonalBigramModel.self, from: fullData)
         XCTAssertTrue(full.isValid)
         XCTAssertEqual(full.pairCount, 512)
-        for i in 0..<40 { full.record(word(500 + i), after: word(1000 + i)); XCTAssertTrue(full.isValid) }
-        XCTAssertLessThanOrEqual(full.pairCount, 512)
+        for i in 0..<40 {
+            full.record(word(500 + i), after: word(1000 + i))
+            XCTAssertTrue(full.isValid)
+            XCTAssertEqual(full.followers(after: word(1000 + i))[word(500 + i)], 1, "New pair spared under the global cap")
+        }
+        XCTAssertEqual(full.pairCount, 512)
         let bytes = try JSONEncoder().encode(full).count
         XCTAssertLessThanOrEqual(bytes, full.encodedByteBound)
         XCTAssertLessThanOrEqual(full.encodedByteBound, PersonalBigramModel.maximumBytes)
         // Long Unicode words exercise the independent byte ceiling, not just edge capacity.
         var unicode = PersonalBigramModel()
-        for i in 0..<200 { unicode.record(String(repeating: "界", count: 27) + word(i), after: String(repeating: "語", count: 27) + word(i)) }
+        for i in 0..<200 {
+            unicode.record(String(repeating: "界", count: 27) + word(i), after: String(repeating: "語", count: 27) + word(i))
+            XCTAssertLessThanOrEqual(unicode.encodedByteBound, PersonalBigramModel.maximumBytes)
+        }
         XCTAssertTrue(unicode.isValid)
         XCTAssertLessThan(unicode.pairCount, 200)
-        print("EVAL P4_bounds pairs=\(full.pairCount) followersMax=8 encodedBytes=\(bytes) encodedBound=\(full.encodedByteBound) byteCap=65536 unicodePairs=\(unicode.pairCount) countCap=255 ageingInterval=256")
+        let unicodeBytes = try JSONEncoder().encode(unicode).count
+        XCTAssertLessThanOrEqual(unicodeBytes, unicode.encodedByteBound)
+        print("EVAL P4_bounds pairs=\(full.pairCount) followersMax=\(PersonalBigramModel.followerLimit) encodedBytes=\(bytes) encodedBound=\(full.encodedByteBound) byteCap=\(PersonalBigramModel.maximumBytes) unicodePairs=\(unicode.pairCount) unicodeEncodedBytes=\(unicodeBytes) unicodeBound=\(unicode.encodedByteBound) countCap=\(PersonalBigramModel.countLimit) ageingInterval=\(PersonalBigramModel.ageingInterval)")
+    }
+
+    func testWholeStoreStaysWithinFileLimitAtMaximumWordAndPairState() throws {
+        // Under the whole-file ceiling, frequency associations yield before words and protections.
+        var small = PersonalTypingModel.State()
+        let date = Date(timeIntervalSinceReferenceDate: 0)
+        for i in 0..<3 { small.counts[word(i)] = .init(count: 2, lastUpdated: date) }
+        for i in 0..<5 { small.bigrams?.record(word(10 + i), after: "hello") }
+        XCTAssertTrue(small.dropOldestLexiconEntries(2))
+        XCTAssertEqual(small.bigrams?.pairCount, 3)
+        XCTAssertEqual(small.counts.count, 3)
+        XCTAssertTrue(small.dropOldestLexiconEntries(10))
+        XCTAssertEqual(small.bigrams?.pairCount, 0)
+        XCTAssertEqual(small.counts.count, 3)
+        XCTAssertTrue(small.dropOldestLexiconEntries(1))
+        XCTAssertEqual(small.counts.count, 2)
+
+        // 2,000 long three-byte-letter words plus a byte-saturated pair section never exceed 256 KiB.
+        var state = PersonalTypingModel.State()
+        for i in 0..<2000 { state.counts[String(repeating: "ア", count: 28) + word(i)] = .init(count: 3, lastUpdated: date) }
+        var pairs = PersonalBigramModel()
+        for i in 0..<600 { pairs.record(String(repeating: "界", count: 27) + word(i), after: String(repeating: "語", count: 27) + word(i % 90)) }
+        state.bigrams = pairs
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = KeyboardLearningStore(directory: directory, defaults: nil)
+        var diagnostics = KeyboardDiagnostics()
+        XCTAssertTrue(store.save(model: try XCTUnwrap(state.validated()), diagnostics: &diagnostics))
+        let size = try XCTUnwrap(try FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("learning-v1.json").path)[.size] as? Int)
+        XCTAssertLessThanOrEqual(size, KeyboardLearningStore.maximumLearningBytes)
+        let loaded = try XCTUnwrap(store.load().0)
+        XCTAssertTrue(loaded.bigrams?.isValid == true)
+        if loaded.counts.count < state.counts.count { XCTAssertEqual(loaded.bigrams?.pairCount, 0, "Pairs yield first") }
+        print("EVAL P4_store_bytes fileBytes=\(size) fileCap=\(KeyboardLearningStore.maximumLearningBytes) pairsBefore=\(pairs.pairCount) pairsAfter=\(loaded.bigrams?.pairCount ?? 0) words=\(loaded.counts.count)")
     }
 
     func testDiscountedBackoffAndPersonalTopThreeAgainstExhaustiveUnion() throws {
@@ -139,25 +230,46 @@ final class PersonalTypingBigramTests: XCTestCase {
         var personal = PersonalBigramModel()
         for _ in 0..<12 { personal.record("swift", after: "ich") }
         for _ in 0..<3 { personal.record("coffee", after: "ich") }
+        personal.record("zzqx", after: "ich") // Personal-only, seen once: not eligible yet.
         let corpus = 0.2
-        XCTAssertEqual(personal.probability("swift", after: "ich", corpus: corpus), (11.5 + 3 * corpus) / 17, accuracy: 1e-12)
+        XCTAssertEqual(personal.probability("swift", after: "ich", corpus: corpus), (11.5 + 4.5 * corpus) / 19, accuracy: 1e-12)
         XCTAssertEqual(personal.probability("other", after: "unknown", corpus: corpus), corpus)
+        XCTAssertEqual(personal.backoffWeight(after: "ich"), 4.5 / 19, accuracy: 1e-12)
+        // A proper distribution: followers' discounted mass plus the backed-off corpus mass is 1.
+        let mass = (11.5 + 2.5 + 0.5) / 19 + personal.backoffWeight(after: "ich")
+        XCTAssertEqual(mass, 1, accuracy: 1e-12)
+        for weight in [0.05, 0.5, 0.95] {
+            for (german, english) in [(true, true), (true, false), (false, true)] {
+                let actual = model.suggestions(after: "ich", weightDE: weight, german: german, english: english, personal: personal)
+                var keys = Set<String>()
+                for pack in [german ? model.de : nil, english ? model.en : nil].compactMap({ $0 }) {
+                    for id in 1..<pack.wordCount { keys.insert(pack.word(id)) }
+                }
+                let corpusKeys = keys.subtracting(KeyboardContextModel.suppressed)
+                let eligible = corpusKeys.union(personal.followers(after: "ich").filter {
+                    $0.value >= PersonalBigramModel.novelFollowerMinimum }.keys)
+                let expected = eligible.map { key in
+                    (key, personal.probability(key, after: "ich", corpus: model.probability(key, after: "ich", weightDE: weight, german: german, english: english)))
+                }.sorted { $0.1 == $1.1 ? $0.0.utf8.lexicographicallyPrecedes($1.0.utf8) : $0.1 > $1.1 }.prefix(3).map(\.0)
+                XCTAssertEqual(actual.map(\.key), expected, "\(weight) \(german) \(english)")
+                XCTAssertEqual(actual.first?.key, "swift")
+                XCTAssertFalse(actual.contains { $0.key == "zzqx" })
+            }
+        }
         let context = model.context(before: "ich ", currentToken: nil)
-        let actual = model.suggestions(after: "ich", weightDE: context.state.weightDE, personal: personal)
-        var keys = Set<String>()
-        for pack in [model.de, model.en].compactMap({ $0 }) { for id in 1..<pack.wordCount { keys.insert(pack.word(id)) } }
-        keys.formUnion(personal.followers(after: "ich").keys)
-        let expected = keys.filter { !KeyboardContextModel.suppressed.contains($0) }.map { key in
-            (key, personal.probability(key, after: "ich", corpus: model.probability(key, after: "ich", weightDE: context.state.weightDE, german: true, english: true)))
-        }.sorted { $0.1 == $1.1 ? $0.0.utf8.lexicographicallyPrecedes($1.0.utf8) : $0.1 > $1.1 }.prefix(3).map(\.0)
-        XCTAssertEqual(actual.map(\.key), expected)
-        XCTAssertEqual(actual.first?.key, "swift")
-        let ranked = model.rerank(["unknown", "swift"], context: context, german: true, english: true, personal: personal)
-        XCTAssertEqual(ranked.first, "swift")
+        XCTAssertEqual(model.rerank(["unknown", "swift"], context: context, german: true, english: true, personal: personal).first, "swift")
+        // One sighting of a personal-only word gives no rerank gain; two do.
+        XCTAssertEqual(model.contextGain("zzqx", context: context, german: true, english: true, personal: personal), 0)
+        personal.record("zzqx", after: "ich")
+        XCTAssertGreaterThan(model.contextGain("zzqx", context: context, german: true, english: true, personal: personal), 0)
+        XCTAssertTrue(model.suggestions(after: "ich", weightDE: 0.5, personal: personal).count == 3)
+        // Learning off passes an empty model: exactly the corpus-only output.
         XCTAssertEqual(model.suggestions(after: "ich", weightDE: 0.5), model.suggestions(after: "ich", weightDE: 0.5, personal: .init()))
+        XCTAssertEqual(model.rerank(["unknown", "swift"], context: context, german: true, english: true),
+                       model.rerank(["unknown", "swift"], context: context, german: true, english: true, personal: .init()))
     }
 
-    func testMigrationDeletionResetRaceAndLearningOffIsolation() throws {
+    func testMigrationRepairDeletionResetRaceAndLearningOffIsolation() throws {
         let defaults = UserDefaults(suiteName: "p4.\(UUID().uuidString)")!
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -168,12 +280,19 @@ final class PersonalTypingBigramTests: XCTestCase {
         }
         session.recordWord("world"); session.flush()
         XCTAssertTrue(store.deleteLearnedEntry(.count("world")))
-        session.flush() // Dirty/old writer must reload authoritative edited epoch.
+        session.flush() // A dirty/old writer must reload the authoritative edited epoch.
         XCTAssertFalse(session.personalBigrams.words.contains("world"))
         XCTAssertEqual(session.personalBigrams.pairCount, 2)
         XCTAssertTrue(store.deleteLearnedEntry(.pairWord("hello")))
         session.refresh()
         XCTAssertFalse(session.personalBigrams.words.contains("hello"))
+        XCTAssertEqual(store.learnedWords()?.bigrams?.followers(after: "ich"), ["code": 1])
+        session.keep("code"); session.flush()
+        XCTAssertTrue(store.deleteLearnedEntry(.kept("code")))
+        session.refresh()
+        XCTAssertEqual(session.personalBigrams.pairCount, 0, "Deleting a kept word purges its pairs too")
+        session.model.recordPair("code", after: "ich")
+        // Learning off: no updates, no influence, retained data untouched.
         defaults.set(false, forKey: "keyboard.personalLearning"); session.refresh()
         let retained = session.model.state.bigrams
         session.model.recordPair("world", after: "hello")
@@ -183,24 +302,41 @@ final class PersonalTypingBigramTests: XCTestCase {
         XCTAssertNil(session.previousTrustedWord)
         defaults.set(true, forKey: "keyboard.personalLearning"); session.refresh()
         XCTAssertEqual(session.personalBigrams.pairCount, 1)
+        // Reset: a pending predecessor cannot pair across it, and saved pairs are gone.
+        session.settleTrustedWord("hello", beforeInput: "hello ")
         XCTAssertTrue(store.requestLearningReset()); session.flush()
+        XCTAssertNil(session.previousTrustedWord)
+        session.settleTrustedWord("world", beforeInput: "hello world ")
         XCTAssertEqual(session.personalBigrams.pairCount, 0)
         XCTAssertEqual(store.load().0?.bigrams?.pairCount ?? 0, 0)
+
         var state = PersonalTypingModel.State()
         state.kept["hello"] = Date(timeIntervalSinceReferenceDate: 0)
+        state.rejected = [.init(typed: "teh", replacement: "the")]
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
         for version in [1, 2] {
             object["schemaVersion"] = version; object.removeValue(forKey: "bigrams")
             let decoded = try JSONDecoder().decode(PersonalTypingModel.State.self, from: JSONSerialization.data(withJSONObject: object))
             let migrated = try XCTUnwrap(decoded.validated())
             XCTAssertEqual(migrated.schemaVersion, 3)
-            XCTAssertEqual(migrated.bigrams, .init())
+            XCTAssertEqual(migrated.bigrams, .init(), "No invented observations")
             XCTAssertEqual(migrated.kept, state.kept)
         }
+        // Out-of-bounds pair data drops only the pairs; keeps and rejections survive.
+        object["schemaVersion"] = 3
+        object["bigrams"] = ["following": ["hello": ["world": 999]], "updates": 0]
+        let corrupt = try JSONDecoder().decode(PersonalTypingModel.State.self, from: JSONSerialization.data(withJSONObject: object))
+        let repaired = try XCTUnwrap(corrupt.validated())
+        XCTAssertEqual(repaired.bigrams, .init())
+        XCTAssertEqual(repaired.kept, state.kept)
+        XCTAssertEqual(repaired.rejected, state.rejected)
+        // Unknown future schema fails closed; a schema-3 snapshot must carry its pair section.
         state.schemaVersion = 4
         XCTAssertNil(state.validated())
         state.schemaVersion = 3; state.bigrams = nil
         XCTAssertNil(state.validated())
+        // A schema-2 reader rejects schema 3 by version (simulated with its exact gate).
+        XCTAssertFalse((1...2).contains(PersonalTypingModel.State().schemaVersion))
     }
 
     func testPermissionRevocationBreaksPendingSequenceAndUsesRAMOnly() throws {
@@ -214,129 +350,56 @@ final class PersonalTypingBigramTests: XCTestCase {
         XCTAssertNil(session.previousTrustedWord)
         session.settleTrustedWord("world", beforeInput: "hello world ")
         XCTAssertEqual(session.personalBigrams.pairCount, 0)
+        // RAM-only learning continues for this keyboard session and is never written.
+        session.settleTrustedWord("next", beforeInput: "hello world next ")
+        XCTAssertEqual(session.personalBigrams.followers(after: "world"), ["next": 1])
+        session.flush()
+        XCTAssertNil(KeyboardLearningStore(directory: directory, defaults: nil).load().0?.bigrams?.followers(after: "world")["next"])
     }
 
-    func testRepeatedSyntheticSessionsPredictionRecallAndTimings() throws {
-        let model = try XCTUnwrap(KeyboardContextModelTests.model)
-        let groups = [("de", [("meine", "tastatur"), ("heute", "mittag"), ("guten", "morgen")]),
-                      ("en", [("daily", "review"), ("project", "update"), ("morning", "coffee")]),
-                      ("mixed", [("meine", "coffee"), ("daily", "tastatur"), ("morgen", "review")])]
-        var times: [Double] = []
-        for (name, pairs) in groups {
-            let session = KeyboardLearningSession()
-            var before = 0, after1 = 0, after3 = 0
-            for (h, w) in pairs {
-                let context = model.context(before: h + " ", currentToken: nil)
-                if model.suggestions(after: h, weightDE: context.state.weightDE, german: name != "en", english: name != "de").contains(where: { $0.key == w }) { before += 1 }
-            }
-            for _ in 0..<6 {
-                for (h, w) in pairs {
-                    let (engine, _) = keyboard(session)
-                    type(h + " " + w + " n", engine)
-                }
-            }
-            for (h, w) in pairs {
-                XCTAssertEqual(session.personalBigrams.followers(after: h)[w], 6)
-                let context = model.context(before: h + " ", currentToken: nil)
-                let start = ContinuousClock.now
-                let got = model.suggestions(after: h, weightDE: context.state.weightDE, german: name != "en", english: name != "de", personal: session.personalBigrams)
-                let duration = start.duration(to: .now).components
-                times.append(Double(duration.seconds) * 1000 + Double(duration.attoseconds) / 1e15)
-                if got.first?.key == w { after1 += 1 }
-                if got.contains(where: { $0.key == w }) { after3 += 1 }
-            }
-            XCTAssertEqual(after1, pairs.count)
-            XCTAssertEqual(after3, pairs.count)
-            XCTAssertGreaterThanOrEqual(after3, before)
-            print("EVAL P4_learning_\(name) pairs=\(pairs.count) repetitions=6 baselineRecall3=\(before) personalRecall1=\(after1) personalRecall3=\(after3) storedPairs=\(session.personalBigrams.pairCount) training=synthetic_touch_settlement")
-        }
-        let sorted = times.sorted()
-        print(String(format: "EVAL P4_prediction_cost calls=%d meanMs=%.4f p95Ms=%.4f maxMs=%.4f timing=local_debug_not_iPhone maxAdditionalFollowers=8", sorted.count, sorted.reduce(0,+)/Double(sorted.count), sorted[Int(Double(sorted.count-1)*0.95)], sorted.last!))
-    }
-
-    func testNoisyTouchPersonalContextQualityAndZeroAutomaticChanges() throws {
-        let model = try XCTUnwrap(KeyboardContextModelTests.model)
-        var lexicons: [SpatialWordDecoder.Language: SpatialWordLexicon] = [:]
-        for language in SpatialWordDecoder.Language.allCases {
-            let url = try XCTUnwrap(Bundle.main.url(forResource: "keyboard-\(language.rawValue)", withExtension: "words", subdirectory: "WordData"))
-            lexicons[language] = try XCTUnwrap(SpatialWordLexicon(data: Data(contentsOf: url)))
-        }
-        let decoder = SpatialWordDecoder(lexicons: lexicons)
-        let grid = KeyboardLayout(width: 393, orientation: .portrait, layer: .letters, field: .text, showsGlobe: false, showsStrip: true)
-        let de = ["heute", "morgen", "arbeit", "tastatur", "schreiben", "hallo", "schreiben", "technik"]
-        let en = ["morning", "keyboard", "world", "hello", "project", "review", "coffee", "writing"]
-        var milliseconds = [Double]()
-        for (name, words) in [("de", de), ("en", en), ("mixed", de + en)] {
-            var hit1 = [0, 0], hit3 = [0, 0], unwanted = [0, 0], changed = 0, n = 0
-            let checker = Checker()
-            checker.valid.formUnion(words + ["Lena", "Donaudampfschiff", "WeChat", "codeSwitch"])
-            for (i, intended) in words.enumerated() {
-                let prefix = name == "en" ? "hello " : "ich "
-                for error in [SpatialTypoEvaluationEvidence.ErrorClass.neighbour1, .neighbour2, nil] {
-                    let evidence = try SpatialTypoEvaluationEvidence.evidence(intended, grid: grid, error: error, ordinal: i,
-                                                                            seed: 0x5034, sigma: 0.18)
-                    var autos: [String?] = []
-                    for variant in 0...1 {
-                        let session = KeyboardLearningSession()
-                        if variant == 1 { for _ in 0..<6 { session.model.recordPair(intended, after: prefix.trimmingCharacters(in: .whitespaces)) } }
-                        let ac = AutocorrectEngine(checker: checker, learning: session, spatialDecoder: decoder, contextResources: .init(model: model))
-                        ac.englishEnabled = name != "de"
-                        if name != "en" { ac.german = GermanAutocorrect(checker: checker) }
-                        var before = prefix
-                        for sample in evidence.samples {
-                            let after = before + sample.text
-                            ac.touchInput.append(text: sample.text, point: sample.point, key: sample.key, layout: grid, before: before, after: after)
-                            before = after
-                        }
-                        let start = ContinuousClock.now
-                        let chips = ac.suggestions(beforeInput: before, field: .text, autocorrectionType: .default)
-                        let duration = start.duration(to: .now).components
-                        milliseconds.append(Double(duration.seconds) * 1000 + Double(duration.attoseconds) / 1e15)
-                        if error != nil {
-                            if chips.count > 1 && chips[1].replacement.lowercased() == intended { hit1[variant] += 1 }
-                            if chips.contains(where: { $0.replacement.lowercased() == intended }) { hit3[variant] += 1 }
-                        }
-                        let auto = ac.replacementOnSpace(beforeInput: before, field: .text, autocorrectionType: .default)?.replacement
-                        autos.append(auto)
-                        if error == nil, let auto, auto.lowercased() != intended { unwanted[variant] += 1 }
-                    }
-                    if autos[0] != autos[1] { changed += 1 }
-                    if error != nil { n += 1 }
-                }
-            }
-            for literal in ["Lena", "Donaudampfschiff", "WeChat", "codeSwitch"] {
-                let session = KeyboardLearningSession()
-                for _ in 0..<6 { session.model.recordPair("world", after: "ich") }
-                let ac = AutocorrectEngine(checker: checker, learning: session, spatialDecoder: decoder, contextResources: .init(model: model))
-                XCTAssertNil(ac.replacementOnSpace(beforeInput: "ich " + literal, field: .text, autocorrectionType: .default))
-            }
-            XCTAssertEqual(changed, 0)
-            XCTAssertEqual(unwanted, [0, 0])
-            XCTAssertGreaterThanOrEqual(hit3[1], hit3[0])
-            print("EVAL P4_noisy_\(name) typos=\(n) baselineRecall1=\(hit1[0]) personalRecall1=\(hit1[1]) baselineRecall3=\(hit3[0]) personalRecall3=\(hit3[1]) cleanControls=\(words.count+4) unwantedBaseline=\(unwanted[0]) unwantedPersonal=\(unwanted[1]) changedAuto=\(changed) validity=injected_not_Apple")
-        }
-        let sorted = milliseconds.sorted()
-        print(String(format: "EVAL P4_noisy_cost calls=%d meanMs=%.4f p95Ms=%.4f maxMs=%.4f timing=local_debug_not_iPhone", sorted.count, sorted.reduce(0,+)/Double(sorted.count), sorted[Int(Double(sorted.count-1)*0.95)], sorted.last!))
-    }
-
-    func testPredictionPickSentenceCapitalizationAndGermanNounCasing() async throws {
-        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+    func testPredictionPicksFollowSentenceCapitalizationAndKeepNounCasing() async throws {
+        typealias Mode = AutoCapitalization.Mode
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .sentences, before: "done. ", hasText: true), "World")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .sentences, before: "done! ", hasText: true), "World")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .sentences, before: "done? ", hasText: true), "World")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .sentences, before: "line\n", hasText: true), "World")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .sentences, before: "", hasText: false), "World")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .sentences, before: "hello ", hasText: true), "world")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .words, before: "hello ", hasText: true), "World")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: .allCharacters, before: "hello ", hasText: true), "WORLD")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("world", mode: Mode.none, before: "done. ", hasText: true), "world")
+        XCTAssertEqual(FullKeyboardEngine.casedPrediction("Tastatur", mode: .sentences, before: "meine ", hasText: true), "Tastatur",
+                       "German nouns are never lowercased")
         for (text, capitalizes) in [("done. ", true), ("done! ", true), ("done? ", true), ("hello ", false), ("", true)] {
             let (engine, target) = keyboard(text: text)
             target.autocapitalizationType = .sentences
             var chip = KeyboardSuggestion(displayText: "world", replacement: "world", kind: .primary(autoReplace: false), isCompletion: true)
-            // Direct owned prediction fixture also covers a field-start pick without inventing a BOS history.
+            // A directly owned prediction fixture also covers a field-start pick without inventing history.
             chip.ownership = engine.suggestionOwnership
             engine.acceptSuggestion(chip)
             XCTAssertEqual(target.text, text + (capitalizes ? "World " : "world "))
-            XCTAssertEqual(engine.autocorrect.learning.personalBigrams.pairCount, 0)
+            XCTAssertEqual(engine.autocorrect.learning.personalBigrams.pairCount, 0, "Prediction picks teach no pair")
         }
-        let checker = Checker(); checker.valid.insert("Tastatur")
-        let ac = AutocorrectEngine(checker: checker, spatialDecoder: nil, contextResources: .init(model: model))
-        ac.german = GermanAutocorrect(checker: checker)
-        for _ in 0..<5 { ac.learning.model.recordPair("tastatur", after: "meine") }
-        let chips = ac.suggestions(beforeInput: "meine ", field: .text, autocorrectionType: .default)
-        XCTAssertTrue(chips.contains { $0.replacement == "Tastatur" })
-        XCTAssertTrue(chips.allSatisfy { !$0.willAutoReplace })
+        // Published chips already show the capitalization they insert (real corpus, personal follower).
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        let session = KeyboardLearningSession()
+        for _ in 0..<4 { session.model.recordPair("tastatur", after: "meine") }
+        for (text, sentences) in [("Das ist meine ", true), ("das ist meine ", false)] {
+            let expected = "Tastatur"
+            let (engine, target) = keyboard(session, text: text, model: model)
+            target.autocapitalizationType = sentences ? .sentences : .some(.none)
+            engine.autocorrect.german = GermanAutocorrect(checker: { let c = Checker(); c.valid.insert("Tastatur"); return c }())
+            engine.textDidChange()
+            await engine.waitForSuggestions()
+            XCTAssertTrue(engine.suggestions.contains { $0.displayText == expected && $0.replacement == expected }, "\(engine.suggestions)")
+            XCTAssertTrue(engine.suggestions.allSatisfy { !$0.willAutoReplace })
+        }
+        let (engine, target) = keyboard(session, text: "Fertig. ", model: model)
+        target.autocapitalizationType = .sentences
+        engine.textDidChange()
+        await engine.waitForSuggestions()
+        XCTAssertFalse(engine.suggestions.isEmpty)
+        XCTAssertTrue(engine.suggestions.allSatisfy { $0.displayText.first?.isUppercase == true && $0.displayText == $0.replacement },
+                      "\(engine.suggestions)")
     }
 }

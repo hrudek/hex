@@ -25,13 +25,14 @@ struct KeyboardLearnedWordsView: View {
         state.kept = ["typr": KeyboardDiagnosticsFixture.now, "swift": KeyboardDiagnosticsFixture.now]
         state.rejected = [.init(typed: "teh", replacement: "the")]
         state.counts = ["hello": .init(count: 12, lastUpdated: KeyboardDiagnosticsFixture.now)]
+        for _ in 0..<3 { state.bigrams?.record("world", after: "hello") }
         return state
     }
 
     var body: some View {
         List {
             Section {
-                Text("Typr also stores which word followed which: word pairs only, no sentences or app/host information. Deleting a word removes all pairs containing it. Swipe to delete; Reset learning clears all pairs.")
+                Text("Typr stores kept words, word counts, rejected corrections and which word followed which. Word pairs only: no sentences, apps or websites, and no typed-text history or per-word dates. Deleting a word here removes every pair containing it; Reset learning in Typing diagnostics clears all pairs. Swipe to delete an entry.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.red) }
             }

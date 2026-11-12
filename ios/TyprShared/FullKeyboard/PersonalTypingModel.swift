@@ -115,7 +115,7 @@ final class PersonalTypingModel {
 
         func validated() -> State? {
             guard (1...3).contains(schemaVersion), layouts.count <= 4,
-                  (schemaVersion < 3 || bigrams != nil), bigrams?.isValid != false,
+                  (schemaVersion < 3 || bigrams != nil),
                   Set(kept.keys).union(counts.keys).count <= 2000, rejected.count <= 512,
                   Set(rejected).count == rejected.count else { return nil }
             for (id, layout) in layouts {
@@ -136,7 +136,9 @@ final class PersonalTypingModel {
                   rejected.allSatisfy({ Self.validRejectedWord($0.typed) && Self.validRejectedWord($0.replacement) }) else { return nil }
             var migrated = self
             migrated.schemaVersion = 3
-            if migrated.bigrams == nil { migrated.bigrams = .init() }
+            // Schema 1/2 start empty (no invented observations). An out-of-bounds pair section
+            // drops only the pairs: keeps, counts, rejections and touch statistics survive.
+            if migrated.bigrams?.isValid != true { migrated.bigrams = .init() }
             return migrated
         }
 
@@ -196,7 +198,7 @@ final class PersonalTypingModel {
             guard limit > 0 else { return false }
             // Frequency associations yield to explicit protections under the whole-file ceiling.
             if let count = bigrams?.pairCount, count > 0 {
-                for _ in 0..<min(count, limit) { bigrams?.dropRarest() }
+                for _ in 0..<min(count, limit) { bigrams?.dropWeakest() }
                 return true
             }
             enum Entry { case kept(String), counted(String) }
@@ -421,8 +423,9 @@ final class PersonalTypingModel {
         state.bigrams?.record(word, after: previous)
     }
 
-    func forgetKeep(_ word: String, purgingPairs: Bool = true) {
-        if purgingPairs { state.bigrams?.purge(word) }
+    /// Immediate keep revert only: the word's independently learned pairs stay.
+    /// Explicit deletion in Manage learned words purges pairs in the store instead.
+    func forgetKeep(_ word: String) {
         state.kept.removeValue(forKey: PersonalLexiconSnapshot.normalize(word))
         cachedLexicon = nil
     }
@@ -432,6 +435,7 @@ final class PersonalTypingModel {
         cachedLexicon = nil
     }
 
+    /// Explicit count deletion also purges every pair naming the word.
     func forgetCount(_ word: String) {
         state.bigrams?.purge(word)
         state.counts.removeValue(forKey: PersonalLexiconSnapshot.normalize(word))
