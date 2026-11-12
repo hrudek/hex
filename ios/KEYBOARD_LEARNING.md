@@ -34,9 +34,11 @@ The switch is `TyprSettings.personalLearning`, App Group defaults key
 `keyboard.personalLearning`, not a layout or hit-target switch.
 
 - **On:** trusted events can update touch aggregates and word counts; frozen
-  personal calibration and bounded word bonuses can influence spatial scores.
-- **Off:** no new touch labels or word counts, no personal calibration/count priors
-  or personal-only candidate scan. Previously stored aggregates are retained,
+  personal calibration and bounded word bonuses can influence spatial scores, and
+  [personal completion ranking](#personal-completion-ranking) can reorder completions.
+- **Off:** no new touch labels or word counts, no personal calibration/count priors,
+  personal-only candidate scan or personal completion ranking (completions keep
+  exactly today's system/corpus order). Previously stored aggregates are retained,
   not erased. Explicit keeps and rejected-correction protections still work and
   can be stored; diagnostics counting remains independent. Off does not mean
   “no keyboard writes.” A switch change ends pending feedback/undo association.
@@ -91,7 +93,13 @@ Before updating, the model requires a supported text-field letter layout and
 lowercase intended key, finite coordinates and valid pitch, and Euclidean
 normalized distance ≤1.0 from the intended key's **static** center. Captured
 layout/context association is enforced by the tracker/integration. Current
-letter keys are a–z; popup umlauts/ß have no fabricated centers.
+letter keys are a–z; popup umlauts/ß have no fabricated centers. Inference now shares
+a/o/u/s density and calibration with ä/ö/ü/ß, respectively; this creates no new
+stored key or touch-label source. Prefix traversal keeps no history or persistent
+cache. Corpus and noisy-prefix completions are flagged at retrieval (including an
+exhausted-tap suffix from the edit decoder), supply a word count on explicit pick
+and never supply touch labels, even for the observed prefix. Valid homographs keep
+their existing automatic protection; deterministic `fuer → für` rules remain.
 
 ## What is stored and bounded
 
@@ -175,6 +183,71 @@ not measured extension RSS. Stored byte ceilings and collection caps are unchang
 The word bonus is
 `min(1.0, .25 × log2(1 + count))` log units. These bounds limit influence; they
 are not evidence of calibration quality or improved typing.
+
+## Personal completion ranking
+
+Issue #101. With **Learn from my typing** on, prefix completions in the strip use the
+same local personal snapshot as the spatial decoder:
+
+- **Candidates kept:** Typr corpus prefix completions and `UITextChecker.completions`
+  stay in the baseline list (corpus first, system list sorted by length then
+  alphabetically, at most 64 considered for personal promotion). The separate public
+  corpus context layer can then rerank the bounded union before choosing visible chips.
+- **Personal words move up:** a candidate that is kept, or counted at least twice (the
+  decoder's personal-word threshold), is placed ahead of the other completions. Order:
+  higher count, then kept, then the original position; equal weights keep the system/
+  corpus order. Personal ranking alone does not reorder unweighted candidates.
+  Context gain may subsequently reorder both weighted and unweighted completions.
+- **Missing personal words join:** kept or twice-counted words that strictly extend the
+  typed prefix (2–31 letters, case- and NFC-insensitive; ä/ö/ü/ß are distinct letters)
+  may be added after equally weighted baseline words. The store is case-folded, so a
+  capital is restored only when the selected German dictionary (`tastatur → Tastatur`)
+  or English dictionary confirms it; otherwise the typed prefix's case applies.
+- **Unchanged:** text replacements, the automatic fix, spatial alternatives and
+  Contacts/lexicon terms keep their slots and precedence; rejected pairs are not
+  offered; personal chips are completions, so they are never highlighted for, or
+  applied at, Space, punctuation or the Typr key. Automatic replacement is unaffected.
+- **Learning:** a pick teaches the existing completion signal only: +1 word count,
+  **no touch labels** (including the prefix taps). `Picked personal completion`
+  additionally counts picks of a chip placed by personal ranking. It is text-free and
+  does not prove the word would otherwise have been absent or that the order is better.
+
+Bounds: `PersonalCompletionIndex` is built once per personal snapshot (that is, after a
+word is counted, kept or forgotten, lazily on the next suggestion preparation) from the
+decoder's prepared, sorted scan list of ≤2,000 words. A prefix lookup is two binary
+searches plus at most eight pops, 17 O(log 2,000) range-maximum queries and nine
+pending intervals; no keystroke scans all 2,000 words. The index stores no extra text
+beyond the snapshot's words (payload below 192 KiB in tests; not RSS). The corpus and
+personal lookups run on the suggestion worker; the main actor only calls the checker,
+merges at most 72 baseline and 8 personal candidates and applies casing. Nothing new
+is persisted by personal completion ranking; it has no personal next-word prediction
+or context history. The separate corpus next-word/display ranker is independent of
+Learn from my typing: **off removes all personal completion/count/calibration influence,
+not public-corpus context gain**. Off with retained counts and off with empty counts
+produce identical context-ranked completions (keeps/rejected protections remain
+independently active). With no usable context, #115's exact old order and work budget
+remain. In the deferred worker finish, at most eight promotions, eight trie results
+and eight system completions join fewer than eight preceding alternatives (≤32 total);
+contact, automatic, explicit-revert and literal slots remain pinned. All source
+completion/personal-pick flags survive the display rerank, and no completion teaches taps.
+
+`KeyboardSuggestionPersonalRankingTests` covers index order/ties/oracle, case,
+German nouns, umlauts/ß/NFD, switch-off identity, contacts/rejections/automatic
+replacement, pick learning and worker/synchronous equality. Observed Linux harness
+(Swift 6.4.2 debug, synthetic user who often types every third public fixture word,
+three-letter prefixes, corpus-membership checker without system completions):
+those words reached the two alternative chips in **20→34 of 34** (DE), **23→25 of 25**
+(EN) and **46→96 of 96** (mixed, with invented names) cases, off→on. Other fixture
+words lost some slots: **41→37 of 56**, **49→47 of 51**, **76→73 of 102**. Automatic
+replacement differences, automatic completions and highlighted personal chips were
+**0**. With a full 2,000-word snapshot, the index build took **0.68 ms**, a lookup
+averaged **0.014 ms** (max 0.026 ms) and strip assembly **0.13 ms** on versus **0.07 ms**
+off, with a **90,904-byte** index payload. These are synthetic Linux numbers, not
+iPhone latency, real typing benefit or Apple checker behavior. Latency measurements
+remain EVAL diagnostics only; deterministic entry/result and byte bounds gate
+regressions rather than noisy shared-runner timing. The same applies to aim
+snapshot/trusted-label update timings; numeric/encoded byte limits remain asserted.
+See [evaluation regression gates](KEYBOARD_SPATIAL_DECODER.md#evaluation-regression-gates).
 
 ## Suggestion snapshot isolation
 
@@ -332,6 +405,7 @@ fixture words only and never reads or edits the saved personal collection.
 | Paths that declined to replace | Valid literal, protection, ambiguity, incomplete search, missing resource, word data still loading, failed validation, below margin; a later path may still replace. Not extra boundaries or a disjoint partition of unchanged words |
 | Observed undo share | Linked immediate undos / recorded automatic replacements in the statistics period, displayed with numerator/denominator; spatial undo combines same-length/edit paths |
 | Keep / alternative / completion picks | Explicit suggestion events, not inferred approval; selecting a repeated center literal without a change is not an alternative |
+| Picked personal completion | Completion picks whose chip was placed by personal completion ranking; a subset of completion picks, not a measure of ranking benefit |
 | Word decisions latency | Monotonic time inside the boundary decision/recording path; a reused cached decode need not run again |
 | Suggestions latency / suggestion searches | Uncached spatial calls returning a search result, triggered by suggestions; excludes evidence/resource refusals, word data still loading and detached word-data preparation; not all keystrokes, strip rendering, host callbacks or end-to-end input latency |
 | Learning events | Words counted, keeps and rejections during the statistics period; not unique retained words/pairs |

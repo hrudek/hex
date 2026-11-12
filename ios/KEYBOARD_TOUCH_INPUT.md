@@ -35,8 +35,12 @@ do not prevent tracking. Email/URL fields and missing document context do.
   clearing/replacing the current word. Space clears the tracker after the decision;
   the engine can retain that word in one bounded pending-feedback transaction.
   Earlier words are never restored from a touch history.
-- Popup accents and slides between keys fall back to spelling-only correction;
-  their positions are not ordinary tap labels. Numeric/symbol input also falls back.
+- Popup accents and slides between keys still invalidate evidence; their positions
+  are not ordinary tap labels. The decoder can now interpret an ordinary a/o/u/s tap
+  as a held ä/ö/ü/ß using that physical key's existing density and calibration, not a
+  new popup center. This changes inference, not capture, hit-testing or label trust.
+  Numeric/symbol input still falls back. Exact corpus prefixes need no touch evidence;
+  noisy-prefix completion uses only an intact, fully observed word.
 - External text changes (including dictation/paste), selection changes, field
   preparation, keyboard dismissal, memory warnings, canceled gestures and layout
   changes discard current and pending evidence. Held taps become unusable too,

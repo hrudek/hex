@@ -166,33 +166,6 @@ nonisolated final class SpatialWordRanking {
         }
     }
 
-    /// Prepared once per physical key, not once per tap/key pair. All covariance
-    /// inverses and normalizers are immutable throughout the search. No extra score
-    /// approximation: the independent frozen-score DP checks this representation too.
-    nonisolated private struct FrozenKey {
-        let frame: CGRect
-        let pitchX: Double, pitchY: Double
-        let offsetX: Double, offsetY: Double
-        let inverseXX: Double, inverseXY: Double, inverseYY: Double, normalizer: Double
-
-        init(frame: CGRect, gap: CGFloat, rowGap: CGFloat, key: SpatialTouchCalibration.Key) {
-            self.frame = frame
-            pitchX = Double(frame.width + gap); pitchY = Double(frame.height + rowGap)
-            offsetX = key.offsetX; offsetY = key.offsetY
-            let xx = key.sigmaX * key.sigmaX, yy = key.sigmaY * key.sigmaY, xy = key.covarianceXY
-            let determinant = xx * yy - xy * xy
-            inverseXX = yy / determinant; inverseXY = -xy / determinant; inverseYY = xx / determinant
-            normalizer = -log(2 * Double.pi) - 0.5 * log(determinant)
-        }
-
-        func score(_ point: CGPoint) -> Double {
-            let dx = Double(point.x - frame.midX) / pitchX - offsetX
-            let dy = Double(point.y - frame.midY) / pitchY - offsetY
-            guard dx * dx + dy * dy <= 1.6 * 1.6 else { return -.infinity }
-            return -0.5 * max(0, inverseXX * dx * dx + 2 * inverseXY * dx * dy + inverseYY * dy * dy) + normalizer
-        }
-    }
-
     func decode(_ word: KeyboardTouchWord, languages: Set<Language>,
                 budget: Int = SpatialWordDecoder.searchBudget,
                 calibration: SpatialTouchCalibration? = nil,
@@ -219,73 +192,15 @@ nonisolated final class SpatialWordRanking {
             guard let source = lexicon(language) else { return .unavailable(.resource) }
             sources.append((language, source))
         }
-        let alphabet = SpatialWordLexicon.alphabet
-        var frames: [Int: CGRect] = [:]
-        for (index, letter) in alphabet.enumerated() {
-            if let key = word.layout.key(.character(String(letter))) { frames[index] = key.frame }
+        guard let emissions = KeyboardLetterMap.emissions(for: word, calibration: calibration,
+                                                          prepared: !usesLegacySearch) else {
+            return .unavailable(.evidence)
         }
-        var prepared = [FrozenKey?](repeating: nil, count: alphabet.count)
-        if !usesLegacySearch {
-            for (index, frame) in frames {
-                let key = calibration?.keys[alphabet[index]] ?? SpatialTouchCalibration.Key(
-                    offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma, sigmaY: SpatialTouchCalibration.staticSigma)
-                let frozen = FrozenKey(frame: frame, gap: word.layout.metrics.gap, rowGap: word.layout.metrics.rowGap, key: key)
-                guard frame.width > 0, frame.height > 0, frozen.pitchX.isFinite, frozen.pitchY.isFinite,
-                      frozen.pitchX > 0, frozen.pitchY > 0 else { return .unavailable(.evidence) }
-                prepared[index] = frozen
-            }
-        }
-        var likelihoods: [[Double]] = []
-        var bestScores: [Double] = []
-        var literalSpatial = 0.0
-        for sample in word.samples {
-            guard sample.text.count == 1, sample.text.lowercased().count == 1,
-                  sample.key == word.layout.key(sample.key.kind),
-                  sample.key.character?.lowercased() == sample.text.lowercased(),
-                  sample.point.x.isFinite, sample.point.y.isFinite,
-                  let letter = sample.text.lowercased().first,
-                  let label = alphabet.firstIndex(of: letter), frames[label] != nil else {
-                return .unavailable(.evidence)
-            }
-            var scores = [Double](repeating: -.infinity, count: alphabet.count)
-            for index in alphabet.indices {
-                if !usesLegacySearch {
-                    scores[index] = prepared[index]?.score(sample.point) ?? -.infinity
-                    continue
-                }
-                guard let frame = frames[index] else { continue }
-                let width = Double(frame.width + word.layout.metrics.gap)
-                let height = Double(frame.height + word.layout.metrics.rowGap)
-                guard frame.width > 0, frame.height > 0, width.isFinite, height.isFinite,
-                      width > 0, height > 0 else { return .unavailable(.evidence) }
-                let key = calibration?.keys[alphabet[index]] ?? SpatialTouchCalibration.Key(
-                    offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma,
-                    sigmaY: SpatialTouchCalibration.staticSigma)
-                let x = Double(sample.point.x - frame.midX) / width
-                let y = Double(sample.point.y - frame.midY) / height
-                // The entire density is frozen before search, preserving max-path bounds.
-                let dx = x - key.offsetX, dy = y - key.offsetY
-                if dx * dx + dy * dy <= 1.6 * 1.6 {
-                    scores[index] = key.logDensity(x: x, y: y)
-                }
-            }
-            guard scores[label].isFinite, let best = scores.max(), best.isFinite else {
-                return .unavailable(.evidence)
-            }
-            // Literal is ungated by the relative six-log-unit candidate cutoff, and has no edits.
-            literalSpatial += scores[label]
-            bestScores.append(best)
-            for index in scores.indices where scores[index] < best - 6 { scores[index] = -.infinity }
-            likelihoods.append(scores)
-        }
-        let rankedLabels: [[Int]] = !usesLegacySearch ? likelihoods.map { scores in
-            scores.indices.filter { scores[$0].isFinite }.sorted {
-                scores[$0] == scores[$1] ? $0 < $1 : scores[$0] > scores[$1]
-            }
-        } : []
-        let finiteLabelMasks = rankedLabels.map { labels in
-            labels.reduce(UInt32(0)) { $0 | (UInt32(1) << $1) }
-        }
+        let likelihoods = emissions.likelihoods
+        let bestScores = emissions.best
+        let literalSpatial = emissions.literal
+        let rankedLabels = emissions.rankedLabels
+        let finiteLabelMasks = emissions.finiteLabelMasks
         let floorPrior = sources.map { log(1 / $0.1.total) }.max() ?? 0
         let literalInLexicon = sources.contains { $0.1.logPrior(for: literal) != nil }
         let literalPrior = sources.map { _, source in

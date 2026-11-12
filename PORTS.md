@@ -92,6 +92,33 @@ Implemented regression suites include `SpatialWordDecoderTests`,
 `TypingModelTypesTests`, `KeyboardDiagnosticsPresentationTests` and offline
 `ios/tools/keyboard_words/test_build.py`. These listings do not claim an iOS pass.
 
+## Prefix completions and held-letter keys (iikb, P2)
+
+Owner-approved translation from [AVGVSTVS96/iikb](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765)
+at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, **MIT, © 2026 Bassim Shahidy**.
+The checkout was read only, never built or run. This narrowly supersedes the
+historical decoder-completion exclusion above; other adoptions keep their pins.
+
+| Source paths at this pin | Translated idea | Destination files |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Lexicon.swift` (`mostFrequent`, lines 226–244) | Best-first prefix traversal; rewritten for TSW1 max-descendant counts, equal DE/EN source weights, NFC/deduplication, 512-pop/2,048-state/8-result caps and display-only noisy-prefix states | `ios/TyprShared/FullKeyboard/SpatialPrefixSearch.swift`, `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift`, `ios/TyprShared/FullKeyboard/AutocorrectEngine.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LetterKeys.swift` | Physical holders for corpus letters; ä/a, ö/o, ü/u, ß/s share key density/calibration, never popup positions | `ios/TyprShared/FullKeyboard/KeyboardLetterMap.swift`, `ios/TyprShared/FullKeyboard/SpatialWordDecoder.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift` (`completions(for:)`, `frequent`) and `Corrector.swift` (memory completions as candidates) | Personal completions: words counted more than once or kept, by count then spelling. Typr rewrites them as a prepared binary-search/range-maximum index over its existing ≤2,000-word scan list and a stable promotion of system/corpus completions that keeps today's order when learning is off (#101); no bigram/next-word memory | `ios/TyprShared/FullKeyboard/PersonalCompletionIndex.swift`, `ios/TyprShared/FullKeyboard/TypingModelTypes.swift`, `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `ios/TyprShared/FullKeyboard/AutocorrectEngine.swift` |
+
+`ios/TyprTests/SpatialPrefixSearchTests.swift` and `KeyboardSuggestionPersonalRankingTests.swift`
+add Typr-authored synthetic tests and evaluation; `SpatialWordDecoderTests.swift` updates
+the old no-holder expectation. After #114, the physical-holder emissions also carry its
+frozen full-covariance scorer, so correction and prefix retrieval share one density.
+No source file, fixture corpus, resource or binary format was copied wholesale.
+No new data, dependency or switch. Existing separately licensed CC BY-SA word
+files, 5 MB/50k bounds, automatic validation/protections, digraph rules, Full
+Access/persistence and label-trust contracts remain. Inferred suffix extensions
+are manual completions, not automatic Space edits. Excluded: swipe typing, emoji,
+themes, layouts, clipboard, network, neural weights/context prediction, dynamic
+hit targets, raw tap storage, dictation changes and upstream automatic policy.
+The existing iikb MIT notice was checked against this pin's LICENSE and is reused,
+not duplicated. See the keyboard documents for bounds and proof limits.
+
 ## Aggregate touch aim on multiple timescales (iikb, P7)
 
 Owner-approved scoped translation at **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**,
@@ -122,7 +149,15 @@ The read-only reference was inspected, never built or executed.
 
 | Source path at this pin | Translated algorithm | Destination files |
 | --- | --- | --- |
-| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (`suggestionsChanged`, `suggestionJob`, `finish`); `Packages/KeyboardModules/Sources/FullKeyboard/FullKeyboardViewController.swift` (`renderSuggestions`, `finish`) | Immutable snapshot → serial job → revision-checked finish; exact-compatible decode-cache adoption for the boundary; one running job plus replaceable latest request. Rewritten with checked Sendable values, a private actor-owned ranking core and a separate main-actor checker step, not upstream's unchecked-Sendable engine copy; Typr-authored F2 regressions gate deterministic work/bytes and blocked-worker independence, retaining timing as EVAL diagnostics only | `ios/TyprShared/FullKeyboard/KeyboardSuggestionWorker.swift`, `SpatialWordRanking.swift`, `SpatialWordDecoder.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`, `FullKeyboardView.swift`, `KeyboardStripView.swift` (all seven beside the first file), `ios/TyprKeyboard/KeyboardViewController.swift`; regression/evaluation tests in `ios/TyprTests/KeyboardSuggestionWorkerTests.swift`, `KeyboardSuggestionEvaluationTests.swift` |
+
+F2 keeps this same pin/scope and existing MIT notice (© 2026 Bassim Shahidy):
+`AutocorrectEngine.swift` now preserves the automatic highlight for explicit
+prefix-extending `.autoRule` text replacements, with a Typr-authored regression in
+`ios/TyprTests/SpatialPrefixSearchTests.swift`. This is a local policy/UI fix, not
+another upstream algorithm/test adoption. No new source, data or dependency is
+imported; all exclusions below remain, including swipe typing, emoji, themes,
+layouts, clipboard, network, neural weights and dictation changes.
 
 The P1 review follow-up keeps this same pin/scope: current-token republication after
 evidence/learning/resource invalidation, state-preserving suggestion resume, completed
@@ -153,13 +188,14 @@ retain their own pins and exclusions.
 
 | Source paths at this pin | Translated ideas | Destination files | Exclusions / license |
 | --- | --- | --- | --- |
-| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LanguageModel.swift` (discount/backoff), `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (prediction pool / contextual completion scoring) | Corpus-only absolute-discount backoff, bounded merged next-word suggestions and additive display-candidate scoring; rewritten for Typr TBG1 sidecars and D3b bilingual evidence, not copied files | `ios/TyprShared/FullKeyboard/KeyboardContextModel.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`; `ios/TyprTests/KeyboardContextModelTests.swift`, `KeyboardContextEvaluationTests.swift` | MIT, © 2026 Bassim Shahidy; no personal context counts, per-app histories, trigrams, neural weights/training, automatic-best policy, dynamic targets, swipe, emoji, themes, layouts, clipboard, network or dictation changes |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/LanguageModel.swift` (discount/backoff), `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (prediction pool / contextual completion scoring) | Corpus-only absolute-discount backoff, bounded merged next-word suggestions and additive display-candidate scoring, including the #115 system/trie/personal completion union in the deferred worker finish; rewritten for Typr TBG1 sidecars and D3b bilingual evidence, not copied files | `ios/TyprShared/FullKeyboard/KeyboardContextModel.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`; `ios/TyprTests/KeyboardContextModelTests.swift`, `KeyboardContextEvaluationTests.swift`, `KeyboardContextCompletionTests.swift` | MIT, © 2026 Bassim Shahidy; no personal context counts, per-app histories, trigrams, neural weights/training, automatic-best policy, dynamic targets, swipe, emoji, themes, layouts, clipboard, network or dictation changes |
 | Common Voice sentence collectors at `cd9dbfeeed7f2c377d6e9792f4d7a583c0ad3538`; Tatoeba DE/EN detailed exports 7 November 2026 (hash-pinned, named owners only) | Independently prepared training-only sparse bigram statistics and observed display spellings, fixed N=8,000/K=3/min=10; Typr's explicit offline deterministic compiler, input hashes and test fixture | `ios/tools/keyboard_context/`, `ios/TyprShared/FullKeyboard/WordData/keyboard-{de,en}.tbg`, `ATTRIBUTION.md`, `tatoeba-contributors.tsv`, reference/test JSON | CC0 1.0 + CC BY 2.0 FR, **not MIT**; no FrequencyWords counts/casing, no iikb resources or executable dependency. Full attribution/source-ID mapping and licenses linked from WordData and THIRD_PARTY_NOTICES.md |
 
 Only a ≤256-character/2,048-byte suffix is read ephemerally; no field context,
 posterior, pair counts or history is serialized. Automatic decisions/margins and
 personal storage schema remain unchanged. New corpus suggestions follow selected
-Autocorrect languages; no new switch. Existing contact/system name suggestions
+Autocorrect languages; no new switch. Corpus context is independent of Learn from
+my typing; off supplies no personal completion/count/calibration influence. Existing contact/system name suggestions
 remain independent of the corpus stock-name suppression list. See
 [context behavior and proof limits](ios/KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions).
 The existing full iikb MIT notice applies without duplication.

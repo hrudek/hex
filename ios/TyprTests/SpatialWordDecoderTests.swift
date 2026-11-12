@@ -90,8 +90,8 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertNotNil(source.logPrior(for: "straße"))
         XCTAssertNotNil(source.logPrior(for: "grüße"))
         XCTAssertNil(source.logPrior(for: "strasse"))
-        // No drawn ü/ß centres: a positional substitution cannot invent these letters.
-        XCTAssertFalse(decoder().decode(evidence("strase", aimedAt: "strase"), languages: [.german])?.candidates.contains { $0.word == "straße" } ?? false)
+        // ß shares s's physical holder density; no popup center is invented.
+        XCTAssertTrue(decoder().decode(evidence("strase", aimedAt: "strase"), languages: [.german])?.suggestions.contains { $0.word == "straße" } ?? false)
     }
 
     func testDeterminismBudgetAndLengthBounds() {

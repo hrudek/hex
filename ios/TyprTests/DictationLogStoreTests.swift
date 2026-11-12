@@ -317,6 +317,9 @@ final class DictationLogStoreTests: XCTestCase {
 
     func testStorageProblemCanBeRecoveredWithoutAnOldCompletionReplacingIt() async throws {
         let env = LogTestEnvironment()
+        // The store's initial load creates this directory on the storage queue.
+        await env.storage.flush()
+        try FileManager.default.removeItem(at: env.directory)
         try Data("parent is a file".utf8).write(to: env.directory)
         env.begin().finish(text: "still delivered", beforeSpelling: "still delivered")
         await env.storage.flush()
