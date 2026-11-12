@@ -15,6 +15,15 @@ nonisolated struct KeyboardSuggestionOwnership: Equatable, Sendable {
     let feedbackEpoch: Int
     let resources: Int
     let layout: KeyboardLayout
+
+    /// Same text, field, configuration, learning, resources and layout; revision aside.
+    /// A published strip whose content no longer matches is stale and must be republished.
+    func hasSameContent(as other: Self) -> Bool {
+        engine == other.engine && context == other.context && token == other.token
+            && field == other.field && permitsCorrection == other.permitsCorrection
+            && configuration == other.configuration && learning == other.learning
+            && feedbackEpoch == other.feedbackEpoch && resources == other.resources && layout == other.layout
+    }
 }
 
 /// Retain what the user actually touched, not whichever ranking occupies that slot at key-up.
@@ -45,6 +54,8 @@ final class KeyboardSuggestionWorker {
         let calibration: SpatialTouchCalibration?
         let personal: PersonalLexiconSnapshot
         let lexicons: [SpatialWordDecoder.Language: SpatialWordLexicon]
+        /// A compatible decode the main actor already holds; the identical search is not re-run.
+        var ready: SpatialWordDecoder.Outcome?
     }
 
     nonisolated struct Result: Sendable {
@@ -105,7 +116,12 @@ final class KeyboardSuggestionWorker {
                 self.latest = nil
                 let epoch = self.epoch
                 guard let request = pending.prepare() else { continue }
-                let result = await self.rank(request)
+                let result: Result
+                if let ready = request.ready {
+                    result = Result(request: request, outcome: ready, seconds: 0)
+                } else {
+                    result = await self.rank(request)
+                }
                 if epoch == self.epoch { pending.finish(result) }
                 // Let newer key events replace the next request before doing any more work.
                 await Task.yield()

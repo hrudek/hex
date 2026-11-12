@@ -285,7 +285,167 @@ final class KeyboardSuggestionWorkerTests: XCTestCase {
         XCTAssertNil(engine.suggestionOwnership.context, "A single grapheme must not defeat the UTF-8 byte cap")
         XCTAssertTrue(engine.suggestions.isEmpty)
         XCTAssertEqual(worker.queuedCount, 0)
+        // Emoji/ZWJ-heavy text beyond 2,048 bytes keeps a byte-bounded suffix: the word still gets chips.
+        for _ in 0..<target.text.count { target.deleteBackward() }
+        target.insertText(String(repeating: "👨‍👩‍👧‍👦", count: 200) + " teh")
+        engine.textDidChange()
+        let context = try XCTUnwrap(engine.suggestionOwnership.context)
+        XCTAssertLessThanOrEqual(context.utf8.count, FullKeyboardEngine.suggestionContextUTF8Limit)
+        XCTAssertLessThanOrEqual(context.count, FullKeyboardEngine.suggestionContextLimit)
+        XCTAssertTrue(target.text.hasSuffix(context))
+        XCTAssertEqual(engine.suggestionOwnership.token, "teh")
+        XCTAssertEqual(engine.suggestions.first?.kind, .keepLiteral)
         engine.cancelSuggestions()
+    }
+
+    // MARK: - Review R-P1 regressions
+
+    /// Accepting the final "The" chip must work: proves the strip holds live, current chips.
+    private func assertLiveRanking(_ engine: FullKeyboardEngine, _ target: FixtureTextTarget,
+                                   _ message: String, file: StaticString = #filePath, line: UInt = #line) async throws {
+        XCTAssertFalse(engine.suggestions.isEmpty, "Strip blanked: \(message)", file: file, line: line)
+        XCTAssertTrue(engine.suggestions.allSatisfy { $0.ownership == engine.suggestionOwnership },
+                      "Chips not owned by the current revision: \(message)", file: file, line: line)
+        await engine.waitForSuggestions()
+        let choice = try XCTUnwrap(engine.suggestions.first { $0.replacement == "The" }, message, file: file, line: line)
+        engine.acceptSuggestion(choice)
+        XCTAssertEqual(target.text, "The ", message, file: file, line: line)
+    }
+
+    func testEvidenceDiscardRepublishesLiveChipsInsteadOfBlankingTheStrip() async throws {
+        for scenario in ["123 key", "#+= key", "width change", "selection change", "key slide", "trackpad", "cancelled touch"] {
+            let (engine, target, _) = keyboard()
+            try type("teh", engine)
+            await engine.waitForSuggestions()
+            switch scenario {
+            case "123 key", "#+= key":
+                let layer = try XCTUnwrap(engine.layout.key(.layerSwitch(.numbers))).frame
+                engine.touchBegan(id: 5, at: CGPoint(x: layer.midX, y: layer.midY))
+                engine.touchEnded(id: 5, at: CGPoint(x: layer.midX, y: layer.midY))
+                if scenario == "#+= key" {
+                    let symbols = try XCTUnwrap(engine.layout.key(.layerSwitch(.symbols))).frame
+                    engine.touchBegan(id: 6, at: CGPoint(x: symbols.midX, y: symbols.midY))
+                    engine.touchEnded(id: 6, at: CGPoint(x: symbols.midX, y: symbols.midY))
+                }
+                XCTAssertNotEqual(engine.layerState.layer, .letters)
+            case "width change":
+                engine.width = 430
+            case "selection change":
+                engine.discardTouchEvidence() // KeyboardViewController.selectionDidChange
+            case "key slide":
+                let q = try XCTUnwrap(engine.layout.key(.character("q"))).frame
+                let w = try XCTUnwrap(engine.layout.key(.character("w"))).frame
+                engine.touchBegan(id: 7, at: CGPoint(x: q.midX, y: q.midY))
+                engine.touchMoved(id: 7, to: CGPoint(x: w.midX, y: w.midY))
+                XCTAssertFalse(engine.suggestions.isEmpty, "Strip blanked during key slide")
+                engine.touchCancelled(id: 7)
+            case "trackpad":
+                let space = try XCTUnwrap(engine.layout.key(.space)).frame
+                engine.touchBegan(id: 8, at: CGPoint(x: space.midX, y: space.midY))
+                engine.touchMoved(id: 8, to: CGPoint(x: space.midX + 12, y: space.midY))
+                XCTAssertTrue(engine.isTrackpadActive)
+                XCTAssertFalse(engine.suggestions.isEmpty, "Strip blanked on trackpad activation")
+                engine.touchCancelled(id: 8)
+            default:
+                let e = try XCTUnwrap(engine.layout.key(.character("e"))).frame
+                engine.touchBegan(id: 9, at: CGPoint(x: e.midX, y: e.midY))
+                engine.touchCancelled(id: 9)
+            }
+            XCTAssertEqual(target.text, "Teh", scenario)
+            try await assertLiveRanking(engine, target, scenario)
+        }
+    }
+
+    func testRefusedChipAfterLearningSyncRepublishesLiveChips() async throws {
+        for mutation in 0..<3 {
+            let name = "P1-refusal-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+            defer { defaults.removePersistentDomain(forName: name) }
+            let session = KeyboardLearningSession(defaults: defaults)
+            let store = KeyboardLearningStore(directory: nil, defaults: defaults)
+            let (engine, target, _) = keyboard(session: session)
+            try type("teh", engine)
+            await engine.waitForSuggestions()
+            let chip = try XCTUnwrap(engine.suggestions.first { $0.replacement == "The" })
+            if mutation == 0 { defaults.set(false, forKey: "keyboard.personalLearning") }
+            else if mutation == 1 { XCTAssertTrue(store.requestLearningReset()) }
+            else { XCTAssertTrue(store.requestDiagnosticsReset()) }
+            // acceptSuggestion's own sync consumes the change, so a settings poll would not see it.
+            engine.acceptSuggestion(chip)
+            XCTAssertEqual(target.text, "Teh", "Chip from the old learning state is refused")
+            try await assertLiveRanking(engine, target, "mutation \(mutation)")
+        }
+    }
+
+    func testResourceInstallationRepublishesThroughTheStalePoll() async throws {
+        let source = SpatialWordDecoder(bundle: Bundle.main)
+        let target = FixtureTextTarget()
+        let engine = FullKeyboardEngine(target: target,
+                                        autocorrect: AutocorrectEngine(checker: Checker(), spatialDecoder: source))
+        engine.width = 393
+        engine.configureForField()
+        try type("teh", engine)
+        await engine.waitForSuggestions()
+        let before = engine.suggestions
+        engine.refreshSuggestionsIfStale()
+        XCTAssertEqual(engine.suggestions, before, "A current strip is not republished by the poll")
+        source.prepareResources()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while source.isResourceLoading, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertFalse(source.isResourceLoading)
+        XCTAssertNotEqual(engine.suggestions.first?.ownership, engine.suggestionOwnership)
+        engine.refreshSuggestionsIfStale() // FullKeyboardView.syncSettings, 4 Hz poll
+        try await assertLiveRanking(engine, target, "after resource installation")
+    }
+
+    func testHostResumeKeepsLayerShiftAndUndoAndAKeyTouchResumes() async throws {
+        let (engine, target, _) = keyboard()
+        try type("teh", engine)
+        engine.typeSpaceFromTyprKey()
+        XCTAssertEqual(target.text, "The ")
+        let layer = try XCTUnwrap(engine.layout.key(.layerSwitch(.numbers))).frame
+        engine.touchBegan(id: 5, at: CGPoint(x: layer.midX, y: layer.midY))
+        engine.touchEnded(id: 5, at: CGPoint(x: layer.midX, y: layer.midY))
+        let shift = engine.shift
+        engine.suspendSuggestions() // NSExtensionHostWillResignActive
+        engine.resumeSuggestions()  // NSExtensionHostDidBecomeActive
+        XCTAssertTrue(engine.suggestionsAreActive)
+        XCTAssertEqual(engine.layerState.layer, .numbers, "Host activation must not reset the layer")
+        XCTAssertEqual(engine.shift, shift)
+        engine.deleteBackward()
+        XCTAssertEqual(target.text, "Teh", "Immediate autocorrect undo survives host activation")
+
+        // A missed activation notice: the first keyboard touch resumes suggestions.
+        engine.suspendSuggestions()
+        XCTAssertTrue(engine.suggestions.isEmpty)
+        let lettersKey = try XCTUnwrap(engine.layout.key(.layerSwitch(.letters))).frame
+        engine.touchBegan(id: 6, at: CGPoint(x: lettersKey.midX, y: lettersKey.midY))
+        engine.touchEnded(id: 6, at: CGPoint(x: lettersKey.midX, y: lettersKey.midY))
+        XCTAssertTrue(engine.suggestionsAreActive)
+        XCTAssertEqual(engine.suggestions.first?.replacement, "Teh")
+        try await assertLiveRanking(engine, target, "after touch resume")
+    }
+
+    func testUnchangedRefreshReusesFinishedRankingWithoutSearchOrFlicker() async throws {
+        let gate = Gate()
+        let worker = KeyboardSuggestionWorker(rank: { await gate.rank($0) })
+        let (engine, target, _) = keyboard(worker: worker)
+        try type("teh", engine)
+        await waitForJob(gate)
+        await gate.release()
+        await engine.waitForSuggestions()
+        let finished = engine.suggestions.map { "\($0.replacement)|\($0.kind)|\($0.isCompletion)" }
+        XCTAssertTrue(finished.contains { $0.hasPrefix("The|") })
+        var changes = 0
+        engine.onChange = { changes += 1 }
+        for _ in 0..<5 { engine.refreshSuggestions() } // warmup, lexicon-free remount, poll
+        XCTAssertEqual(engine.suggestions.map { "\($0.replacement)|\($0.kind)|\($0.isCompletion)" }, finished,
+                       "No flicker back to interim literal chips")
+        await engine.waitForSuggestions()
+        let searches = await gate.count()
+        XCTAssertEqual(searches, 1, "The identical search is not re-run")
+        XCTAssertEqual(changes, 5, "Only ownership re-stamping, no interim strip")
+        try await assertLiveRanking(engine, target, "reused ranking")
     }
 
     func testContextAndFieldRevalidationAndUnownedChoicesAreRejected() async throws {

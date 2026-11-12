@@ -181,7 +181,17 @@ final class AutocorrectEngine {
                 && String(token.dropFirst()) == token.dropFirst().lowercased()))
             && !Self.shorthandAllowlist.contains(token.lowercased())
         let evidence = eligible ? evidence : nil
-        return .init(ownership: ownership, evidence: evidence, languages: suggestionLanguages,
+        let languages = suggestionLanguages
+        // Warmup, remount or poll refreshes with unchanged taps reuse the held decode.
+        if let evidence, let cache = decodeCache, cache.evidence == evidence,
+           cache.languages == languages, cache.generation == learning.generation {
+            var request = KeyboardSuggestionWorker.Request(
+                ownership: ownership, evidence: evidence, languages: languages, calibration: nil,
+                personal: .empty, lexicons: [:])
+            request.ready = cache.outcome
+            return request
+        }
+        return .init(ownership: ownership, evidence: evidence, languages: languages,
                      calibration: evidence.flatMap { learning.calibration(for: $0.layout) },
                      personal: evidence == nil ? .empty : learning.personalPriors,
                      lexicons: spatialDecoder?.resourceSnapshot ?? [:])
@@ -193,7 +203,8 @@ final class AutocorrectEngine {
         if let evidence = result.request.evidence, let outcome = result.outcome {
             decodeCache = DecodeCache(evidence: evidence, languages: result.request.languages,
                                       generation: learning.generation, outcome: outcome)
-            if case .result = outcome, spatialDecoder?.isResourceLoading == false {
+            // A reused decode was already counted when it was searched.
+            if result.request.ready == nil, case .result = outcome, spatialDecoder?.isResourceLoading == false {
                 learning.increment(.suggestionDecodes)
                 learning.recordLatency(result.seconds, kind: .suggestion)
             }

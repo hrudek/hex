@@ -61,14 +61,17 @@ final class KeyboardViewController: UIInputViewController {
         viewModel.dismissFeedback()
     }
 
+    /// Control Center, Notification Center, Siri or an alert: stop late suggestion work only.
+    /// Current-word taps, undo and rejected pairs stay; host edits still arrive as textDidChange.
     @objc private func hostWillResignActive() {
         fullKeyboard?.suspendSuggestions()
-        fullKeyboard?.discardTouchEvidence()
     }
 
+    /// Not `prepareForField()`: returning to the host must not reset layer, shift or undo.
+    /// A keyboard touch also resumes suggestions if this notice is missed.
     @objc private func hostDidBecomeActive() {
         guard viewIfLoaded?.window != nil else { return }
-        fullKeyboard?.prepareForField()
+        fullKeyboard?.resumeSuggestions()
     }
 
     override func didReceiveMemoryWarning() {

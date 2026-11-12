@@ -179,13 +179,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     func syncSettings() {
         // Learning switch and app reset epochs; never per keystroke.
-        let generation = engine.autocorrect.learning.generation
-        let feedbackEpoch = engine.autocorrect.learning.feedbackEpoch
         engine.autocorrect.syncLearning()
-        if generation != engine.autocorrect.learning.generation
-            || feedbackEpoch != engine.autocorrect.learning.feedbackEpoch {
-            engine.refreshSuggestions()
-        }
         applySuggestionBarSetting()
         let wantsAutocorrect = FullKeyboardSettings().autocorrect
         if engine.autocorrect.isEnabled != wantsAutocorrect {
@@ -210,6 +204,9 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             }
             engine.refreshSuggestions()
         }
+        // Learning loads/resets (also when consumed by a chip tap), installed spatial resources
+        // or an unreported host context change: republish chips that could no longer be accepted.
+        engine.refreshSuggestionsIfStale()
     }
 
     /// The field or its contents changed outside these keys.
@@ -251,6 +248,12 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// A late worker or warmup completion must not read a hidden host's document proxy.
     func suspendSuggestions() {
         engine.suspendSuggestions()
+    }
+
+    /// Host became active again: only re-enable and refresh the strip. Layer, shift, undo,
+    /// touches and the style menu are kept (unlike `prepareForField`).
+    func resumeSuggestions() {
+        engine.resumeSuggestions()
     }
 
     /// Selection changes and keyboard dismissal must not retain current-word taps.

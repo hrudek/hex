@@ -437,7 +437,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertFalse(ac.learning.model.lexicon.isKept("helo"))
     }
 
-    func testPickingTheRepeatedLiteralIsNotAnAlternativePick() throws {
+    func testPickingTheRepeatedLiteralIsNotAnAlternativePick() async throws {
         let ac = editSuggestionEngine(valid: ["hello", "helo"])
         let target = FixtureTextTarget(text: "helo")
         target.autocapitalizationType = UITextAutocapitalizationType.none
@@ -446,8 +446,12 @@ final class SpatialWordDecoderTests: XCTestCase {
         keyboard.configureForField()
         track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
         keyboard.refreshSuggestions()
+        await keyboard.waitForSuggestions()
+        // The finished strip offers "hello" too; the repeated literal is the primary chip.
+        XCTAssertTrue(keyboard.suggestions.contains { $0.replacement == "hello" }, "\(keyboard.suggestions)")
         let primary = try XCTUnwrap(keyboard.suggestions.dropFirst().first)
         XCTAssertEqual(primary.replacement, "helo")
+        XCTAssertEqual(primary.kind, .primary(autoReplace: false))
         keyboard.acceptSuggestion(primary)
         XCTAssertEqual(target.text, "helo ")
         XCTAssertEqual(ac.learning.diagnostics[.manualAlternativePick], 0)

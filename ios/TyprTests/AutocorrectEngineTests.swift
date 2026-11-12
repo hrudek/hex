@@ -198,11 +198,14 @@ final class AutocorrectEngineTests: XCTestCase {
         XCTAssertNil(AutocorrectEngine.singleEditKeyboardCost(from: "abcdef", to: "abxyef"), "two substitutions are rejected")
     }
 
-    func testTurningAutocorrectSettingOffKeepsSuggestionsWithoutAutoReplacing() {
+    func testTurningAutocorrectSettingOffKeepsSuggestionsWithoutAutoReplacing() async {
         engine.autocorrect.isEnabled = false
         typeWord("dont")
+        // The finished ranking, not the interim literal chips.
+        await engine.waitForSuggestions()
         XCTAssertFalse(engine.suggestions.isEmpty)
-        XCTAssertFalse(engine.suggestions[1].willAutoReplace)
+        XCTAssertTrue(engine.suggestions.contains { $0.replacement == "don't" }, "\(engine.suggestions)")
+        XCTAssertFalse(engine.suggestions.contains(where: \.willAutoReplace))
         tap(.space)
         XCTAssertEqual(target.text, "dont ")
     }

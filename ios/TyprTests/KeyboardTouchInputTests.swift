@@ -235,7 +235,7 @@ final class KeyboardTouchInputTests: XCTestCase {
         XCTAssertNil(input.evidence(beforeInput: "a"))
     }
 
-    func testEvidenceDoesNotChangeExistingSuggestionsOrReplacements() {
+    func testEvidenceDoesNotChangeExistingSuggestionsOrReplacements() async {
         for word in ["teh", "dont", "cat", "TyprKey", "API", "well", "fuer"] {
             let typedTarget = FixtureTextTarget()
             typedTarget.autocapitalizationType = UITextAutocapitalizationType.none
@@ -260,7 +260,13 @@ final class KeyboardTouchInputTests: XCTestCase {
             plainTarget.autocapitalizationType = UITextAutocapitalizationType.none
             let plain = makeEngine(plainTarget)
             XCTAssertNotNil(typed.autocorrect.touchInput.evidence(beforeInput: typedTarget.text))
-            XCTAssertEqual(typed.suggestions.map { $0.replacement }, plain.suggestions.map { $0.replacement }, word)
+            // Compare finished strips (ownership differs per engine; everything visible must not).
+            await typed.waitForSuggestions()
+            await plain.waitForSuggestions()
+            func visible(_ engine: FullKeyboardEngine) -> [String] {
+                engine.suggestions.map { "\($0.replacement)|\($0.kind)|\($0.isCompletion)" }
+            }
+            XCTAssertEqual(visible(typed), visible(plain), word)
             typed.typeSpaceFromTyprKey()
             plain.typeSpaceFromTyprKey()
             XCTAssertEqual(typedTarget.text, plainTarget.text, word)
