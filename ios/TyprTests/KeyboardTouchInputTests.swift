@@ -91,7 +91,7 @@ final class KeyboardTouchInputTests: XCTestCase {
         tap(.returnKey)
         XCTAssertNil(evidence)
         type("cat")
-        engine.acceptSuggestion(.init(displayText: "car", replacement: "car", kind: .secondary))
+        engine.acceptOwnedFixtureSuggestion(.init(displayText: "car", replacement: "car", kind: .secondary))
         XCTAssertEqual(target.text, "cat dog\ncar ")
         XCTAssertNil(evidence)
     }
@@ -235,7 +235,7 @@ final class KeyboardTouchInputTests: XCTestCase {
         XCTAssertNil(input.evidence(beforeInput: "a"))
     }
 
-    func testEvidenceDoesNotChangeExistingSuggestionsOrReplacements() {
+    func testEvidenceDoesNotChangeExistingSuggestionsOrReplacements() async {
         for word in ["teh", "dont", "cat", "TyprKey", "API", "well", "fuer"] {
             let typedTarget = FixtureTextTarget()
             typedTarget.autocapitalizationType = UITextAutocapitalizationType.none
@@ -260,7 +260,12 @@ final class KeyboardTouchInputTests: XCTestCase {
             plainTarget.autocapitalizationType = UITextAutocapitalizationType.none
             let plain = makeEngine(plainTarget)
             XCTAssertNotNil(typed.autocorrect.touchInput.evidence(beforeInput: typedTarget.text))
-            XCTAssertEqual(typed.suggestions, plain.suggestions, word)
+            // Compare finished strips (ownership differs per engine; everything visible must not).
+            await typed.waitForSuggestions()
+            await plain.waitForSuggestions()
+            XCTAssertEqual(typed.suggestions.map(\.replacement), plain.suggestions.map(\.replacement), word)
+            XCTAssertEqual(typed.suggestions.map(\.kind), plain.suggestions.map(\.kind), word)
+            XCTAssertEqual(typed.suggestions.map(\.isCompletion), plain.suggestions.map(\.isCompletion), word)
             typed.typeSpaceFromTyprKey()
             plain.typeSpaceFromTyprKey()
             XCTAssertEqual(typedTarget.text, plainTarget.text, word)

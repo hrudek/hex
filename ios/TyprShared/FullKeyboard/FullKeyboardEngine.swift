@@ -82,6 +82,54 @@ final class FullKeyboardEngine {
     private(set) var activeAccentMenu: AccentMenu?
     private var activeAccentTouchID: Int?
     private(set) var suggestions: [KeyboardSuggestion] = []
+    private let suggestionWorker: KeyboardSuggestionWorker
+    private let suggestionEngineID = UUID()
+    private var textRevision: UInt64 = 0
+    private(set) var suggestionsAreActive = true
+    /// What the strip currently shows: its ownership, the taps it was ranked from and whether
+    /// it is a finished ranking (not the interim literal chips).
+    private struct PublishedStrip {
+        let ownership: KeyboardSuggestionOwnership
+        let evidence: KeyboardTouchWord?
+        let final: Bool
+    }
+    private var published: PublishedStrip?
+    static let suggestionContextLimit = 256
+    static let suggestionContextUTF8Limit = 2_048
+    private static let suggestionTokenLimit = 64
+
+    /// Bounded RAM-only ownership, also checked at chip acceptance before any edit/learning.
+    var suggestionOwnership: KeyboardSuggestionOwnership {
+        let context = target.documentContextBeforeInput.flatMap(Self.boundedSuggestionContext)
+        let token = AutocorrectEngine.currentToken(in: context)
+        let route = KeyboardFieldRouting.route(for: target.keyboardType)
+        let prose: Bool
+        if case .keys(.text, _) = route { prose = true } else { prose = false }
+        return .init(engine: suggestionEngineID, revision: textRevision, context: context,
+                     token: token, field: field, permitsCorrection: prose && target.autocorrectionType != .no,
+                     configuration: autocorrect.suggestionConfiguration,
+                     learning: autocorrect.learning.generation, feedbackEpoch: autocorrect.learning.feedbackEpoch,
+                     resources: autocorrect.spatialDecoder?.resourceRevision ?? -1, layout: layout)
+    }
+
+    /// The longest whole-character suffix within 256 characters and 2,048 UTF-8 bytes, so
+    /// emoji/ZWJ-heavy text still yields the current word. Nil only if the last character alone
+    /// exceeds the byte cap (then it is no word token anyway).
+    static func boundedSuggestionContext(_ before: String) -> String? {
+        var start = before.endIndex
+        var characters = 0
+        var bytes = 0
+        while start > before.startIndex, characters < suggestionContextLimit {
+            let previous = before.index(before: start)
+            let size = before[previous..<start].utf8.count
+            guard bytes + size <= suggestionContextUTF8Limit else { break }
+            bytes += size
+            characters += 1
+            start = previous
+        }
+        guard start < before.endIndex || before.isEmpty else { return nil }
+        return String(before[start...])
+    }
 
     let target: KeyboardTextTarget
     let autocorrect: AutocorrectEngine
@@ -107,9 +155,11 @@ final class FullKeyboardEngine {
     /// Called when an accent cell or spacebar trackpad step ticks, for selection haptics.
     var onSelectionStep: (() -> Void)?
 
-    init(target: KeyboardTextTarget, autocorrect: AutocorrectEngine? = nil) {
+    init(target: KeyboardTextTarget, autocorrect: AutocorrectEngine? = nil,
+         suggestionWorker: KeyboardSuggestionWorker? = nil) {
         self.target = target
         self.autocorrect = autocorrect ?? AutocorrectEngine()
+        self.suggestionWorker = suggestionWorker ?? KeyboardSuggestionWorker()
         rebuildLayout()
     }
 
@@ -143,6 +193,7 @@ final class FullKeyboardEngine {
 
     /// Call when the keyboard appears or the field changes.
     func configureForField() {
+        suggestionsAreActive = true
         autocorrect.contextResources.prepare { [weak self] in self?.refreshSuggestions() }
         switch KeyboardFieldRouting.route(for: target.keyboardType) {
         case .keys(let kind, let initialLayer):
@@ -155,7 +206,7 @@ final class FullKeyboardEngine {
         shift.reset()
         lastSpaceAt = nil
         autocorrect.clearPendingUndo()
-        cancelAllTouches()
+        cancelAllTouches(republishing: false)
         rebuildLayout()
         refreshAutoCapitalization()
         refreshSuggestions()
@@ -163,7 +214,7 @@ final class FullKeyboardEngine {
 
     /// Call after the text or the cursor changed outside these keys.
     func textDidChange() {
-        discardTouchEvidence()
+        invalidateTouchEvidence()
         lastSpaceAt = nil
         autocorrect.clearPendingUndo()
         refreshAutoCapitalization()
@@ -171,8 +222,19 @@ final class FullKeyboardEngine {
     }
 
     /// Invalidates in-flight taps too: a late release must not recreate evidence after a cursor/field change.
+    /// Chips are owned by text revision and layout, so current-word chips (now without taps) are
+    /// republished rather than leaving the strip blank (layer switch, rebuild, key slide, cursor move).
     func discardTouchEvidence() {
-        autocorrect.discardEvidence()
+        invalidateTouchEvidence()
+        refreshSuggestions()
+    }
+
+    /// For callers that refresh right afterwards anyway. Applied manual choices clear the
+    /// word without resetting the fast aggregate aim just trained by independent feedback.
+    private func invalidateTouchEvidence(resetFastAim: Bool = true) {
+        textRevision &+= 1
+        suggestionWorker.cancel()
+        autocorrect.discardEvidence(resetFastAim: resetFastAim)
         for id in touchOrder {
             touches[id]?.hasUnambiguousPoint = false
         }
@@ -191,21 +253,95 @@ final class FullKeyboardEngine {
     }
 
     func refreshSuggestions() {
-        // Validate even with the strip hidden or autocorrection disabled.
-        _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
-        let next = showsStrip ? autocorrect.suggestions(
-            beforeInput: target.documentContextBeforeInput,
-            field: field,
-            autocorrectionType: target.autocorrectionType
-        ) : []
-        if next != suggestions {
-            suggestions = next
-            onChange?()
+        guard suggestionsAreActive else { return }
+        textRevision &+= 1
+        // No decoder, checker, personal snapshot construction or lexicon scan on this path.
+        let evidence = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
+        let ownership = suggestionOwnership
+        guard showsStrip, field == .text, ownership.permitsCorrection,
+              let token = ownership.token, token.count <= Self.suggestionTokenLimit, token.utf8.count <= 256 else {
+            suggestionWorker.cancel()
+            publishSuggestions([], ownership: ownership, evidence: evidence, final: true)
+            return
         }
+        if let published, published.final, published.evidence == evidence,
+           published.ownership.hasSameContent(as: ownership) {
+            // Same word, taps and configuration (warmup, poll, remount): keep the finished
+            // ranking without flicker, re-owned by this revision while the checker step reruns.
+            publishSuggestions(suggestions.map { var owned = $0; owned.ownership = ownership; return owned },
+                               ownership: ownership, evidence: evidence, final: true)
+        } else {
+            // Clear old alternatives immediately. The current literal is safe and remains pickable
+            // while ranking is delayed, including during rapid rollover or after undo.
+            publishSuggestions([
+                .init(displayText: "“\(token)”", replacement: token, kind: .keepLiteral, ownership: ownership),
+                .init(displayText: token, replacement: token, kind: .primary(autoReplace: false), ownership: ownership)
+            ], ownership: ownership, evidence: evidence, final: false)
+        }
+        suggestionWorker.submit(prepare: { [weak self] in
+            guard let self, self.textRevision == ownership.revision,
+                  self.suggestionsAreActive, self.suggestionOwnership == ownership else { return nil }
+            return self.autocorrect.suggestionRequest(ownership: ownership, evidence: evidence)
+        }, finish: { [weak self] result in
+            // Revision first: do not even read a torn-down document proxy after dismissal.
+            guard let self, self.textRevision == ownership.revision,
+                  result.request.ownership == ownership,
+                  self.suggestionOwnership == ownership, self.showsStrip else { return }
+            let next = self.autocorrect.finishSuggestions(result).map { suggestion in
+                var owned = suggestion
+                owned.ownership = ownership
+                return owned
+            }
+            self.publishSuggestions(next, ownership: ownership, evidence: evidence, final: true)
+        })
     }
+
+    private func publishSuggestions(_ next: [KeyboardSuggestion], ownership: KeyboardSuggestionOwnership?,
+                                    evidence: KeyboardTouchWord?, final: Bool) {
+        published = ownership.map { PublishedStrip(ownership: $0, evidence: evidence, final: final) }
+        guard next != suggestions else { return }
+        suggestions = next
+        onChange?()
+    }
+
+    /// Settings poll: learning loads/resets/switch, resource installation or a host context
+    /// change without callback can make the shown chips unacceptable. Republish only then.
+    func refreshSuggestionsIfStale() {
+        guard suggestionsAreActive, let published,
+              !published.ownership.hasSameContent(as: suggestionOwnership) else { return }
+        refreshSuggestions()
+    }
+
+    func cancelSuggestions() {
+        textRevision &+= 1
+        suggestionWorker.cancel()
+        publishSuggestions([], ownership: nil, evidence: nil, final: false)
+    }
+
+    func suspendSuggestions() {
+        suggestionsAreActive = false
+        cancelSuggestions()
+    }
+
+    /// Host activation or a keyboard touch: re-enable and refresh without touching layer, shift,
+    /// undo, touches or menus (unlike `configureForField`).
+    func resumeSuggestions() {
+        suggestionsAreActive = true
+        refreshSuggestions()
+    }
+
+    func waitForSuggestions() async { await suggestionWorker.waitUntilIdle() }
 
     func acceptSuggestion(_ suggestion: KeyboardSuggestion) {
         autocorrect.syncLearning()
+        guard let ownership = suggestion.ownership,
+              ownership.revision == textRevision, ownership == suggestionOwnership,
+              showsStrip, field == .text, ownership.permitsCorrection else {
+            // Refused (e.g. the sync above consumed a learning load/reset): replace the dead chips
+            // so the next tap works. Bounded: one refresh, no re-entry into acceptance.
+            refreshSuggestions()
+            return
+        }
         // Capture the word's taps before invalidating them: an explicit choice may teach Typr.
         let before = target.documentContextBeforeInput
         let evidence = autocorrect.touchInput.evidence(beforeInput: before)
@@ -214,7 +350,7 @@ final class FullKeyboardEngine {
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
         }
-        discardTouchEvidence()
+        invalidateTouchEvidence(resetFastAim: false)
         if let token {
             for _ in 0..<token.count {
                 target.deleteBackward()
@@ -233,6 +369,8 @@ final class FullKeyboardEngine {
 
     func touchBegan(id: Int, at point: CGPoint) {
         guard let key = layout.hitTest(point) else { return }
+        // A touch proves the keyboard is visible, even if a host activation notice was missed.
+        if !suggestionsAreActive { resumeSuggestions() }
         // Rollover: a new key going down commits any character or accent picker still held.
         for other in touchOrder {
             guard var touch = touches[other], touch.key.character != nil, !touch.committed else { continue }
@@ -423,7 +561,11 @@ final class FullKeyboardEngine {
     }
 
     func cancelAllTouches() {
-        discardTouchEvidence()
+        cancelAllTouches(republishing: true)
+    }
+
+    private func cancelAllTouches(republishing: Bool) {
+        if republishing { discardTouchEvidence() } else { invalidateTouchEvidence() }
         let hadTouches = !touches.isEmpty || activeAccentMenu != nil
         touches.removeAll()
         touchOrder.removeAll()
@@ -634,6 +776,8 @@ final class FullKeyboardEngine {
 
     private func didEdit() {
         refreshAutoCapitalization()
+        // Keyboard-originated edits (including the Typr key) also lift a stale suspension.
+        suggestionsAreActive = true
         refreshSuggestions()
         onEdit?()
     }

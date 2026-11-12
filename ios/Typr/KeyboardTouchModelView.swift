@@ -28,8 +28,10 @@ struct KeyboardTouchModelView: View {
                                  at: CGPoint(x: key.frame.midX, y: key.frame.minY + 10))
                     if let stats {
                         let center = KeyboardTouchGeometry.center(for: stats, key: key, layout: layout)
-                        context.stroke(Path(ellipseIn: KeyboardTouchGeometry.ellipse(for: stats, key: key, layout: layout)),
-                                       with: .color(ink.opacity(0.7)), lineWidth: 1)
+                        var ellipse = Path()
+                        ellipse.addLines(KeyboardTouchGeometry.ellipsePoints(for: stats, key: key, layout: layout))
+                        ellipse.closeSubpath()
+                        context.stroke(ellipse, with: .color(ink.opacity(0.7)), lineWidth: 1)
                         var line = Path()
                         line.move(to: CGPoint(x: key.frame.midX, y: key.frame.midY))
                         line.addLine(to: center)
@@ -42,7 +44,7 @@ struct KeyboardTouchModelView: View {
             .aspectRatio(layout.width / max(1, height), contentMode: .fit)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Stored touch offsets and spread. Per-key sample counts follow below.")
-            Text("Line and dot: shrunk offset from key center. Ellipse: one sigma of spread, not an accuracy score. Gray outlined keys have fewer than 20 effective samples and are not used for calibration. Geometry uses the stored width bucket.")
+            Text("Line and dot: saved slow offset from key center. Ellipse: correlated one-sigma spread, not an accuracy score. Gray outlined keys have fewer than 20 effective samples; pooled evidence may still inform them. Fast aim is session-only and is not shown. Geometry uses the stored width bucket.")
                 .font(.footnote).foregroundStyle(TyprTheme.textMuted)
             DisclosureGroup("Per-key effective sample counts") {
                 // Include unsampled keys so the denominator of the model's coverage is visible.

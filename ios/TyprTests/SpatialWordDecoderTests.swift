@@ -216,7 +216,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertNil(replacement(engine, "GELLO"))
     }
 
-    func testSpaceUndoAndManualSuggestionKeepExistingLifecycle() throws {
+    func testSpaceUndoAndManualSuggestionKeepExistingLifecycle() async throws {
         let ac = engine()
         let target = FixtureTextTarget(text: "gello")
         target.autocapitalizationType = UITextAutocapitalizationType.none
@@ -248,6 +248,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         manualKeyboard.configureForField()
         track(evidence("gello", aimedAt: "hello", layout: manualKeyboard.layout), in: manual)
         manualKeyboard.refreshSuggestions()
+        await manualKeyboard.waitForSuggestions()
         let suggestion = try XCTUnwrap(manualKeyboard.suggestions.first { $0.replacement == "hello" })
         manualKeyboard.acceptSuggestion(suggestion)
         XCTAssertEqual(manualTarget.text, "hello ")
@@ -414,7 +415,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertEqual(ac.learning.diagnostics[.autoSpellingFallback], 0)
     }
 
-    func testManualEditSuggestionPickLearnsOnlyAlignedLabels() throws {
+    func testManualEditSuggestionPickLearnsOnlyAlignedLabels() async throws {
         let ac = editSuggestionEngine()
         let target = FixtureTextTarget(text: "helo")
         target.autocapitalizationType = UITextAutocapitalizationType.none
@@ -423,6 +424,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         keyboard.configureForField()
         track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
         keyboard.refreshSuggestions()
+        await keyboard.waitForSuggestions()
         let suggestion = try XCTUnwrap(keyboard.suggestions.first { $0.replacement == "hello" })
         keyboard.acceptSuggestion(suggestion)
         XCTAssertEqual(target.text, "hello ")
@@ -435,7 +437,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertFalse(ac.learning.model.lexicon.isKept("helo"))
     }
 
-    func testPickingTheRepeatedLiteralIsNotAnAlternativePick() throws {
+    func testPickingTheRepeatedLiteralIsNotAnAlternativePick() async throws {
         let ac = editSuggestionEngine(valid: ["hello", "helo"])
         let target = FixtureTextTarget(text: "helo")
         target.autocapitalizationType = UITextAutocapitalizationType.none
@@ -444,8 +446,22 @@ final class SpatialWordDecoderTests: XCTestCase {
         keyboard.configureForField()
         track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
         keyboard.refreshSuggestions()
+        await keyboard.waitForSuggestions()
+        // The finished ranking suppresses structural "hello" for valid "helo". A decode
+        // counter proves we did not just inspect the identical-looking interim literal chips.
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 1)
+        let finished = keyboard.suggestions
+        keyboard.refreshSuggestions()
+        XCTAssertEqual(keyboard.suggestions.map(\.replacement), finished.map(\.replacement), "No literal-only flicker")
+        await keyboard.waitForSuggestions()
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 1, "An unchanged worker refresh reuses its decode")
+        XCTAssertEqual(keyboard.suggestions.map(\.replacement), finished.map(\.replacement))
+        XCTAssertEqual(keyboard.suggestions.map(\.kind), finished.map(\.kind))
+        XCTAssertEqual(keyboard.suggestions.map(\.isCompletion), finished.map(\.isCompletion))
         let primary = try XCTUnwrap(keyboard.suggestions.dropFirst().first)
         XCTAssertEqual(primary.replacement, "helo")
+        XCTAssertEqual(primary.kind, .primary(autoReplace: false))
+        XCTAssertFalse(primary.isCompletion)
         keyboard.acceptSuggestion(primary)
         XCTAssertEqual(target.text, "helo ")
         XCTAssertEqual(ac.learning.diagnostics[.manualAlternativePick], 0)
@@ -801,12 +817,43 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertNil(SpatialWordDecoder.align(word: "hello", taps: Array("heo")))
     }
 
+    func testContinuationBoundsRetainOneEditAndSaturateDeepResources() throws {
+        let source = lexicon([("hello", 100), ("help", 1)])
+        XCTAssertTrue(source.canFinish(at: 0, remaining: 4, editAvailable: false))
+        XCTAssertFalse(source.canFinish(at: 0, remaining: 3, editAvailable: false))
+        XCTAssertTrue(source.canFinish(at: 0, remaining: 3, editAvailable: true), "one missing letter")
+        XCTAssertTrue(source.canFinish(at: 0, remaining: 6, editAvailable: true), "one extra tap")
+        XCTAssertFalse(source.canFinish(at: 0, remaining: 7, editAvailable: true))
+        let alphabet = SpatialWordLexicon.alphabet
+        let a = try XCTUnwrap(alphabet.firstIndex(of: "a")), h = try XCTUnwrap(alphabet.firstIndex(of: "h"))
+        var scores = [Double](repeating: -.infinity, count: alphabet.count)
+        scores[a] = 10; scores[h] = -2
+        XCTAssertEqual(source.bestNextDensity(at: 0, scores: scores, rankedLabels: [a, h],
+                                             finiteMask: (1 << a) | (1 << h)), -2, "the globally best key is not a child")
+        XCTAssertEqual(source.bestNextDensity(at: 0, scores: scores, rankedLabels: [a], finiteMask: 1 << a), -.infinity)
+        let deep = lexicon([(String(repeating: "z", count: 300), 1)])
+        for remaining in 0...32 {
+            XCTAssertFalse(deep.canFinish(at: 0, remaining: remaining, editAvailable: true),
+                           "255 saturation must not wrap a long path into an eligible word")
+        }
+    }
+
     func testCompleteSearchMatchesExhaustiveFrozenScoreDP() throws {
         let english: [(String, UInt32)] = [("hello", 500_000), ("jello", 100_000), ("hell", 2_000), ("heallo", 1_000), ("help", 4_000)]
         let german: [(String, UInt32)] = [("hallo", 600_000), ("hello", 700_000), ("helgo", 10_000)]
         let sources = [(SpatialWordDecoder.Language.english, english), (.german, german)]
-        let decoder = SpatialWordDecoder(lexicons: [.english: lexicon(english), .german: lexicon(german)])
-        for (typed, aimed) in [("gello", "hello"), ("helo", "helo"), ("heallo", "heallo"), ("hlelo", "hlelo")] {
+        let lexicons: [SpatialWordDecoder.Language: SpatialWordLexicon] = [.english: lexicon(english), .german: lexicon(german)]
+        let decoder = SpatialWordDecoder(lexicons: lexicons)
+        let originBound = SpatialWordDecoder(lexicons: lexicons, usesLegacySearch: true)
+        let calibrations: [SpatialTouchCalibration?] = [nil] + [0.08, -0.5, 0.5].map { offset in
+            SpatialTouchCalibration(keys: Dictionary(uniqueKeysWithValues: "abcdefghijklmnopqrstuvwxyz".enumerated().map { index, letter in
+                (letter, .init(offsetX: offset, offsetY: -offset / 2, sigmaX: 0.30, sigmaY: 0.40,
+                               covarianceXY: index % 2 == 0 ? 0.035 : -0.035))
+            }))
+        }
+        let pairs = [("gello", "hello"), ("helo", "helo"), ("heallo", "heallo"), ("hlelo", "hlelo")]
+        let scenarios = calibrations.flatMap { c in pairs.map { ($0.0, $0.1, c) } }
+        for (typed, aimed, calibration) in scenarios {
             let word = evidence(typed, aimedAt: aimed)
             let letters = Array("abcdefghijklmnopqrstuvwxyz")
             var scores: [[Character: Double]] = []
@@ -814,18 +861,30 @@ final class SpatialWordDecoderTests: XCTestCase {
                 var row: [Character: Double] = [:]
                 for letter in letters {
                     let frame = try XCTUnwrap(word.layout.key(.character(String(letter)))).frame
-                    let dx = Double(sample.point.x - frame.midX) / Double(frame.width + word.layout.metrics.gap)
-                    let dy = Double(sample.point.y - frame.midY) / Double(frame.height + word.layout.metrics.rowGap)
+                    let key = calibration?.keys[letter] ?? .init(offsetX: 0, offsetY: 0, sigmaX: 0.35, sigmaY: 0.35)
+                    let dx = Double(sample.point.x - frame.midX) / Double(frame.width + word.layout.metrics.gap) - key.offsetX
+                    let dy = Double(sample.point.y - frame.midY) / Double(frame.height + word.layout.metrics.rowGap) - key.offsetY
                     if dx * dx + dy * dy <= 1.6 * 1.6 {
-                        row[letter] = -(dx * dx + dy * dy) / (2 * 0.35 * 0.35) - log(2 * Double.pi * 0.35 * 0.35)
+                        // Independent inverse/determinant reference, not logDensity().
+                        let xx = key.sigmaX * key.sigmaX, yy = key.sigmaY * key.sigmaY, xy = key.covarianceXY
+                        let det = xx * yy - xy * xy
+                        row[letter] = -0.5 * (yy * dx * dx - 2 * xy * dx * dy + xx * dy * dy) / det
+                            - log(2 * Double.pi * sqrt(det))
                     }
                 }
                 let best = try XCTUnwrap(row.values.max())
                 scores.append(row.filter { $0.value >= best - 6 })
             }
             for edits in [false, true] {
-                let result = try XCTUnwrap(decoder.decode(word, languages: [.english, .german], allowsEdits: edits))
+                let result = try XCTUnwrap(decoder.decode(word, languages: [.english, .german], calibration: calibration, allowsEdits: edits))
                 XCTAssertTrue(result.complete)
+                let baseline = try XCTUnwrap(originBound.decode(word, languages: [.english, .german], calibration: calibration, allowsEdits: edits))
+                XCTAssertTrue(baseline.complete)
+                XCTAssertEqual(result.suggestions.map(\.word), baseline.suggestions.map(\.word))
+                for (candidate, original) in zip(result.suggestions, baseline.suggestions) {
+                    XCTAssertEqual(candidate.score, original.score, accuracy: 1e-10)
+                }
+                XCTAssertLessThanOrEqual(result.visits, baseline.visits)
                 var expected: [String: Double] = [:]
                 var structural: [String: Double] = [:]
                 for (_, entries) in sources {
@@ -947,7 +1006,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertEqual(result.automaticCandidate?.word, "hello")
     }
 
-    func testPrefixExtensionFromSpatialAndSpellingIsAlwaysCompletion() throws {
+    func testPrefixExtensionFromSpatialAndSpellingIsAlwaysCompletion() async throws {
         let source = SpatialWordDecoder(lexicons: [.english: lexicon([("keyboard", 100)])])
         for spatial in [true, false] {
             let ac = AutocorrectEngine(checker: SpatialChecker(valid: ["keyboard"],
@@ -959,6 +1018,7 @@ final class SpatialWordDecoderTests: XCTestCase {
             keyboard.configureForField()
             track(evidence("keyboar", aimedAt: "keyboar", layout: keyboard.layout), in: ac)
             keyboard.refreshSuggestions()
+            await keyboard.waitForSuggestions()
             let suggestion = try XCTUnwrap(keyboard.suggestions.first { $0.replacement == "keyboard" })
             XCTAssertTrue(suggestion.isCompletion)
             keyboard.acceptSuggestion(suggestion)

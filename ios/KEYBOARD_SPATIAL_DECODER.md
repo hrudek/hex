@@ -49,16 +49,115 @@ with spaces, digits or other punctuation get session-only undo suppression (no s
 The explicit keep chip still permanently protects it, including while
 learning is off; off supplies no labels/counts.
 
+## Suggestion worker and boundary authority
+
+Ordinary key insertion no longer calls suggestion ranking synchronously.
+`FullKeyboardEngine.refreshSuggestions` validates current evidence, advances a text
+revision, replaces stale alternatives with safe current-literal/keep chips and
+submits a replaceable request. Refreshing an unchanged finished word/evidence/configuration
+keeps its ranked chips visible and reuses its compatible decode rather than searching again;
+checker/policy finalization still runs separately. One owned `KeyboardSuggestionWorker` has **one
+running job and one latest pending preparation**, not a task/queue entry per key.
+Preparation coalesces after key handling returns (including lazy personal snapshot
+construction). Its immutable Sendable request includes revision, engine/field
+ownership, bounded context/token, language configuration, learning generation,
+feedback/reset epoch, resource revision, layout/evidence, calibration and personal
+priors. No mutable checker or learning session crosses isolation.
+
+A private actor owns `SpatialWordRanking` and its personal/corpus memos. The existing
+search/scoring code was extracted from the main-actor resource facade for #113;
+#114's frozen covariance/aim density and tighter length/next-child bounds now live
+in that same core for both worker and boundary. The
+immutable mapped resources and indexes are shared copy-on-write, not rebuilt or
+expanded per request. Resource preparation remains detached. On completion the
+main actor checks the entire ownership stamp **before** touching policy or UI,
+adopts only an exact-compatible decode and runs the existing spelling/casing,
+lexicon-completion and suggestion policy in a separate main-actor step.
+`UITextChecker`/`GermanAutocorrect` never leave MainActor. This avoids checker
+work on the insertion call stack, not every possible main-thread scheduling stall:
+lazy snapshot construction and the checker finish can still occupy the main
+actor between keys. Hardware event-to-insertion latency needs device measurement.
+
+Space, the Typr key and sentence punctuation **never wait for the worker**.
+A matching ready decode is reused by the existing synchronous authoritative
+decision; if absent/stale, that boundary runs the same bounded synchronous search
+and checker decision as before. Full ranking/automatic-policy semantics are
+unchanged for a frozen eligible snapshot. Incomplete/below-literal results retain
+their existing refusal/display-only rules; no partial result gains authority.
+The final checker/policy decision is always made on MainActor, not cached as an
+unconditional replacement. Immediate undo and learning association are unchanged.
+
+Each published chip carries the originating ownership stamp. Picking checks
+revision, context/token, current field routing/autocorrection permission, settings,
+layout, learning generation and epoch again before deleting text or learning.
+A held chip retains its touch-down choice rather than reading a possibly newer
+slot on touch-up (at most three held choices); cancellation cannot select a new
+slot. VoiceOver activation selects the current chip without a touch-down. An old
+chip is refused even if a new field contains the same word after a field callback. No proxy API can identify an unreported field switch with identical
+text/traits; actual host callback behavior remains an iPhone proof requirement.
+Text/selection/field/layout changes, cancellation, hidden strip, dismissal,
+remount, host backgrounding and memory warnings drop pending/stale work.
+Discarding touch evidence (layer/width changes, key slide, trackpad or selection move)
+republishes current-token chips without geometry instead of leaving the strip blank.
+A refused chip refreshes the strip once, without editing or learning; a subsequent tap
+uses current ownership. The existing 4 Hz settings poll compares published ownership
+against current learning/configuration/resource revisions, including changes already
+consumed by a chip's learning sync and newly installed resources.
+
+Dismissal/backgrounding suspend suggestions; late jobs/warmup cannot read a hidden
+proxy. Appearance prepares a field; host activation only resumes the strip, preserving
+layer, caps lock, held touches, undo and menus. Key touch or keyboard-originated edit
+(including a Typr-key Space) also resumes after a missed activation notice. A genuine
+field/text callback still invalidates the previous association. In-flight search is
+bounded but not preempted; cancellation releases the latest pending snapshot and
+discards the old completion without starting overlapping searches.
+
+Additional suggestion bounds: **256 context characters / 2,048 UTF-8 bytes**,
+**64 token characters / 256 UTF-8 bytes**. Context uses the longest whole-character
+suffix within both caps, so a large emoji/ZWJ prefix does not suppress literal chips.
+An oversized final grapheme or token gets no strip ranking; boundary policy is unchanged.
+The existing 64-tap and 2,000-personal-word bounds remain. Current/pending worker snapshots stay RAM-only and are
+not a text/tap history. Each core retains at most three language-set corpus memos
+of 4,096 entries; the worker and boundary have separate mutable memos, so their
+memo payload can roughly double, while word-file/index backing stays shared.
+Search arena **element payload** is capped at 1,632,000 bytes per active search
+on the measured 64-bit Linux ABI (states, trails, heap indices and key/value
+payload for dominance entries). A cache-missing synchronous boundary can overlap
+one worker search, so budget two active arenas (3,264,000 bytes of element payload).
+This excludes Swift container/capacity/allocator overhead, strings, other
+matrices/caches and resources; it is not RSS, a
+physical-footprint ceiling or an iOS ABI claim.
+
+`KeyboardSuggestionWorkerTests` covers delayed/reordered completions, stale chips,
+field/context/trait/language/layout/learning/reset changes, cancellation,
+suspension, latest-only queueing, blocked-worker boundary fallback and held-tap
+rollover. `KeyboardSuggestionEvaluationTests` compares complete search outcomes
+(all scores/alignments/work), final strips and boundary decisions on the shared
+DE/EN/mixed noisy-touch generator and reports recall, valid-control unwanted
+changes, maximum-capacity personal scans, synthetic main-actor time and payload
+bounds using `EVAL P1_...` lines. The injected corpus checker is deterministic,
+not Apple's dictionaries; guessed intended words are fixture-supplied, so recall
+is a scheduling-equivalence regression, not independent accuracy evidence.
+Exact observed Linux checks are recorded below; the PR description carries the full
+verification record. Test existence is not a pass.
+Real-device checker timing, event-loop delay, rapid Space overlap in two hosts,
+Full Access/lifecycle races and peak physical footprint remain unverified.
+
 ## Evidence, scoring and bounded search
 
 - Decode only a fully observed word with 3–32 aligned letter taps, matching the
   current token and captured letter layout. The tracker itself retains at most
   64 samples. Apostrophes, popup accents, slides, missing document context and
   non-prose fields do not create substitute geometry.
-- Each tap uses a normalized diagonal Gaussian in key-pitch units: frame width
-  plus gap horizontally, frame height plus row gap vertically. Static sigma is
-  0.35; trusted personal calibration is optional. Density includes
-  `-log(2πσxσy)`, so different spreads remain comparable. The candidate gate is
+- Each tap uses a normalized full-covariance Gaussian in key-pitch units: frame
+  width plus gap horizontally, frame height plus row gap vertically. Static sigma
+  is 0.35 with xy=0; trusted personal calibration is optional. Density is
+  `−½ dᵀΣ⁻¹d − log(2π) − ½ log(det Σ)`, so different spreads remain comparable.
+  [Slow/fast aggregate aim](KEYBOARD_LEARNING.md#slow-covariance-and-fast-aim) supplies
+  pooled/shrunk xx/xy/yy and shared drift, with eigenvalues in [.22², .50²] and
+  each center component within ±.50 pitch. Physical covariance is tempered by
+  (.35/.20)² before these bounds. All tap/key densities, inverses and normalizers
+  are frozen before search; the max-path objective and completeness proof still apply. The candidate gate is
   radius 1.6 pitches from the model center and within six log units of the best
   key for that tap. The literal is scored separately, without the relative gate.
 - Score = spatial log density + structural edit penalty +
@@ -75,7 +174,13 @@ learning is off; off supplies no labels/counts.
 - One deterministic best-first heap interleaves both language tries. Shared caps:
   **6,000 pops, 12,000 generated states and 12,000 spelling-trail records**, depth
   at most 32; at most eight distinct above-literal alternatives. Subtree maximum
-  priors and state dominance tighten bounds without changing scoring. Selected
+  priors and state dominance tighten bounds without changing scoring. Two additional
+  resource indexes hold child alphabet masks (UInt32/node) and saturated terminal
+  suffix-length spans (UInt16/node). Length-incompatible subtrees are pruned; when
+  the edit is spent or disabled, the next tap's maximum must name a child, not any
+  key on the keyboard. This bound uses the frozen full-covariance scores, including
+  positive densities. Unedited paths keep the optimistic suffix bound because they
+  may still skip/swap. No below-literal result gains automatic authority. Selected
   resources are mapped, fully validated and subtree-indexed in a detached task
   started on keyboard appearance with Autocorrect on, then installed on the main
   actor. Until ready, decode immediately reports unavailable(resource), so spelling
@@ -147,7 +252,8 @@ Deleted/retyped words can retain decoding evidence but supply no labels or count
 [WordData/README.md](TyprShared/FullKeyboard/WordData/README.md) records unchanged
 TSW1 DE/EN data, revision, CC BY-SA 4.0 terms, hashes and offline reproduction.
 [PORTS.md](../PORTS.md) records the rewritten MIT iikb ideas at
-`08df5aa1e698d8587b6dcaef53f5e555ba1fac2a`. No iikb resources or dependencies
+`08df5aa1e698d8587b6dcaef53f5e555ba1fac2a`, plus aggregate covariance/aim
+at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`. No iikb resources or dependencies
 are bundled. Learning storage is owner-approved and bounded; raw current-word
 and pending-feedback taps remain RAM-only, not a persistent typing log.
 
@@ -158,6 +264,88 @@ edit alignment and repeated-letter ambiguity, Gaussian normalization, priors,
 DP oracle, deterministic ties, caps/completeness, suggestion-only separation,
 validation/protections, feedback and undo. Offline Python tests validate the
 compiler and committed resources. Test presence is not a passing iOS run.
+
+### Merge verification: aggregate aim with the suggestion worker
+
+After merging #113 into #114, Swift 6.4.2 Linux debug ran **283 tests: 273 passed,
+1 known backup-metadata failure, 9 baseline platform skips**. All **19 worker,
+4 worker evaluation, 8 aim and 4 aim evaluation** tests passed. No harness adaptation
+or new skip was needed. The worker/boundary comparison matched all outcomes on
+2,560 DE/EN/mixed noisy snapshots, retaining recall@1/@3 of 592/596 out of 640 DE,
+589/592 out of 640 EN and 1,163/1,166 out of 1,280 mixed. The current synchronous
+and worker paths each retain one existing deterministic-rule error per mode;
+624 valid integration controls had zero unwanted changes. These are same-current-core
+scheduling comparisons, not equality to an old binary or an independent quality claim.
+
+Additional merge regressions check nonzero xy calibration in immutable worker
+requests, learning/reset stale-result refusal, 100 no-op resets without generation
+churn, manual-choice fast-aim retention and whole-result equality with a calibrated
+2,000-word personal snapshot. P7b's grip/search/oracle/migration suites remain passing.
+Synthetic insertion mean/p95 was .020/.027 ms (160 keys), versus 4.634/8.825 ms
+with explicit synchronous ranking; checker calls during deferred insertion were zero.
+The per-arena element bound stays 1,632,000 bytes; shared files/indexes total
+5,396,164 bytes, and slow/fast numeric aim payload stays 5,184/320 bytes. These
+exclude allocator/transient/container costs and are not iPhone latency or RSS.
+Python 76 + 25 + 4 tests, shell syntax, ShellCheck, Actionlint and diff checks passed.
+UIKit compilation, simulator, actual system dictionaries and iPhone typing,
+ownership/lifecycle ordering, Full Access and peak physical memory remain unverified.
+
+### Observed Linux P1 worker regression (before #114)
+
+Swift **6.4.2**, Swift 6 mode, Linux x86_64 **debug**, synthetic data, not iPhone
+or simulator. The review-fix full harness run executed **266 tests: 256 passed,
+1 known Linux backup-metadata failure, 9 platform skips**. All **17 worker and
+4 evaluation tests** passed; the known failure remains visible, not weakened.
+The repaired autocorrect-off, touch-input equivalence and repeated-literal tests
+await final rankings, checking replacement, kind and completion status rather than
+interim literals. Review regressions cover layer/width/gesture/selection refresh,
+learning-toggle/reset refusal recovery, resource-install poll recovery, caps lock,
+held touches, undo, key-touch/Typr-edit resume and unchanged-refresh reuse.
+On 2,560 noisy snapshots, worker outcomes (including scores/alignments/search
+work), strips and boundary decisions matched the synchronous API exactly.
+The injected checker uses corpus membership and fixture-provided intended-word
+guesses, not Apple's actual dictionaries or an independent quality benchmark.
+
+| Frozen mode | Samples | Final-strip recall@1 / @3 | Wrong automatic changes, worker / baseline |
+| --- | ---: | --- | --- |
+| DE | 640 | 592 / 596 | 1 / 1 |
+| EN | 640 | 589 / 592 | 1 / 1 |
+| Mixed DE/EN | 1,280 | 1,163 / 1,166 | 1 / 1 |
+
+The fixed noisy-case bound is one existing policy error per mode: intended
+`aber` with transposed `baer` takes the German rule to `bär`; intended `live`
+with missing first letter `ive` takes the English rule to `I've` (also in mixed
+mode). This scheduling PR deliberately preserves both rather than changing rules.
+**624 synthetic-valid word/name/compound/code-switch controls had zero unwanted
+changes**. The 2,000-personal-word/calibrated snapshot test matched the synchronous
+search; its cold worker scan took 164.242 ms here, reinforcing why it is not on
+the ordinary insertion path.
+
+A 160-key synthetic main-actor probe (20 × `keyboard`) simulated the old insertion
+plus synchronous ranking versus current insertion: mean **5.363 → 0.019 ms**,
+p95 **10.423 → 0.027 ms**, p99 **10.502 → 0.031 ms**, max **10.553 → 0.036 ms**.
+English fixture-checker calls during insertion were **1,160 → 0**. Mean remaining suggestion-ready
+wait after the burst was 1.099 ms across both variants. This deliberately excludes
+host delivery/event-loop waiting, rendering and real checker costs; it is not an
+iPhone speedup claim. Reproduction commands (run from this worktree):
+
+```sh
+/home/hrudek/code/typr-research/iikb-parity/harness/run.sh "$PWD"
+python3 -m unittest discover -s .github/typr/tests -v
+python3 -m unittest discover -s ios/tools/dictation_log/tests -v
+git diff --check
+```
+
+The two Python suites passed **76 / 25 tests**. Shell syntax, ShellCheck and
+Actionlint also passed. Harness exit **1** deliberately retains
+`KeyboardLearningStoreTests.testRoundTripSummaryAndFileMetadata`: Linux Foundation
+reads `isExcludedFromBackup` as nil. No other failure occurred; source status/hashes
+were unchanged. The PR description records the full `EVAL P1_...` output, including
+memory payload limits (not RSS); the harness test log also contains the original
+spatial tables. UIKit strip/accessibility tests were not compiled or run here.
+Real iPhone checks must include one insertion per chip tap/VoiceOver activation;
+the accessibility override now calls its private activation callback directly,
+not the touch control's primary-action event.
 
 ### Observed Linux x86 synthetic evaluation
 
@@ -266,6 +454,102 @@ and search work are separate observations, not iPhone performance. Resource prep
 timings. No real typing or personal-learning benefit is established. A later Linux
 Swift 6.2 optimized rerun on both seeds preserved every recorded non-timing
 metric (including pops/generated summaries) versus the prior Linux final runs.
+
+### Aggregate-aim synthetic ablation (P7b)
+
+This replaces P7's too-easy 20-word/small-translation evaluation.
+`PersonalTypingAimTests` checks independent covariance/pooling/affine-ridge
+references, prequential switching, normalization, eigenvalue/determinant floors,
+nonfinite data, rare-key transfer, return/reset, migration and bounded memory.
+The exhaustive frozen-score DP compares both search implementations, including
+positive/negative xy and ±.50-pitch centers. Length-bound tests retain one edit and
+reject deep saturated paths without integer wraparound.
+
+`PersonalTypingAimEvaluationTests` uses **128 public fixture words per DE/EN/mixed
+group**, both languages enabled, identical deterministic seeded Gaussian coordinates
+for each variant/checkpoint, and static hit-testing to produce neighbor-typo literals.
+Two scenarios start with 3,000 accepted two-thumb labels, switch for 120 labels, then
+return: (1) right-thumb undershoot toward a base below the bottom-right corner,
+growing to **.6 horizontal pitches** at the far side, with .21–.28 pitch noise;
+(2) **4° posture tilt** plus .15 pitch vertical translation, .22 pitch noise.
+Two-thumb noise is .21 pitch with a small fixed per-key bias. Checkpoints are
+**0/5/10/20/30/60/120 accepted trusted labels**, not all physical taps. Training
+words are disjoint from evaluation words; offered/rejected counts are printed.
+Synthetic perfect intentions are not evidence of actual manual-feedback coverage.
+
+The three primary columns are static/no learning, **origin/main's slow diagonal
+contract** (same accepted slow updates, per-key n≥20, shrink n/(n+20), ±.25 centers,
+.22–.50 sigma), and the new model. The legacy test path retains the original
+per-pair diagonal scoring and suffix-only search bound; it is a same-process
+algorithm ablation at origin/main `15754813`, not a second iOS binary. A fourth
+control variant holds the new density fixed with legacy search; a fast-disabled
+new-model ablation separates drift benefit from covariance tempering. No baseline
+numbers from a previous machine/run are used in these comparisons.
+
+Recall denominators include **typo words only** (correct hit-tested words have no
+reason to suggest themselves). One-hand has 312/384 typos: 105 DE, 107 EN, 100 mixed;
+tilt has 169/384; return has 59/384. At 10/20/30 labels, one-hand pooled recall@1
+is **304/307/299 of 312**, versus old **155/171/172** and static **236**; recall@3 is
+**307/309/305** versus old **157/173/173** and static **241**. This is discriminative
+but still synthetic/development evidence. Much of the gain precedes shift labels:
+new is already 257 at label 0, and fast-disabled new is 249 versus old 154. Most
+of that initial gap is the new slow density/tempering, not new grip evidence.
+Holding the new slow model fixed but disabling fast drift gives **258/264/264** at 10/20/30, so the measured fast contribution is **46/43/35**
+additional top-1 words, not the entire old-to-new gain. Tests require ≥8 percentage
+points of typo recall benefit per language group from fast drift in that window.
+
+On return, one-hand new recall@1/@3 stays **59/59** at every checkpoint versus old
+54/59. Tilt return has one DE top-1/top-3 loss at **0 labels** (21/22 versus 22/22),
+recovered by **5 labels**; the pooled new result is still 58/59 versus old 52/59.
+There are no extra wrong typo autos in these curves. Declared regression tolerances
+are two words per group (also two pooled) and at most one extra wrong typo auto,
+at every checkpoint; these are deterministic fixture tolerances, **not confidence
+intervals or calibrated human error bounds**. Observed unwanted changes of
+correctly typed controls remain zero, including the existing 14-word adversarial
+integration control (42 decisions, 2,600 allowed labels, zero self-training).
+
+**A** disables structural edits (same-length spatial substitutions only).
+**B** enables one missing/extra/swapped letter plus best-effort below-literal
+edit suggestions for out-of-corpus literals. Thus outside B explores hundreds of
+states even with learning off, whereas A takes about 20: most of this gap predates
+P7, not a covariance regression. The new density can broaden search further, so
+P7b adds length/next-child pruning, cheap finite-mask rejection and once-per-key
+inverse/normalizer preparation. The performance evaluation prints mean/p95/max,
+visits, completeness and ratios against both static and slow-diagonal legacy
+paths on identical evidence; no incomplete result authorizes replacement.
+Tests bound outside-B mean visits to old +10%, A to old +10%+8 pops, and control
+mean latency to old ×1.20 +.5 ms (generous Linux-debug/CI tolerance, not a device
+budget). The original total/spatial/runner-up margins are retained only with these
+quality/safety ablations and the oracle; they are not posterior probabilities.
+
+Observed Swift 6.4.2 Linux x86_64 debug control timings, same run (ms):
+
+| Controls | Static legacy mean/p95 | Slow diagonal legacy mean/p95 | New mean/p95 | Mean visits static / slow / new |
+| --- | --- | --- | --- | --- |
+| In corpus A (437) | .715 / 1.049 | .681 / .940 | .751 / 1.108 | 12.5 / 11.5 / 11.8 |
+| In corpus B (437) | 1.266 / 1.897 | 1.063 / 1.365 | 1.337 / 2.056 | 13.5 / 16.0 / 12.9 |
+| Outside A (352) | 1.038 / 1.460 | .789 / 1.084 | 1.036 / 1.438 | 21.5 / 12.6 / 16.1 |
+| Outside B (352) | 10.133 / 15.060 | 6.674 / 10.931 | 7.685 / 11.528 | 422.3 / 291.2 / 195.2 |
+
+Outside B with the **new density but legacy search** takes 10.912 / 16.593 ms,
+454.8 mean visits: the added bounds reduce its visits by 57% and mean latency by
+30%. New beats the original static baseline, but **does not beat the old learned
+narrow diagonal density in wall time**: outside-B mean is +15.2%, p95 +5.5%; other
+small control groups have up to .274 ms mean overhead. On grip fixtures new versus
+old means are 4.947 versus 3.933 ms (one-hand) and 3.083 versus 2.622 ms (tilt),
+while visits fall to 114.4 versus 140.5 and 61.8 versus 85.4. Better recall explores
+more plausible readings and the lookahead itself costs time. These remaining costs
+are explicit, not a universal speedup claim. All measured searches are complete.
+Snapshots average .535 ms and trusted single-label updates .048 ms separately.
+
+Numeric slow/fast payload ceilings are **5,184 / 320 bytes**, excluding dictionaries,
+strings, snapshots and allocator overhead. Shipping lexical files plus subtree
+priors, child masks and length spans occupy **5,396,164 bytes** (<8 MiB); this is not
+RSS, and loading/validation transients are extra. Four populated layouts encode to
+20,363 bytes, under the unchanged 256 KiB store ceiling. The full Linux harness ran
+**260 tests: 250 passed, 9 baseline skips, 1 known Linux-only backup-exclusion
+metadata failure**; no new failure. No harness adaptation was needed. Apple SDK compilation, simulator, actual dictionaries, real feedback
+coverage, physical grip recovery and extension latency/memory remain unverified.
 
 ## Offline corpus context suggestions
 
@@ -378,7 +662,8 @@ Then check on the owner's iPhone:
 3. First-word resource load, suggestion and Space latency distributions, extension
    high-water memory, repeated keyboard recreation and responsiveness during saves.
 4. Trusted learning association and outlier rejection; at least 20 labels before
-   per-key influence, separate layout models, no automatic-output self-training,
+   pooled influence (or 20 per key in a migrated legacy-only model), separate layout
+   models, shift/shift-back recovery, no automatic-output self-training,
    learning off/on, retained keep/rejected protection and independent resets.
 5. Full Access granted/revoked, RAM-only behavior, restart retention, file protection
    before first unlock and backup exclusion, lock contention, concurrent keyboard

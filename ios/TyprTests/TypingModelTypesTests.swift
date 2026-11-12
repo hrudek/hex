@@ -31,8 +31,9 @@ final class TypingModelTypesTests: XCTestCase {
             "b": .init(offsetX: 4, offsetY: -4, sigmaX: 2, sigmaY: -1),
             "c": valid,
         ])
-        XCTAssertEqual(calibration.keys["a"], .init(offsetX: -0.25, offsetY: 0.25, sigmaX: 0.22, sigmaY: 0.50))
-        XCTAssertEqual(calibration.keys["b"], .init(offsetX: 0.25, offsetY: -0.25, sigmaX: 0.50, sigmaY: 0.22))
+        // ±.5 pitch: far-side one-hand thumb aim; the one-pitch label gate is unchanged.
+        XCTAssertEqual(calibration.keys["a"], .init(offsetX: -0.5, offsetY: 0.5, sigmaX: 0.22, sigmaY: 0.50))
+        XCTAssertEqual(calibration.keys["b"], .init(offsetX: 0.5, offsetY: -0.5, sigmaX: 0.50, sigmaY: 0.22))
         XCTAssertEqual(calibration.keys["c"], valid)
         XCTAssertEqual(SpatialTouchCalibration.staticSigma, 0.35)
     }
