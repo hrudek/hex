@@ -2,78 +2,142 @@ import Foundation
 import XCTest
 @testable import Typr
 
-/// Public-word, seeded synthetic ablation. Not a system dictionary or physical hit-test benchmark.
+/// Seeded synthetic grip-change ablation on public fixture words. NOT measured human typing,
+/// a system dictionary or physical hit-test proof. Literals come from the static hit test of
+/// the simulated touch, so a grip change produces realistic neighbour typos.
+///
+/// Variants, decoded on IDENTICAL evidence after IDENTICAL trusted labels:
+/// - static: no personal calibration (learning off, origin/main decoder).
+/// - old: origin/main's slow per-key diagonal contract (n >= 20, shrink n/(n+20), ±.25 pitch).
+/// - new: this branch's `PersonalTypingModel.calibration(for:)`.
 @MainActor
 final class PersonalTypingAimEvaluationTests: XCTestCase {
     private let grid = KeyboardLayout(width: 393)
-    private let checkpoints = [0, 3, 12, 30, 60]
+    private let checkpoints = [0, 5, 10, 20, 30, 60, 120]
+    private static let matureLabels = 3_000
 
-    private struct Noise {
-        var state: UInt64 = 0x50375f41494d
+    private struct SplitMix64 {
+        var state: UInt64
         mutating func uniform() -> Double {
-            state = state &* 6364136223846793005 &+ 1442695040888963407
-            return (Double(state >> 11) + 0.5) / 9007199254740992
+            state &+= 0x9e3779b97f4a7c15
+            var value = state
+            value = (value ^ (value >> 30)) &* 0xbf58476d1ce4e5b9
+            value = (value ^ (value >> 27)) &* 0x94d049bb133111eb
+            value ^= value >> 31
+            return (Double(value >> 11) + 0.5) / 9_007_199_254_740_992
         }
         mutating func normal() -> Double { sqrt(-2 * log(uniform())) * cos(2 * Double.pi * uniform()) }
     }
 
-    private func point(_ letter: Character, x: Double, y: Double) -> CGPoint {
+    enum Grip: String { case twoThumbs, oneHandRight, tilt }
+
+    // MARK: - Synthetic aim
+
+    private var letterKeys: [KeyboardKey] {
+        grid.keys.filter { $0.character?.count == 1 && $0.character?.first.map { ("a"..."z").contains($0) } == true }
+    }
+    private var pitch: (x: Double, y: Double) {
+        let frame = grid.key(.character("a"))!.frame
+        return (Double(frame.width + grid.metrics.gap), Double(frame.height + grid.metrics.rowGap))
+    }
+    private var plane: CGRect { letterKeys.map(\.frame).reduce(letterKeys[0].frame) { $0.union($1) } }
+
+    /// The user's own fixed per-key bias (±.06 pitch), present in every grip.
+    private func personalBias(_ letter: Character) -> (Double, Double) {
+        var random = SplitMix64(state: 0x5059_5052_4249_4153 &+ UInt64(letter.asciiValue ?? 0) &* 7919)
+        return ((random.uniform() - 0.5) * 0.12, (random.uniform() - 0.5) * 0.12)
+    }
+
+    /// Systematic offset and per-axis spread, both in key pitches.
+    private func aim(_ letter: Character, _ grip: Grip) -> (x: Double, y: Double, sigma: Double) {
         let frame = grid.key(.character(String(letter)))!.frame
-        return CGPoint(x: frame.midX + x * (frame.width + grid.metrics.gap),
-                       y: frame.midY + y * (frame.height + grid.metrics.rowGap))
+        let bias = personalBias(letter)
+        switch grip {
+        case .twoThumbs:
+            return (bias.0, bias.1 + 0.06, 0.21)
+        case .oneHandRight:
+            // Right thumb pivoting below the bottom-right corner undershoots toward its base,
+            // growing superlinearly with reach: ~.1 pitch near the base, ~.6 at the far side.
+            let base = CGPoint(x: grid.width - 0.25 * pitch.x, y: plane.maxY + 2.2 * pitch.y)
+            let far = letterKeys.map { hypot(Double($0.frame.midX - base.x), Double($0.frame.midY - base.y)) }.max()!
+            let vx = Double(frame.midX - base.x), vy = Double(frame.midY - base.y)
+            let reach = hypot(vx, vy) / far
+            let magnitude = 0.6 * pitch.x * pow(reach, 1.5)
+            return (bias.0 - vx / hypot(vx, vy) * magnitude / pitch.x,
+                    bias.1 + 0.06 - vy / hypot(vx, vy) * magnitude / pitch.y,
+                    0.21 + 0.07 * reach)
+        case .tilt:
+            // Device held tilted (e.g. lying down): a 4° rotation about the letter plane plus
+            // taps landing .15 pitch low.
+            let angle = 4.0 * Double.pi / 180
+            let dx = Double(frame.midX - plane.midX), dy = Double(frame.midY - plane.midY)
+            let rx = dx * cos(angle) - dy * sin(angle) - dx, ry = dx * sin(angle) + dy * cos(angle) - dy
+            return (bias.0 + rx / pitch.x, bias.1 + 0.06 + 0.15 + ry / pitch.y, 0.22)
+        }
     }
 
-    private func offset(_ letter: Character, shifted: Bool, rotation: Bool) -> (Double, Double) {
-        guard shifted else { return (0, 0) }
+    private func tap(_ letter: Character, _ grip: Grip, _ random: inout SplitMix64) -> CGPoint {
         let frame = grid.key(.character(String(letter)))!.frame
-        let pitchX = Double(frame.width + grid.metrics.gap), pitchY = Double(frame.height + grid.metrics.rowGap)
-        if rotation {
-            // A small one-hand rotation about the middle of the letter plane, plus translation.
-            let dx = Double(frame.midX) - 196.5, dy = Double(frame.midY) - 125
-            return ((6 - 0.055 * dy) / pitchX, (4 + 0.055 * dx) / pitchY)
-        }
-        return (6 / pitchX, 4 / pitchY)
+        let a = aim(letter, grip)
+        return CGPoint(x: frame.midX + CGFloat((a.x + a.sigma * random.normal()) * pitch.x),
+                       y: frame.midY + CGFloat((a.y + a.sigma * random.normal()) * pitch.y))
     }
 
-    private func train(_ model: PersonalTypingModel, count: Int, shifted: Bool, rotation: Bool, start: Int = 0) {
-        let letters = Array("etaoinshrdlucmfwypvbgkjqxz")
-        for i in start..<(start + count) {
-            let letter = letters[i % letters.count], shift = offset(letter, shifted: shifted, rotation: rotation)
-            let x = shift.0 + Double(i % 5 - 2) * 0.035
-            let y = shift.1 + Double(i % 3 - 1) * 0.035
-            model.learn([TouchLabel(point: point(letter, x: x, y: y), letter: letter)], layout: grid, source: .manualPick)
+    /// Static attribution: the hit-tested letter, else the nearest letter centre.
+    private func hit(_ point: CGPoint) -> KeyboardKey {
+        if let key = grid.hitTest(point), key.character.map({ letterKeys.map(\.character).contains($0) }) == true {
+            return key
+        }
+        return letterKeys.min {
+            hypot(Double($0.frame.midX - point.x) / pitch.x, Double($0.frame.midY - point.y) / pitch.y)
+                < hypot(Double($1.frame.midX - point.x) / pitch.x, Double($1.frame.midY - point.y) / pitch.y)
+        }!
+    }
+
+    private func evidence(_ word: String, _ grip: Grip, seed: UInt64) -> KeyboardTouchWord {
+        var random = SplitMix64(state: seed)
+        return KeyboardTouchWord(layout: grid, samples: word.map { letter in
+            let point = tap(letter, grip, &random)
+            let key = hit(point)
+            return KeyboardTouchWord.Sample(text: key.character!, point: point, key: key)
+        })
+    }
+
+    /// Independently trusted labels for intended letters, from a word stream disjoint from the
+    /// evaluated words. Offered labels are counted; the model's own outlier gate still applies.
+    private struct LabelStream {
+        let letters: [Character]
+        var position = 0
+        var random = SplitMix64(state: 0x4c41_4245_4c53_5452)
+        init(words: [String]) { letters = words.joined().filter { ("a"..."z").contains($0) } }
+        mutating func next() -> Character {
+            defer { position += 1 }
+            return letters[position % letters.count]
         }
     }
 
-    private func evidence(_ word: String, ordinal: Int, shifted: Bool, rotation: Bool, noisy: Bool = true) -> KeyboardTouchWord {
-        let letters = Array(word.lowercased())
-        var noise = Noise(state: 0x50375f41494d &+ UInt64(ordinal) &* 97)
-        let samples = letters.enumerated().map { i, letter in
-            let shift = offset(letter, shifted: shifted, rotation: rotation)
-            let target = grid.key(.character(String(letter)))!
-            // A fixed adjacent-symbol error separates word retrieval from static hit attribution.
-            let typed: KeyboardKey
-            if i == ordinal % letters.count {
-                typed = grid.keys.filter { $0.character?.count == 1 && $0.character != String(letter)
-                    && $0.character?.first?.isLetter == true }.min {
-                    hypot($0.frame.midX - target.frame.midX, $0.frame.midY - target.frame.midY)
-                        < hypot($1.frame.midX - target.frame.midX, $1.frame.midY - target.frame.midY)
-                }!
-            } else { typed = target }
-            let sigma = noisy ? 0.22 : 0
-            return KeyboardTouchWord.Sample(text: typed.character!,
-                point: point(letter, x: shift.0 + sigma * noise.normal(), y: shift.1 + sigma * noise.normal()), key: typed)
+    private func train(_ model: PersonalTypingModel, _ stream: inout LabelStream, count: Int, grip: Grip) {
+        for _ in 0..<count {
+            let letter = stream.next()
+            model.learn([TouchLabel(point: tap(letter, grip, &stream.random), letter: letter)],
+                        layout: grid, source: .manualPick)
         }
-        return KeyboardTouchWord(layout: grid, samples: samples)
     }
 
-    /// Exact old per-key threshold/shrinkage/diagonal contract, updated by the SAME labels.
-    private func diagonal(_ state: PersonalTypingModel.State) -> SpatialTouchCalibration? {
+    /// Exact origin/main inference contract, recomputed from the SAME slow per-key aggregates
+    /// (whose update rule is unchanged): diagonal, per-key n >= 20, centres clamped to ±.25.
+    private func originMainCalibration(_ state: PersonalTypingModel.State) -> SpatialTouchCalibration? {
         guard let layout = state.layouts[KeyboardLayoutSignature(grid).id] else { return nil }
         var keys: [Character: SpatialTouchCalibration.Key] = [:]
+        let prior = SpatialTouchCalibration.staticSigma * SpatialTouchCalibration.staticSigma
         for (letter, stats) in layout.keys where stats.n >= 20 {
-            var key = stats.calibration; key.covarianceXY = 0
-            keys[letter.first!] = key
+            let shrink = Double(stats.n) / Double(stats.n + 20)
+            func clampOffset(_ value: Double) -> Double { max(-0.25, min(0.25, shrink * value)) }
+            func clampSigma(_ variance: Double) -> Double {
+                max(0.22, min(0.50, sqrt(shrink * variance + (1 - shrink) * prior)))
+            }
+            keys[letter.first!] = .init(offsetX: clampOffset(stats.meanX), offsetY: clampOffset(stats.meanY),
+                                        sigmaX: clampSigma(stats.varianceX), sigmaY: clampSigma(stats.varianceY))
         }
         return keys.isEmpty ? nil : SpatialTouchCalibration(keys: keys)
     }
@@ -87,58 +151,246 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         return SpatialWordDecoder(lexicons: sources)
     }
 
-    func testGripShiftAndReturnCurvesGermanEnglishMixed() throws {
+    // MARK: - Metrics
+
+    private struct Metrics {
+        var words = 0, typos = 0, recall1 = 0, recall3 = 0, fixedAuto = 0, wrongAuto = 0
+        var unwanted = 0, unavailable = 0, incomplete = 0
+        var milliseconds: [Double] = []
+        var visits: [Double] = []
+        /// Work on correctly hit-tested literals only: no candidate should need to beat them.
+        var cleanVisits: [Double] = []
+
+        mutating func add(_ other: Metrics) {
+            words += other.words; typos += other.typos; recall1 += other.recall1; recall3 += other.recall3
+            fixedAuto += other.fixedAuto; wrongAuto += other.wrongAuto; unwanted += other.unwanted
+            unavailable += other.unavailable; incomplete += other.incomplete
+            milliseconds += other.milliseconds; visits += other.visits; cleanVisits += other.cleanVisits
+        }
+    }
+
+    private static func percentile(_ values: [Double], _ p: Double) -> Double {
+        let sorted = values.sorted()
+        return sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, max(0, Int(ceil(Double(sorted.count) * p)) - 1))]
+    }
+
+    private func observe(_ input: KeyboardTouchWord, intended: String, calibration: SpatialTouchCalibration?,
+                         decoder: SpatialWordDecoder, into metrics: inout Metrics) {
+        let start = ProcessInfo.processInfo.systemUptime
+        let decoded = decoder.decode(input, languages: [.german, .english], calibration: calibration)
+        metrics.milliseconds.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+        metrics.words += 1
+        let typo = input.text != intended
+        if typo { metrics.typos += 1 }
+        guard let result = decoded else { metrics.unavailable += 1; return }
+        metrics.visits.append(Double(result.visits))
+        if !typo { metrics.cleanVisits.append(Double(result.visits)) }
+        if !result.complete { metrics.incomplete += 1 }
+        let replaced: String?
+        if case .replace(let candidate) = result.automaticDecision(literalIsValid: result.literalInLexicon) {
+            replaced = candidate.word
+        } else { replaced = nil }
+        if typo {
+            if result.suggestions.first?.word == intended { metrics.recall1 += 1 }
+            if result.suggestions.prefix(3).contains(where: { $0.word == intended }) { metrics.recall3 += 1 }
+            if let replaced { if replaced == intended { metrics.fixedAuto += 1 } else { metrics.wrongAuto += 1 } }
+        } else if replaced != nil {
+            // The hit-tested literal IS the intended (corpus-valid) word: any change is unwanted.
+            metrics.unwanted += 1
+        }
+    }
+
+    private var groups: [(String, [String])] {
+        let usable: ([String]) -> [String] = { $0.map { $0.lowercased() }.filter { $0.count >= 3 && $0.allSatisfy { ("a"..."z").contains($0) } } }
+        let de = usable(SpatialTypoEvaluationFixtures.german), en = usable(SpatialTypoEvaluationFixtures.english)
+        // Code-switched sequence: alternate DE/EN words, drawn with independent seeds.
+        let mixed = zip(de.enumerated().filter { $0.offset % 2 == 1 }.map(\.element),
+                        en.enumerated().filter { $0.offset % 2 == 0 }.map(\.element)).flatMap { [$0, $1] }
+        return [("DE", de), ("EN", en), ("mixed", mixed)]
+    }
+
+    private var trainingWords: [String] {
+        (SpatialTypoEvaluationFixtures.rare + SpatialTypoEvaluationFixtures.absent).map { $0.lowercased() }
+    }
+
+    private func matureModel() -> (PersonalTypingModel, LabelStream) {
+        let model = PersonalTypingModel()
+        var stream = LabelStream(words: trainingWords)
+        train(model, &stream, count: Self.matureLabels, grip: .twoThumbs)
+        return (model, stream)
+    }
+
+    /// Runs mature two-thumb aim -> `away` grip -> back to two thumbs, returning per-phase,
+    /// per-checkpoint [static, old, new] metrics summed over groups, and per-group curves.
+    private func runScenario(_ away: Grip) throws -> [(phase: String, rows: [(labels: Int, variants: [Metrics])])] {
         let decoder = try decoder()
-        let groups = [("DE", Array(SpatialTypoEvaluationFixtures.german.prefix(20))),
-                      ("EN", Array(SpatialTypoEvaluationFixtures.english.prefix(20))),
-                      ("mixed", Array(zip(SpatialTypoEvaluationFixtures.german.prefix(10), SpatialTypoEvaluationFixtures.english.prefix(10))).flatMap { [$0, $1] })]
-        var timings: [Double] = []
-        for rotation in [false, true] {
-            let model = PersonalTypingModel()
-            train(model, count: 26 * 160, shifted: false, rotation: false)
-            for shifted in [true, false] {
-                var trained = 0
-                var curves: [String: [String]] = [:]
-                for taps in checkpoints {
-                    train(model, count: taps - trained, shifted: shifted, rotation: rotation, start: trained)
-                    trained = taps
-                    let legacy = diagonal(model.state), adaptive = model.calibration(for: grid)
-                    for (group, words) in groups {
-                        var recalled = [0, 0], top3 = [0, 0], autoWrong = [0, 0], unavailable = [0, 0]
-                        for (ordinal, word) in words.enumerated() {
-                            let input = evidence(word, ordinal: ordinal, shifted: shifted, rotation: rotation)
-                            for (variant, calibration) in [legacy, adaptive].enumerated() {
-                                let start = ProcessInfo.processInfo.systemUptime
-                                let decoded = decoder.decode(input, languages: [.german, .english], calibration: calibration)
-                                timings.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
-                                guard let result = decoded else { unavailable[variant] += 1; continue }
-                                XCTAssertTrue(result.complete)
-                                if result.suggestions.first?.word == word { recalled[variant] += 1 }
-                                if result.suggestions.prefix(3).contains(where: { $0.word == word }) { top3[variant] += 1 }
-                                if case .replace(let candidate) = result.automaticDecision(literalIsValid: result.literalInLexicon), candidate.word != word {
-                                    autoWrong[variant] += 1
-                                }
-                            }
+        let groups = self.groups
+        XCTAssertTrue(groups.allSatisfy { $0.1.count >= 100 }, "at least 100 words per group")
+        var (model, stream) = matureModel()
+        var output: [(phase: String, rows: [(labels: Int, variants: [Metrics])])] = []
+        for (phase, grip) in [("away", away), ("back", Grip.twoThumbs)] {
+            var trained = 0
+            var rows: [(labels: Int, variants: [Metrics])] = []
+            var curves: [String: [String]] = [:]
+            var staticMetrics: [String: Metrics] = [:]
+            for labels in checkpoints {
+                train(model, &stream, count: labels - trained, grip: grip)
+                trained = labels
+                let calibrations = [nil, originMainCalibration(model.state), model.calibration(for: grid)]
+                var total = [Metrics(), Metrics(), Metrics()]
+                for (groupIndex, (group, words)) in groups.enumerated() {
+                    var metrics = [Metrics(), Metrics(), Metrics()]
+                    for (ordinal, word) in words.enumerated() {
+                        // Identical evidence at every checkpoint of a phase and for every variant.
+                        let seed = 0x4752_4950 &+ UInt64(groupIndex) &* 1_000_003 &+ UInt64(ordinal) &* 7_919
+                            &+ (grip == .twoThumbs ? 0 : 0x9999)
+                        let input = evidence(word, grip, seed: seed)
+                        for variant in 0..<3 {
+                            // Static is checkpoint-independent: decode it once per phase.
+                            if variant == 0, staticMetrics[group] != nil { continue }
+                            observe(input, intended: word, calibration: calibrations[variant], decoder: decoder, into: &metrics[variant])
                         }
-                        XCTAssertLessThanOrEqual(autoWrong[1], autoWrong[0] + 1, "no more than one extra wrong typo auto per 20 synthetic words; valid-control bound is separately zero")
-                        XCTAssertLessThanOrEqual(unavailable[1], 1)
-                        // Wide CI-safe nonregression floor; these public fixtures are synthetic,
-                        // not untouched held-out human typing or calibrated probabilities.
-                        XCTAssertGreaterThanOrEqual(recalled[1], recalled[0] - 2)
-                        XCTAssertGreaterThanOrEqual(top3[1], words.count - 2)
-                        curves[group, default: []].append("\(taps):\(recalled[0])/\(recalled[1]):\(top3[0])/\(top3[1]):\(autoWrong[0])/\(autoWrong[1]):\(unavailable[0])/\(unavailable[1])")
+                    }
+                    if let cached = staticMetrics[group] { metrics[0] = cached } else { staticMetrics[group] = metrics[0] }
+                    for variant in 0..<3 { total[variant].add(metrics[variant]) }
+                    let m = metrics
+                    curves[group, default: []].append("\(labels):\(m[0].recall1)/\(m[1].recall1)/\(m[2].recall1):\(m[0].recall3)/\(m[1].recall3)/\(m[2].recall3):\(m[0].wrongAuto)/\(m[1].wrongAuto)/\(m[2].wrongAuto):\(m[0].unwanted)/\(m[1].unwanted)/\(m[2].unwanted)")
+                    if labels == checkpoints[0] {
+                        XCTAssertEqual(m[0].typos, m[2].typos)
                     }
                 }
-                for (group, _) in groups {
-                    print("EVAL P7_grip group=\(group) shift=\(shifted ? "away" : "back") rotation=\(rotation) n=20 curve=taps:old/newRecall1:old/newRecall3:old/newWrongTypoAuto:old/newUnavailable \(curves[group]!.joined(separator: ","))")
+                rows.append((labels, total))
+            }
+            for (group, words) in groups {
+                let typos = staticMetrics[group]!.typos
+                print("EVAL P7_grip scenario=\(away.rawValue) phase=\(phase) group=\(group) words=\(words.count) typos=\(typos) curve=labels:recall1 static/old/new:recall3 s/o/n:wrongTypoAuto s/o/n:unwantedValidAuto s/o/n \(curves[group]!.joined(separator: ","))")
+            }
+            let summary = rows.map { row in
+                let v = row.variants
+                return "\(row.labels):\(v[0].recall1)/\(v[1].recall1)/\(v[2].recall1):\(v[0].recall3)/\(v[1].recall3)/\(v[2].recall3):\(v[0].wrongAuto)/\(v[1].wrongAuto)/\(v[2].wrongAuto):\(v[0].unwanted)/\(v[1].unwanted)/\(v[2].unwanted)"
+            }
+            let first = rows[0].variants[0]
+            print("EVAL P7_gripTotal scenario=\(away.rawValue) phase=\(phase) words=\(first.words) typos=\(first.typos) curve=labels:recall1 static/old/new:recall3 s/o/n:wrongTypoAuto s/o/n:unwantedValidAuto s/o/n \(summary.joined(separator: ","))")
+            var phaseWork = [Metrics(), Metrics(), Metrics()]
+            for row in rows { for v in 0..<3 { phaseWork[v].add(row.variants[v]) } }
+            print("EVAL P7_phaseVisits scenario=\(away.rawValue) phase=\(phase) " + phaseWork.enumerated().map { v, m in
+                String(format: "%@=%.1f/%.0f/%.0f", ["static", "old", "new"][v], m.visits.reduce(0, +) / Double(max(1, m.visits.count)),
+                       Self.percentile(m.visits, 0.95), m.visits.max() ?? 0)
+            }.joined(separator: " ") + " (mean/p95/max)")
+            output.append((phase, rows))
+        }
+        // Decode work on identical inputs, all checkpoints and phases of this scenario.
+        var work = [Metrics(), Metrics(), Metrics()]
+        for phase in output { for row in phase.rows { for v in 0..<3 { work[v].add(row.variants[v]) } } }
+        func mean(_ values: [Double]) -> Double { values.reduce(0, +) / Double(max(1, values.count)) }
+        for (v, name) in ["static", "old", "new"].enumerated() {
+            let ms = work[v].milliseconds, visits = work[v].visits, clean = work[v].cleanVisits
+            print(String(format: "EVAL P7_decodeWork scenario=%@ variant=%@ calls=%d meanMs=%.3f p95Ms=%.3f maxMs=%.3f visitsMean=%.1f visitsP95=%.0f visitsMax=%.0f cleanLiteralVisitsMean=%.1f cleanLiteralVisitsP95=%.0f incomplete=%d unavailable=%d platform=local_debug_not_iPhone",
+                         away.rawValue, name, ms.count, mean(ms), Self.percentile(ms, 0.95),
+                         ms.max() ?? 0, mean(visits), Self.percentile(visits, 0.95),
+                         visits.max() ?? 0, mean(clean), Self.percentile(clean, 0.95), work[v].incomplete, work[v].unavailable))
+            XCTAssertLessThan(ms.max() ?? 0, 2000, "generous debug/CI bound, not an iPhone budget")
+            XCTAssertEqual(work[v].incomplete, 0, "every decode is a complete, proven search")
+            XCTAssertLessThanOrEqual(visits.max() ?? 0, Double(SpatialWordDecoder.searchBudget))
+        }
+        // Correct literals: the adapted density must not make search materially harder than
+        // origin/main's static density (bound: +25% mean visits, Linux debug, same inputs).
+        XCTAssertLessThanOrEqual(mean(work[2].cleanVisits), 1.25 * mean(work[0].cleanVisits))
+        // Valid-literal safety: the adaptive model never adds an unwanted change of a valid literal.
+        for phase in output { for row in phase.rows {
+            XCTAssertLessThanOrEqual(row.variants[2].unwanted, row.variants[0].unwanted, "\(away) \(phase.phase) \(row.labels)")
+        } }
+        return output
+    }
+
+    private func recall(_ result: [(phase: String, rows: [(labels: Int, variants: [Metrics])])],
+                        _ phase: String, _ labels: Int, _ variant: Int) -> Int {
+        result.first { $0.phase == phase }!.rows.first { $0.labels == labels }!.variants[variant].recall1
+    }
+
+    /// Steady state (mature two-thumb model, same grip): valid and out-of-lexicon literals typed
+    /// as intended must not be changed, and decode work is compared with origin/main on
+    /// identical evidence. Same control lists as the fixed spatial evaluation.
+    func testSteadyStateControlsAndDecodeWork() throws {
+        let decoder = try decoder()
+        let (model, _) = matureModel()
+        let calibrations = [nil, originMainCalibration(model.state), model.calibration(for: grid)]
+        let inLexicon = (SpatialTypoEvaluationFixtures.german + SpatialTypoEvaluationFixtures.english
+            + SpatialTypoEvaluationFixtures.germanNouns + SpatialTypoEvaluationFixtures.short
+            + SpatialTypoEvaluationFixtures.rare).map { $0.lowercased() }
+        let outside = (SpatialTypoEvaluationFixtures.novel + SpatialTypoEvaluationFixtures.absent).map { $0.lowercased() }
+        for (set, words) in [("inLexicon", inLexicon), ("outside", outside)] {
+            let usable = words.filter { $0.count >= 3 && $0.allSatisfy { ("a"..."z").contains($0) } }
+            XCTAssertGreaterThanOrEqual(usable.count, 300)
+            for edits in [false, true] {
+                var rows: [String] = []
+                var unwanted = [0, 0, 0]
+                for (v, calibration) in calibrations.enumerated() {
+                    var ms: [Double] = [], visits: [Double] = [], incomplete = 0
+                    for (ordinal, word) in usable.enumerated() {
+                        // Literal = intended letters, aim and noise from the two-thumb grip.
+                        var random = SplitMix64(state: 0x434f_4e54 &+ UInt64(ordinal) &* 7_919)
+                        let input = KeyboardTouchWord(layout: grid, samples: word.map { letter in
+                            let key = grid.key(.character(String(letter)))!
+                            return .init(text: String(letter), point: tap(letter, .twoThumbs, &random), key: key)
+                        })
+                        let start = ProcessInfo.processInfo.systemUptime
+                        let result = decoder.decode(input, languages: [.german, .english], calibration: calibration, allowsEdits: edits)
+                        ms.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                        guard let result else { continue }
+                        visits.append(Double(result.visits))
+                        if !result.complete { incomplete += 1 }
+                        if case .replace = result.automaticDecision(literalIsValid: result.literalInLexicon) { unwanted[v] += 1 }
+                    }
+                    rows.append(String(format: "%@:unwanted=%d,incomplete=%d,meanMs=%.3f,p95Ms=%.3f,visits=%.1f/%.0f/%.0f",
+                                       ["static", "old", "new"][v], unwanted[v], incomplete, ms.reduce(0, +) / Double(ms.count),
+                                       Self.percentile(ms, 0.95), visits.reduce(0, +) / Double(max(1, visits.count)),
+                                       Self.percentile(visits, 0.95), visits.max() ?? 0))
+                }
+                print("EVAL P7_controls set=\(set) variant=\(edits ? "B" : "A") n=\(usable.count) \(rows.joined(separator: " ")) visits=mean/p95/max platform=local_debug_not_iPhone")
+                XCTAssertEqual(unwanted[2], 0, "no unwanted automatic change of a correctly typed control")
+            }
+        }
+    }
+
+    func testOneHandGripShiftAndReturn() throws {
+        let result = try runScenario(.oneHandRight)
+        assertCurves(result, scenario: "oneHandRight", gain: 0.25)
+    }
+
+    func testTiltGripShiftAndReturn() throws {
+        let result = try runScenario(.tilt)
+        assertCurves(result, scenario: "tilt", gain: 0.05)
+    }
+
+    /// Bounds, in typo-word counts pooled over the three >=100-word groups (same evidence for
+    /// every variant and checkpoint of a phase; the noise bound covers one-label seed effects):
+    /// - away, 10-30 trusted labels: new beats old by >= `gain` of the typos;
+    /// - every checkpoint of both phases: new >= old - 2 and new >= static - 2 (recall@1 and @3);
+    /// - wrong typo autos: new <= old + 1; unwanted changes of correct valid literals: 0.
+    private func assertCurves(_ result: [(phase: String, rows: [(labels: Int, variants: [Metrics])])],
+                              scenario: String, gain: Double) {
+        for phase in result {
+            for row in phase.rows {
+                let v = row.variants
+                print("EVAL P7_gripDelta scenario=\(scenario) phase=\(phase.phase) labels=\(row.labels) typos=\(v[0].typos) newMinusOldRecall1=\(v[2].recall1 - v[1].recall1) newMinusOldRecall3=\(v[2].recall3 - v[1].recall3) newMinusStaticRecall1=\(v[2].recall1 - v[0].recall1) wrongTypoAuto=\(v[0].wrongAuto)/\(v[1].wrongAuto)/\(v[2].wrongAuto) unwantedValidAuto=\(v[0].unwanted)/\(v[1].unwanted)/\(v[2].unwanted)")
+                let label = "\(scenario) \(phase.phase) \(row.labels)"
+                XCTAssertGreaterThanOrEqual(v[2].recall1, v[1].recall1 - 2, label)
+                XCTAssertGreaterThanOrEqual(v[2].recall3, v[1].recall3 - 2, label)
+                XCTAssertGreaterThanOrEqual(v[2].recall1, v[0].recall1 - 2, label)
+                XCTAssertLessThanOrEqual(v[2].wrongAuto, v[1].wrongAuto + 1, label)
+                XCTAssertEqual(v[2].unwanted, 0, label)
+                if phase.phase == "away", (10...30).contains(row.labels) {
+                    XCTAssertGreaterThanOrEqual(Double(v[2].recall1 - v[1].recall1), gain * Double(v[0].typos), label)
                 }
             }
         }
-        timings.sort()
-        let mean = timings.reduce(0, +) / Double(timings.count)
-        let p95 = timings[Int(Double(timings.count - 1) * 0.95)]
-        XCTAssertLessThan(timings.last!, 2000, "generous debug/CI bound, not an iPhone budget")
-        print(String(format: "EVAL P7_latency calls=%d meanMs=%.3f p95Ms=%.3f maxMs=%.3f platform=local_debug_not_iPhone", timings.count, mean, p95, timings.last!))
+        _ = recall
+    }
+
+    private func point(_ letter: Character, x: Double, y: Double) -> CGPoint {
+        let frame = grid.key(.character(String(letter)))!.frame
+        return CGPoint(x: frame.midX + x * pitch.x, y: frame.midY + y * pitch.y)
     }
 
     private final class Checker: TextChecking {
@@ -153,7 +405,8 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         let decoder = try decoder()
         let words = ["hallo", "hello", "haus", "house", "welt", "world", "Anna", "Siempelkamper", "Haustuersteuerung", "GitHub", "Swift", "keyboard", "kind", "gift"]
         let session = KeyboardLearningSession()
-        train(session.model, count: 26 * 160, shifted: false, rotation: false)
+        var stream = LabelStream(words: trainingWords)
+        train(session.model, &stream, count: Self.matureLabels, grip: .twoThumbs)
         // Worst allowed independently supplied labels; silent automatic output still has
         // no API path to these updates. Influence stays bounded even under hostile labels.
         for _ in 0..<100 { session.learn(Array("abcdefghijklmnopqrstuvwxyz").map {
@@ -181,7 +434,7 @@ final class PersonalTypingAimEvaluationTests: XCTestCase {
         XCTAssertEqual(changes, 0)
         XCTAssertEqual(session.model.state, before, "scoring and silent boundary decisions never train")
         let keys = try XCTUnwrap(session.calibration(for: grid)?.keys)
-        XCTAssertTrue(keys.values.allSatisfy { abs($0.offsetX) <= 0.25 && abs($0.offsetY) <= 0.25 })
+        XCTAssertTrue(keys.values.allSatisfy { abs($0.offsetX) <= SpatialTouchCalibration.maxOffset && abs($0.offsetY) <= SpatialTouchCalibration.maxOffset })
         print("EVAL P7_safety validControls=\(words.count) decisions=\(words.count * 3) unwantedAuto=\(changes) adversarialLabels=2600 selfTrainingUpdates=0")
     }
 }

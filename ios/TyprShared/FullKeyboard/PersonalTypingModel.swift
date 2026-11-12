@@ -75,8 +75,9 @@ final class PersonalTypingModel {
 
         /// Within-key pooled covariance, not between-key center differences. Each key
         /// contributes at most 256 effective observations; iteration order is fixed.
+        /// Physical (untempered) spread: the prior is the reference spread, not .35.
         var pooled: SpatialTouchCalibration.Key {
-            let prior = SpatialTouchCalibration.staticSigma * SpatialTouchCalibration.staticSigma
+            let prior = SpatialTouchCalibration.referenceSpread * SpatialTouchCalibration.referenceSpread
             var n = 20.0, xx = 20 * prior, yy = 20 * prior, xy = 0.0
             for letter in keys.keys.sorted() {
                 guard let s = keys[letter], s.isValid else { continue }
@@ -240,13 +241,12 @@ final class PersonalTypingModel {
 
     private(set) var state: State
     var isLearningEnabled: Bool { didSet { cachedLexicon = nil; resetFastAim() } }
-    // Only ONE active layout's fast aggregates live in RAM: at most 26+1 banks.
+    // Only ONE active layout's shared fast drift lives in RAM: no per-key banks, no points.
     private var fastLayout: String?
-    private var fastKeys: [String: TouchAimMemories] = [:]
-    private var fastGlobal: TouchAimMemories?
+    private var fastDrift = TouchAimDrift()
 
     func resetFastAim() {
-        fastLayout = nil; fastKeys.removeAll(); fastGlobal = nil
+        fastLayout = nil; fastDrift = TouchAimDrift()
     }
 
     private func activateAim(_ signature: KeyboardLayoutSignature) {
@@ -256,11 +256,33 @@ final class PersonalTypingModel {
         }
     }
 
-    private static func bounded(_ key: SpatialTouchCalibration.Key) -> SpatialTouchCalibration.Key {
-        SpatialTouchCalibration(keys: ["a": key]).keys["a"] ?? .init(
-            offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma,
-            sigmaY: SpatialTouchCalibration.staticSigma)
+    /// The slow (persisted) PHYSICAL density the fast drift is measured against. Keys without
+    /// labels use the pooled covariance and the layout-wide slow centre once pooled inference is ready.
+    private static func slowKey(_ letter: String, in stats: LayoutStats) -> SpatialTouchCalibration.Key {
+        let value = stats.keys[letter]
+        let pooled = physical(stats.slowKey(value))
+        guard value == nil, let global = stats.global, global.n >= 20 else { return pooled }
+        let center = global.calibration
+        return physical(.init(offsetX: center.offsetX, offsetY: center.offsetY, sigmaX: pooled.sigmaX,
+                              sigmaY: pooled.sigmaY, covarianceXY: pooled.covarianceXY))
     }
+
+    private static let fallback = SpatialTouchCalibration.Key(
+        offsetX: 0, offsetY: 0, sigmaX: SpatialTouchCalibration.staticSigma, sigmaY: SpatialTouchCalibration.staticSigma)
+
+    /// Bounded physical spread: a numerically safe determinant floor for prequential scoring.
+    private static func physical(_ key: SpatialTouchCalibration.Key) -> SpatialTouchCalibration.Key {
+        SpatialTouchCalibration.sanitized(key, sigmaRange: 0.10...0.50) ?? fallback
+    }
+
+    /// The decoder contract: covariance tempered to the static density's calibration, then bounded.
+    static func tempered(_ key: SpatialTouchCalibration.Key) -> SpatialTouchCalibration.Key {
+        let t = SpatialTouchCalibration.temperature
+        return SpatialTouchCalibration.sanitized(.init(
+            offsetX: key.offsetX, offsetY: key.offsetY, sigmaX: key.sigmaX * sqrt(t), sigmaY: key.sigmaY * sqrt(t),
+            covarianceXY: key.covarianceXY * t), sigmaRange: SpatialTouchCalibration.sigmaRange) ?? fallback
+    }
+
     private var cachedLexicon: PersonalLexiconSnapshot?
     private let now: () -> Date
 
@@ -302,21 +324,14 @@ final class PersonalTypingModel {
                     var stats = state.layouts[signature.id] ?? LayoutStats(signature: signature, lastUpdated: now())
                     activateAim(signature)
                     let letter = String(label.letter)
-                    let old = stats.keys[letter] ?? TouchStats()
-                    let global = stats.global ?? TouchStats()
-                    var localAim = fastKeys[letter] ?? TouchAimMemories(slow: old)
-                    var globalAim = fastGlobal ?? TouchAimMemories(slow: global)
-                    let globalSlow = Self.bounded(global.calibration)
-                    globalAim.update(x: x, y: y, slow: globalSlow)
-                    let shared = globalAim.prediction(slow: globalSlow)
-                    // Local memories explain residual aim after the shared shift, so
-                    // a global change is neither diluted by rare keys nor counted twice.
-                    let sharedX = global.n >= 20 ? shared.offsetX - globalSlow.offsetX : 0
-                    let sharedY = global.n >= 20 ? shared.offsetY - globalSlow.offsetY : 0
-                    localAim.update(x: x - sharedX, y: y - sharedY, slow: Self.bounded(stats.slowKey(old)))
-                    fastKeys[letter] = localAim; fastGlobal = globalAim
+                    // Prequential: the shared drift scores and learns this label against the
+                    // slow model BEFORE the slow aggregates absorb it. It starts only once
+                    // pooled inference is ready, so it always has a calibrated reference.
+                    if (stats.global?.n ?? 0) >= 20, let φ = TouchAimDrift.features(for: layout)[label.letter] {
+                        fastDrift.update(x: x, y: y, slow: Self.slowKey(letter, in: stats), features: φ)
+                    }
                     stats.keys[letter, default: TouchStats()].update(x: x, y: y)
-                    stats.global = global
+                    stats.global = stats.global ?? TouchStats()
                     stats.global?.update(x: x, y: y)
                     stats.lastUpdated = now()
                     state.layouts[signature.id] = stats
@@ -339,30 +354,15 @@ final class PersonalTypingModel {
         // Migration does not invent an ordered global stream from old per-key data.
         // Until 20 new pooled labels, legacy keys retain their per-key threshold.
         let pooledReady = (stats.global?.n ?? 0) >= 20
-        let globalSlow = stats.global?.calibration
-        let globalPrediction = globalSlow.map { fastGlobal?.prediction(slow: $0) ?? $0 }
+        let features = pooledReady ? TouchAimDrift.features(for: layout) : [:]
         var keys: [Character: SpatialTouchCalibration.Key] = [:]
         for character in "abcdefghijklmnopqrstuvwxyz" {
-            let letter = String(character), value = stats.keys[letter]
-            guard layout.key(.character(letter)) != nil, pooledReady || (value?.n ?? 0) >= 20 else { continue }
-            let slow = Self.bounded(stats.slowKey(value))
-            let local = fastKeys[letter]?.prediction(slow: slow) ?? slow
-            var key = local
-            if pooledReady, let globalSlow, let globalPrediction {
-                // Shared drift reaches every key immediately; key memories explain
-                // residuals. A key without any labels uses the pooled absolute center.
-                let baseX = value == nil ? globalSlow.offsetX : local.offsetX
-                let baseY = value == nil ? globalSlow.offsetY : local.offsetY
-                // Carry shared between-memory uncertainty too (a PSD scatter term).
-                let sharedXX = max(0, pow(globalPrediction.sigmaX, 2) - pow(globalSlow.sigmaX, 2))
-                let sharedYY = max(0, pow(globalPrediction.sigmaY, 2) - pow(globalSlow.sigmaY, 2))
-                key = .init(offsetX: baseX + globalPrediction.offsetX - globalSlow.offsetX,
-                            offsetY: baseY + globalPrediction.offsetY - globalSlow.offsetY,
-                            sigmaX: sqrt(local.sigmaX * local.sigmaX + sharedXX),
-                            sigmaY: sqrt(local.sigmaY * local.sigmaY + sharedYY),
-                            covarianceXY: local.covarianceXY + globalPrediction.covarianceXY - globalSlow.covarianceXY)
-            }
-            keys[character] = key
+            let letter = String(character)
+            guard layout.key(.character(letter)) != nil,
+                  pooledReady || (stats.keys[letter]?.n ?? 0) >= 20 else { continue }
+            let slow = Self.slowKey(letter, in: stats)
+            // The shared drift reaches every key immediately, including rare and unseen keys.
+            keys[character] = Self.tempered(features[character].map { fastDrift.prediction(slow: slow, features: $0) } ?? slow)
         }
         return keys.isEmpty ? nil : SpatialTouchCalibration(keys: keys)
     }
@@ -430,7 +430,7 @@ final class PersonalTypingModel {
         let layouts = state.layouts.values.sorted { $0.signature.id < $1.signature.id }.map { layout in
             LayoutSummary(signature: layout.signature, lastUpdated: layout.lastUpdated,
                 keys: layout.keys.sorted { $0.key < $1.key }.map { letter, stats in
-                    let key = bounded(layout.slowKey(stats))
+                    let key = tempered(slowKey(letter, in: layout))
                     return KeySummary(letter: letter, n: stats.n, offsetX: key.offsetX, offsetY: key.offsetY,
                                       sigmaX: key.sigmaX, sigmaY: key.sigmaY, covarianceXY: key.covarianceXY)
                 })

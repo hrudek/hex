@@ -69,7 +69,7 @@ final class PersonalTypingAimTests: XCTestCase {
         let signature = KeyboardLayoutSignature(grid)
         var layout = PersonalTypingModel.LayoutStats(signature: signature, lastUpdated: Date())
         layout.keys["a"] = .init(n: 20, varianceX: 0.08, varianceY: 0.06, covarianceXY: 0.03)
-        XCTAssertEqual(layout.pooled.sigmaX * layout.pooled.sigmaX, (20 * 0.1225 + 20 * 0.08) / 40, accuracy: 1e-12)
+        XCTAssertEqual(layout.pooled.sigmaX * layout.pooled.sigmaX, (20 * 0.04 + 20 * 0.08) / 40, accuracy: 1e-12)
         XCTAssertEqual(layout.pooled.covarianceXY, 0.015, accuracy: 1e-12)
         XCTAssertEqual(layout.slowKey(layout.keys["a"]).covarianceXY, 0.0225, accuracy: 1e-12)
         for i in 0..<120 {
@@ -89,12 +89,15 @@ final class PersonalTypingAimTests: XCTestCase {
     func testFixedShareRecoveryAndGlobalTransferReset() throws {
         let model = warm()
         let baseline = try XCTUnwrap(model.calibration(for: grid)?.keys["z"])
-        for _ in 0..<30 { model.learn([label("e", 0.24, 0.10)], layout: grid, source: .keep) }
+        // A shared translation observed on a few frequent keys only.
+        for _ in 0..<6 { model.learn("entaoi".map { label($0, 0.24, 0.10) }, layout: grid, source: .keep) }
         let shifted = try XCTUnwrap(model.calibration(for: grid)?.keys["z"])
-        XCTAssertGreaterThan(shifted.offsetX, baseline.offsetX + 0.07, "an unseen key receives the global shift")
-        for _ in 0..<30 { model.learn([label("e", 0, 0)], layout: grid, source: .keep) }
+        // z (bottom left) lies outside the labelled keys' span: ridge-shrunk extrapolation.
+        XCTAssertGreaterThan(shifted.offsetX, baseline.offsetX + 0.1, "an unlabelled key receives the shared shift")
+        XCTAssertGreaterThan(shifted.offsetY, baseline.offsetY + 0.04)
+        for _ in 0..<3 { model.learn("entaoi".map { label($0, 0, 0) }, layout: grid, source: .keep) }
         let returned = try XCTUnwrap(model.calibration(for: grid)?.keys["z"])
-        XCTAssertLessThan(returned.offsetX, shifted.offsetX)
+        XCTAssertLessThan(abs(returned.offsetX - baseline.offsetX), 0.06, "returning aim recovers within 18 labels")
         let frozen = model.calibration(for: grid)
         let restored = PersonalTypingModel(state: model.state)
         model.resetFastAim()
@@ -107,23 +110,44 @@ final class PersonalTypingAimTests: XCTestCase {
         XCTAssertEqual(model.calibration(for: grid), PersonalTypingModel(state: model.state).calibration(for: grid))
     }
 
-    func testPrequentialFixedShareWeightsAndLifecycleReset() throws {
-        let stats = PersonalTypingModel.TouchStats(n: 100, varianceX: 0.09, varianceY: 0.09)
-        let slow = SpatialTouchCalibration.Key(offsetX: 0, offsetY: 0, sigmaX: 0.3, sigmaY: 0.3)
-        var bank = TouchAimMemories(slow: stats)
-        bank.update(x: 0.6, y: 0.1, slow: slow)
-        XCTAssertEqual(bank.weights[0], 1 / 3, accuracy: 1e-12)
-        XCTAssertEqual(bank.medium.x, 0.6 / 30, accuracy: 1e-12)
-        XCTAssertEqual(bank.fast.x, 0.6 / 3, accuracy: 1e-12)
-        // Independent pre-update predictive odds for the second tap, in log space.
-        let means = [(0.0, 0.0), (0.6 / 30, 0.1 / 30), (0.6 / 3, 0.1 / 3)]
-        let odds = means.map { exp(-0.5 * (pow(0.6 - $0.0, 2) + pow(0.1 - $0.1, 2)) / 0.09) / 3 }
-        let total = odds.reduce(0, +)
-        bank.update(x: 0.6, y: 0.1, slow: slow)
-        for i in 0..<3 { XCTAssertEqual(bank.weights[i], 0.99 * odds[i] / total + 0.01 / 3, accuracy: 1e-12) }
-        for _ in 0..<100 { bank.update(x: -0.6, y: -0.1, slow: slow) }
-        XCTAssertEqual(bank.weights[0] + bank.weights[1] + bank.weights[2], 1, accuracy: 1e-12)
-        XCTAssertTrue((0..<3).allSatisfy { bank.weights[$0] >= 0.01 / 3 })
+    func testPrequentialFixedShareWeightsAndLifecycleReset() {
+        let slow = SpatialTouchCalibration.Key(offsetX: 0.05, offsetY: 0, sigmaX: 0.3, sigmaY: 0.3)
+        let share = TouchAimDrift.share
+        var drift = TouchAimDrift()
+        XCTAssertEqual(drift.prediction(slow: slow, features: SIMD3(1, 0.5, -0.5)), slow, "no labels: exactly the slow model")
+        drift.update(x: 0.65, y: 0.1, slow: slow, features: SIMD3(1, 0, 0))
+        // All memories predicted identically before the first label: only the share moves weights.
+        XCTAssertEqual(drift.weights[0], (1 - share) * (1 - 2 * share / 3) + share / 3, accuracy: 1e-12)
+        // Ridge regression toward no drift: (1 + 1)⁻¹ · 0.6 for the intercept.
+        XCTAssertEqual(drift.medium.coefficients.x[0], 0.6 / 2, accuracy: 1e-12)
+        XCTAssertEqual(drift.fast.coefficients.y[0], 0.1 / 2, accuracy: 1e-12)
+        XCTAssertEqual(drift.medium.coefficients.x[1], 0, accuracy: 1e-12)
+        // A position-dependent shift (affine field) is learned and transfers to unseen positions.
+        let field: (SIMD3<Double>) -> (Double, Double) = { (0.3 - 0.2 * $0[1], 0.1 + 0.1 * $0[2]) }
+        var positions: [SIMD3<Double>] = []
+        for u in stride(from: -1.0, through: 1.0, by: 0.5) { for v in [-1.0, 0, 1] { positions.append(SIMD3(1, u, v)) } }
+        for i in 0..<60 {
+            let φ = positions[i % positions.count], d = field(φ)
+            drift.update(x: slow.offsetX + d.0, y: slow.offsetY + d.1, slow: slow, features: φ)
+        }
+        XCTAssertLessThan(drift.weights[0], 0.05, "the stable memory loses after a sustained shift")
+        let far = drift.prediction(slow: slow, features: SIMD3(1, -1, 0.5))
+        // Ridge shrinkage and the residual stable/fast weights keep the extrapolated corner
+        // conservative (true drift .5): most of the shift, never an overshoot.
+        XCTAssertGreaterThan(far.offsetX - slow.offsetX, 0.38)
+        XCTAssertLessThan(far.offsetX - slow.offsetX, 0.5)
+        XCTAssertEqual(far.offsetY, slow.offsetY + 0.15, accuracy: 0.03)
+        XCTAssertEqual(drift.weights.sum(), 1, accuracy: 1e-12)
+        // Returning to the original aim: within 8 labels the prediction is back near the slow model.
+        var returned = drift
+        for i in 0..<8 { returned.update(x: slow.offsetX, y: slow.offsetY, slow: slow, features: positions[i]) }
+        XCTAssertLessThan(abs(returned.prediction(slow: slow, features: SIMD3(1, -1, 0.5)).offsetX - slow.offsetX), 0.1)
+        XCTAssertGreaterThan(returned.weights[0] + returned.weights[2], 0.9, "stable and fast memories explain the return")
+        XCTAssertTrue((0..<3).allSatisfy { returned.weights[$0] >= share / 3 })
+        // Non-finite input never changes state.
+        var copy = returned
+        copy.update(x: .nan, y: 0, slow: slow, features: SIMD3(1, 0, 0))
+        XCTAssertEqual(copy, returned)
 
         let session = KeyboardLearningSession()
         for _ in 0..<40 { session.learn([label("e", 0.2, 0.1)], layout: grid, source: .keep) }
@@ -183,7 +207,7 @@ final class PersonalTypingAimTests: XCTestCase {
         XCTAssertNotNil(maximumLayouts.validated())
         let touchBytes = try JSONEncoder().encode(maximumLayouts).count
         let slowPayload = 4 * 27 * MemoryLayout<PersonalTypingModel.TouchStats>.stride
-        let fastPayload = 27 * MemoryLayout<TouchAimMemories>.stride
+        let fastPayload = MemoryLayout<TouchAimDrift>.stride
         XCTAssertLessThan(touchBytes, 64 * 1024)
         XCTAssertLessThan(slowPayload + fastPayload, 16 * 1024)
         XCTAssertEqual(model.state.layouts.count, 1)

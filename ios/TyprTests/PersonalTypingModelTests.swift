@@ -60,12 +60,11 @@ final class PersonalTypingModelTests: XCTestCase {
         // Slow sufficient statistics retain the original shrinkage reference;
         // fast/pooled inference can already move further after sustained evidence.
         XCTAssertEqual(try stats(model).calibration.offsetX, 0.2, accuracy: 1e-12)
-        XCTAssertGreaterThanOrEqual(key.offsetX, 0.2)
-        XCTAssertLessThanOrEqual(key.offsetX, 0.25)
+        XCTAssertEqual(key.offsetX, 0.2, accuracy: 1e-12, "no fast drift before 20 pooled labels")
         XCTAssertTrue(SpatialTouchCalibration.sigmaRange.contains(key.sigmaX))
         model.learn(Array(repeating: try label(0.9), count: 300), layout: layout, source: .keep)
         key = try XCTUnwrap(model.calibration(for: layout)?.keys["a"])
-        XCTAssertEqual(key.offsetX, 0.25)
+        XCTAssertEqual(key.offsetX, SpatialTouchCalibration.maxOffset)
         XCTAssertTrue(SpatialTouchCalibration.sigmaRange.contains(key.sigmaX))
         model.resetFastAim()
         XCTAssertEqual(model.calibration(for: layout)?.keys["a"]?.sigmaX, 0.22)
