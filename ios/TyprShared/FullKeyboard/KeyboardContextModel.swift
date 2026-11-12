@@ -370,13 +370,31 @@ nonisolated struct KeyboardContextModel: Sendable {
         guard gains.contains(where: { $0 > 0 }) else { return pool }
         for scored in [true, false] {
             let slots = pool.indices.filter { (spatialScores[pool[$0]] != nil) == scored }
-            let ordered = slots.enumerated().map { rank, slot in
-                (slot: slot, key: (scored ? spatialScores[pool[slot]]! : -Self.rankWeight * Double(rank)) + gains[slot])
-            }.sorted { $0.key == $1.key ? $0.slot < $1.slot : $0.key > $1.key }
-            let words = ordered.map { pool[$0.slot] }
+            var keyed: [RerankEntry] = []
+            keyed.reserveCapacity(slots.count)
+            for (rank, slot) in slots.enumerated() {
+                let base: Double
+                if scored, let score = spatialScores[pool[slot]] {
+                    base = score
+                } else {
+                    base = -Self.rankWeight * Double(rank)
+                }
+                let key: Double = base + gains[slot]
+                keyed.append(RerankEntry(slot: slot, key: key))
+            }
+            let ordered: [RerankEntry] = keyed.sorted { (lhs: RerankEntry, rhs: RerankEntry) -> Bool in
+                if lhs.key == rhs.key { return lhs.slot < rhs.slot }
+                return lhs.key > rhs.key
+            }
+            let words: [String] = ordered.map { pool[$0.slot] }
             for (slot, word) in zip(slots, words) { pool[slot] = word }
         }
         return pool
+    }
+
+    private struct RerankEntry {
+        let slot: Int
+        let key: Double
     }
 }
 
