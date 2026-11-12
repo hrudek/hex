@@ -159,7 +159,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     func warmUpTextCheckerAsync() {
         if engine.autocorrect.isEnabled { engine.autocorrect.spatialDecoder?.prepareResources() }
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.engine.suggestionsAreActive else { return }
             self.engine.autocorrect.german?.warmUp() // Typr
             guard let checker = self.engine.autocorrect.checker as? SystemTextChecker else { return }
             checker.warmUp()
@@ -204,6 +204,9 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
             }
             engine.refreshSuggestions()
         }
+        // Learning loads/resets (also when consumed by a chip tap), installed spatial resources
+        // or an unreported host context change: republish chips that could no longer be accepted.
+        engine.refreshSuggestionsIfStale()
     }
 
     /// The field or its contents changed outside these keys.
@@ -240,6 +243,17 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// Writes pending learning and diagnostics now (dismissal, memory warning, remount).
     func flushLearning() {
         engine.autocorrect.learning.flush()
+    }
+
+    /// A late worker or warmup completion must not read a hidden host's document proxy.
+    func suspendSuggestions() {
+        engine.suspendSuggestions()
+    }
+
+    /// Host became active again: only re-enable and refresh the strip. Layer, shift, undo,
+    /// touches and the style menu are kept (unlike `prepareForField`).
+    func resumeSuggestions() {
+        engine.resumeSuggestions()
     }
 
     /// Selection changes and keyboard dismissal must not retain current-word taps.

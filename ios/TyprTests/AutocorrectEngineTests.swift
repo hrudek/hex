@@ -163,8 +163,9 @@ final class AutocorrectEngineTests: XCTestCase {
         XCTAssertEqual(slots.dropFirst().first?.willAutoReplace, false)
     }
 
-    func testSpaceDeleteSpaceKeepLoopAndPersonalProtection() {
+    func testSpaceDeleteSpaceKeepLoopAndPersonalProtection() async {
         typeWord("teh")
+        await engine.waitForSuggestions()
         XCTAssertEqual(engine.suggestions.count >= 2, true)
         XCTAssertEqual(engine.suggestions[0].kind, .keepLiteral)
         XCTAssertEqual(engine.suggestions[1].replacement, "the")
@@ -197,11 +198,19 @@ final class AutocorrectEngineTests: XCTestCase {
         XCTAssertNil(AutocorrectEngine.singleEditKeyboardCost(from: "abcdef", to: "abxyef"), "two substitutions are rejected")
     }
 
-    func testTurningAutocorrectSettingOffKeepsSuggestionsWithoutAutoReplacing() {
+    func testTurningAutocorrectSettingOffKeepsSuggestionsWithoutAutoReplacing() async {
         engine.autocorrect.isEnabled = false
+        // A deterministic prefix suggestion proves this is the finished strip even with the
+        // Linux checker adapter. Automatic contraction of "dont" must still be disabled.
+        engine.autocorrect.loadLexiconEntries([("dontcare", "dontcare")])
         typeWord("dont")
+        // The finished ranking, not the interim literal chips.
+        await engine.waitForSuggestions()
         XCTAssertFalse(engine.suggestions.isEmpty)
-        XCTAssertFalse(engine.suggestions[1].willAutoReplace)
+        XCTAssertEqual(engine.suggestions[1].replacement, "dontcare")
+        XCTAssertEqual(engine.suggestions[1].kind, .primary(autoReplace: false))
+        XCTAssertTrue(engine.suggestions[1].isCompletion)
+        XCTAssertFalse(engine.suggestions.contains(where: \.willAutoReplace))
         tap(.space)
         XCTAssertEqual(target.text, "dont ")
     }

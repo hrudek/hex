@@ -216,7 +216,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertNil(replacement(engine, "GELLO"))
     }
 
-    func testSpaceUndoAndManualSuggestionKeepExistingLifecycle() throws {
+    func testSpaceUndoAndManualSuggestionKeepExistingLifecycle() async throws {
         let ac = engine()
         let target = FixtureTextTarget(text: "gello")
         target.autocapitalizationType = UITextAutocapitalizationType.none
@@ -248,6 +248,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         manualKeyboard.configureForField()
         track(evidence("gello", aimedAt: "hello", layout: manualKeyboard.layout), in: manual)
         manualKeyboard.refreshSuggestions()
+        await manualKeyboard.waitForSuggestions()
         let suggestion = try XCTUnwrap(manualKeyboard.suggestions.first { $0.replacement == "hello" })
         manualKeyboard.acceptSuggestion(suggestion)
         XCTAssertEqual(manualTarget.text, "hello ")
@@ -414,7 +415,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertEqual(ac.learning.diagnostics[.autoSpellingFallback], 0)
     }
 
-    func testManualEditSuggestionPickLearnsOnlyAlignedLabels() throws {
+    func testManualEditSuggestionPickLearnsOnlyAlignedLabels() async throws {
         let ac = editSuggestionEngine()
         let target = FixtureTextTarget(text: "helo")
         target.autocapitalizationType = UITextAutocapitalizationType.none
@@ -423,6 +424,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         keyboard.configureForField()
         track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
         keyboard.refreshSuggestions()
+        await keyboard.waitForSuggestions()
         let suggestion = try XCTUnwrap(keyboard.suggestions.first { $0.replacement == "hello" })
         keyboard.acceptSuggestion(suggestion)
         XCTAssertEqual(target.text, "hello ")
@@ -435,7 +437,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertFalse(ac.learning.model.lexicon.isKept("helo"))
     }
 
-    func testPickingTheRepeatedLiteralIsNotAnAlternativePick() throws {
+    func testPickingTheRepeatedLiteralIsNotAnAlternativePick() async throws {
         let ac = editSuggestionEngine(valid: ["hello", "helo"])
         let target = FixtureTextTarget(text: "helo")
         target.autocapitalizationType = UITextAutocapitalizationType.none
@@ -444,8 +446,22 @@ final class SpatialWordDecoderTests: XCTestCase {
         keyboard.configureForField()
         track(evidence("helo", aimedAt: "helo", layout: keyboard.layout), in: ac)
         keyboard.refreshSuggestions()
+        await keyboard.waitForSuggestions()
+        // The finished ranking suppresses structural "hello" for valid "helo". A decode
+        // counter proves we did not just inspect the identical-looking interim literal chips.
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 1)
+        let finished = keyboard.suggestions
+        keyboard.refreshSuggestions()
+        XCTAssertEqual(keyboard.suggestions.map(\.replacement), finished.map(\.replacement), "No literal-only flicker")
+        await keyboard.waitForSuggestions()
+        XCTAssertEqual(ac.learning.diagnostics[.suggestionDecodes], 1, "An unchanged worker refresh reuses its decode")
+        XCTAssertEqual(keyboard.suggestions.map(\.replacement), finished.map(\.replacement))
+        XCTAssertEqual(keyboard.suggestions.map(\.kind), finished.map(\.kind))
+        XCTAssertEqual(keyboard.suggestions.map(\.isCompletion), finished.map(\.isCompletion))
         let primary = try XCTUnwrap(keyboard.suggestions.dropFirst().first)
         XCTAssertEqual(primary.replacement, "helo")
+        XCTAssertEqual(primary.kind, .primary(autoReplace: false))
+        XCTAssertFalse(primary.isCompletion)
         keyboard.acceptSuggestion(primary)
         XCTAssertEqual(target.text, "helo ")
         XCTAssertEqual(ac.learning.diagnostics[.manualAlternativePick], 0)
@@ -947,7 +963,7 @@ final class SpatialWordDecoderTests: XCTestCase {
         XCTAssertEqual(result.automaticCandidate?.word, "hello")
     }
 
-    func testPrefixExtensionFromSpatialAndSpellingIsAlwaysCompletion() throws {
+    func testPrefixExtensionFromSpatialAndSpellingIsAlwaysCompletion() async throws {
         let source = SpatialWordDecoder(lexicons: [.english: lexicon([("keyboard", 100)])])
         for spatial in [true, false] {
             let ac = AutocorrectEngine(checker: SpatialChecker(valid: ["keyboard"],
@@ -959,6 +975,7 @@ final class SpatialWordDecoderTests: XCTestCase {
             keyboard.configureForField()
             track(evidence("keyboar", aimedAt: "keyboar", layout: keyboard.layout), in: ac)
             keyboard.refreshSuggestions()
+            await keyboard.waitForSuggestions()
             let suggestion = try XCTUnwrap(keyboard.suggestions.first { $0.replacement == "keyboard" })
             XCTAssertTrue(suggestion.isCompletion)
             keyboard.acceptSuggestion(suggestion)
