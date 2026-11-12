@@ -816,6 +816,37 @@ final class DictationControllerTests: XCTestCase {
         XCTAssertFalse(controller.keyboardSessionEnabled, "a lasting refusal still ends the warm session")
     }
 
+    func testKeyboardStartDuringInterruptionResumeKeepsItsCapture() async throws {
+        let now = 25_000.0
+        let audio = FakeAudioManager()
+        let bridge = KeyboardBridge(defaults: defaults)
+        let controller = makeRecoveryController(audio: audio, bridge: bridge, now: now,
+                                                retryDelays: [.milliseconds(50), .milliseconds(50)])
+        controller.prepareModel()
+        try await settle()
+        controller.selectWarmDuration(.fifteenMinutes)
+        try await settle()
+
+        controller.handleAudioSystemEvent(.interruptionBegan)
+        audio.busyActivationsRemaining = 2
+        controller.handleAudioSystemEvent(.interruptionEnded(shouldResume: true))
+        // Dictate right away, while the resume would still be retrying.
+        bridge.send(.start, jobID: "right-after-voice-message", style: .polished, sentAt: now)
+        controller.processPendingKeyboardCommandForTesting()
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording)
+        let capture = try XCTUnwrap(audio.createdCaptures.last)
+        let startsAfterCapture = audio.startKeepaliveCount
+
+        try await settle()
+        try await settle()
+        XCTAssertEqual(controller.phase, .recording, "the capture must keep recording")
+        XCTAssertTrue(capture.isRecording)
+        XCTAssertEqual(audio.startKeepaliveCount, startsAfterCapture, "no input restart under the capture")
+        XCTAssertTrue(controller.keyboardSessionEnabled)
+        controller.cancelCurrentJob()
+    }
+
     func testOnlyEngineFailuresRequireReloadingTheModel() {
         XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.silentAudio))
         XCTAssertTrue(DictationController.transcriptionFailureKeepsModel(WhisperTranscriber.TranscriberError.emptyTranscript))

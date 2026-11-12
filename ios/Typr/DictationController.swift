@@ -909,6 +909,11 @@ final class DictationController {
 
         phase = .requestingPermission
         copied = false
+        // The capture starts the input itself. A resume still retrying after an interruption
+        // must not restart (stop) the input under it later.
+        interruptionResumeTask?.cancel()
+        interruptionResumeTask = nil
+        suspendedWarmSessionOnInterruption = false
 
         inFlightPermissionRequests += 1
         Task {
@@ -1521,6 +1526,8 @@ final class DictationController {
                 try await self.activateAudio(isCurrent: {
                     self.suspendedWarmSessionOnInterruption && self.keyboardSessionEnabled
                         && self.keyboardSessionExpiresAt > self.now()
+                        && self.activeCapture == nil
+                        && self.phase != .requestingPermission && self.phase != .recording
                 }) {
                     try self.audio.startKeepalive(allowBluetooth: self.allowBluetoothMic)
                 }
@@ -1528,8 +1535,11 @@ final class DictationController {
                 self.interruptionResumeTask = nil
                 self.publishKeyboardSnapshot()
             } catch {
-                // Cancelled by a new interruption, a keyboard activation or the session ending.
-                guard !Task.isCancelled, self.suspendedWarmSessionOnInterruption else { return }
+                // Cancelled by a new interruption, a keyboard activation or capture, or the
+                // session ending. A capture owns the input now; never end its session here.
+                guard !Task.isCancelled, self.suspendedWarmSessionOnInterruption,
+                      self.activeCapture == nil,
+                      self.phase != .requestingPermission, self.phase != .recording else { return }
                 self.suspendedWarmSessionOnInterruption = false
                 self.interruptionResumeTask = nil
                 self.endWarmSession()
