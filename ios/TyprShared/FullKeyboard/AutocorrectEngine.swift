@@ -1000,22 +1000,21 @@ final class AutocorrectEngine {
     }
 
     private func rankedGuesses(for token: String) -> [String] {
-        let lower = token.lowercased()
-        return checker.guesses(for: token)
-            .prefix(8)
-            .enumerated()
-            .sorted { a, b in
-                let costA = Self.singleEditKeyboardCost(
-                    from: lower,
-                    to: a.element.replacingOccurrences(of: "'", with: "").lowercased()
-                ) ?? (2.0 + Double(abs(a.element.count - token.count)) * 0.3)
-                let costB = Self.singleEditKeyboardCost(
-                    from: lower,
-                    to: b.element.replacingOccurrences(of: "'", with: "").lowercased()
-                ) ?? (2.0 + Double(abs(b.element.count - token.count)) * 0.3)
-                return (costA + Double(a.offset) * 0.08) < (costB + Double(b.offset) * 0.08)
-            }
-            .map(\.element)
+        let lower: String = token.lowercased()
+        let tokenCount: Int = token.count
+        // Explicit types keep this sort comparator cheap to type-check.
+        let rankedCost: (Int, String) -> Double = { (offset: Int, guess: String) -> Double in
+            let normalized: String = guess.replacingOccurrences(of: "'", with: "").lowercased()
+            let lengthGap: Double = Double(abs(guess.count - tokenCount))
+            let fallback: Double = 2.0 + lengthGap * 0.3
+            let cost: Double = Self.singleEditKeyboardCost(from: lower, to: normalized) ?? fallback
+            return cost + Double(offset) * 0.08
+        }
+        let candidates: [(offset: Int, element: String)] = Array(checker.guesses(for: token).prefix(8).enumerated())
+        let sorted: [(offset: Int, element: String)] = candidates.sorted { (a: (offset: Int, element: String), b: (offset: Int, element: String)) -> Bool in
+            rankedCost(a.offset, a.element) < rankedCost(b.offset, b.element)
+        }
+        return sorted.map { (pair: (offset: Int, element: String)) -> String in pair.element }
     }
 
     // MARK: - Case matching & QWERTY distance
