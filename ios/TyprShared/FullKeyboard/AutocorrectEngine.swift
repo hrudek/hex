@@ -226,6 +226,7 @@ final class AutocorrectEngine {
             request.completion = completion
             request.completionReady = held
             request.boundary = boundaryJob(beforeInput: ownership.context)
+            request.boundaryModel = contextResources.model
             request.boundaryReady = request.boundary.flatMap { heldBoundary($0, evidence: rawEvidence) }
             return request
         }
@@ -237,6 +238,7 @@ final class AutocorrectEngine {
         request.completion = completion
         request.completionReady = held
         request.boundary = boundaryJob(beforeInput: ownership.context)
+        request.boundaryModel = contextResources.model
         request.boundaryReady = request.boundary.flatMap { heldBoundary($0, evidence: rawEvidence) }
         return request
     }
@@ -247,8 +249,13 @@ final class AutocorrectEngine {
               KeyboardBoundaryDecoder.isEligible(token) else { return nil }
         let head = beforeInput.dropLast(token.count)
         let previous = head.last == " " ? Self.currentToken(in: String(head.dropLast().suffix(66))) : nil
+        let model = contextResources.model.flatMap {
+            $0.supports(german: german != nil, english: englishEnabled) ? $0 : nil
+        }
+        let context = model?.context(before: beforeInput, currentToken: token)
         return .init(token: token, previous: previous, languages: suggestionLanguages,
-                     personal: learning.personalPriors, kept: learning.protections.kept)
+                     personal: learning.personalPriors, kept: learning.protections.kept,
+                     context: context.map { .init(previous: $0.previous, weightDE: $0.state.weightDE) })
     }
 
     private func heldBoundary(_ job: KeyboardBoundaryDecoder.Job,
@@ -647,7 +654,8 @@ final class AutocorrectEngine {
                 ?? heldBoundary(job, evidence: evidence)
                 ?? KeyboardBoundaryDecoder.retrieve(job, lexicons: spatialDecoder?.resourceSnapshot ?? [:],
                                                      whole: spatialOutcome(for: token, evidence: evidence,
-                                                                           forSuggestions: true))
+                                                                           forSuggestions: true),
+                                                     model: contextResources.model)
             if spatialDecoder?.isResourceLoading != true {
                 boundaryCache = BoundaryCache(retrieval: retrieval, evidence: evidence,
                                               generation: learning.generation,
@@ -667,6 +675,9 @@ final class AutocorrectEngine {
                         || Self.shorthandAllowlist.contains($0.lowercased())
                 }
                 if protected { continue }
+                // Dictionary validity stays authoritative even when the worker treated a
+                // FrequencyWords entry (e.g. "inthe") as merge noise: Apple's checker, not the
+                // ranking corpus, decides whether "comeback" or "beider" is a real word.
                 if candidate.kind == .split && literalIsValid(token) { continue }
                 if candidate.kind == .join && parts.allSatisfy({ literalIsValid($0) }) { continue }
                 let replacement: String
@@ -794,7 +805,11 @@ final class AutocorrectEngine {
         // stays first (Space and its highlight must still describe the unchanged decision).
         if let context, let model = contextModel {
             // Contacts retain #115's precedence too, even with a stronger corpus follower.
-            let slots = pool.indices.filter { $0 >= pinnedCount && !contactPicks.contains(pool[$0]) }
+            // Phrases already carry P(left|context)·P(right|left); do not rerank them
+            // as nonexistent unigram words or lose them behind completion candidates.
+            let slots = pool.indices.filter {
+                $0 >= pinnedCount && !contactPicks.contains(pool[$0]) && boundaries[pool[$0]] == nil
+            }
             let ranked = model.rerank(slots.map { pool[$0] }, spatialScores: spatialScores, context: context,
                                       german: german != nil, english: englishEnabled)
             for (slot, word) in zip(slots, ranked) { pool[slot] = word }

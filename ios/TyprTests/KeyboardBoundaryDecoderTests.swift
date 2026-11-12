@@ -11,14 +11,19 @@ final class KeyboardBoundaryDecoderTests: XCTestCase {
     final class Checker: TextChecking {
         let lexicon: SpatialWordLexicon?
         var trusted: Set<String>
+        /// Corpus entries a real dictionary does not list (FrequencyWords merge noise such
+        /// as "inthe"). A stated evaluation premise, not Apple dictionary evidence.
+        var rejected: Set<String>
         var calls = 0
-        init(_ lexicon: SpatialWordLexicon? = nil, trusted: Set<String> = []) {
+        init(_ lexicon: SpatialWordLexicon? = nil, trusted: Set<String> = [], rejected: Set<String> = []) {
             self.lexicon = lexicon
             self.trusted = trusted
+            self.rejected = rejected
         }
         func isWordValid(_ word: String) -> Bool {
             calls += 1
-            return trusted.contains(word.lowercased()) || lexicon?.logPrior(for: word.lowercased()) != nil
+            let lower = word.lowercased()
+            return trusted.contains(lower) || (!rejected.contains(lower) && lexicon?.logPrior(for: lower) != nil)
         }
         func guesses(for word: String) -> [String] { calls += 1; return [] }
         func completions(for prefix: String) -> [String] { calls += 1; return [] }
@@ -36,13 +41,24 @@ final class KeyboardBoundaryDecoderTests: XCTestCase {
         return sources
     }
 
+    func contextModel() throws -> KeyboardContextModel {
+        let packs = try ["de", "en"].map { language in
+            let url = try XCTUnwrap(Bundle.main.url(forResource: "keyboard-\(language)",
+                                                    withExtension: "tbg", subdirectory: "WordData"))
+            return try XCTUnwrap(KeyboardContextModel.Pack(contentsOf: url))
+        }
+        return try XCTUnwrap(KeyboardContextModel(de: packs[0], en: packs[1]))
+    }
+
     func engine(_ sources: [Language: SpatialWordLexicon], languages: Set<Language> = [.german, .english],
-                trusted: Set<String> = []) -> AutocorrectEngine {
-        let ac = AutocorrectEngine(checker: Checker(sources[.english], trusted: trusted),
-                                  spatialDecoder: SpatialWordDecoder(lexicons: sources))
+                trusted: Set<String> = [], rejected: Set<String> = [],
+                model: KeyboardContextModel? = nil) -> AutocorrectEngine {
+        let ac = AutocorrectEngine(checker: Checker(sources[.english], trusted: trusted, rejected: rejected),
+                                  spatialDecoder: SpatialWordDecoder(lexicons: sources),
+                                  contextResources: KeyboardContextResources(model: model))
         ac.englishEnabled = languages.contains(.english)
         if languages.contains(.german) {
-            ac.german = GermanAutocorrect(checker: Checker(sources[.german], trusted: trusted))
+            ac.german = GermanAutocorrect(checker: Checker(sources[.german], trusted: trusted, rejected: rejected))
         }
         return ac
     }
@@ -184,9 +200,10 @@ final class KeyboardBoundaryDecoderTests: XCTestCase {
     }
 
     func testWorkerPickUndoRejectionReversalAndStaleSuffix() async throws {
-        let sources = try resources()
-        for text in ["greatday", "Tasta tur"] {
-            let ac = engine(sources)
+        let sources = try resources(), model = try contextModel()
+        for text in ["greatday", "Tasta tur", "inthe"] {
+            // "inthe" exercises corpus merge-noise ranking; its dictionary must reject it.
+            let ac = text == "inthe" ? engine(sources, rejected: ["inthe"], model: model) : engine(sources)
             let target = FixtureTextTarget(text: text)
             let keyboard = FullKeyboardEngine(target: target, autocorrect: ac)
             keyboard.configureForField()

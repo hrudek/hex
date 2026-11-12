@@ -109,6 +109,11 @@ Linux does not prove real host callback/lifecycle ordering or iPhone latency.
 ## Exact boundary suggestions
 
 The suggestion worker can compare exact two-part splits without new touch evidence.
+It can use #118's immutable corpus model and bounded previous-context/language-weight
+snapshot for conditional lifts of P(left|context) and P(right|left); no extra tap
+window or personal history. Missing selected packs retain lexical-only split policy.
+The automatic-split experiments failed name/product controls or had under 10% recall,
+so Space/punctuation/Typr remain unchanged.
 For spelling-preserving splits, observed-letter densities cancel against the literal;
 existing whole-word spatial readings remain competitors. Exact joins inspect only
 one adjacent textual suffix separated by one ASCII space, not a retained previous

@@ -251,7 +251,14 @@ See [evaluation regression gates](KEYBOARD_SPATIAL_DECODER.md#evaluation-regress
 
 ## Manual boundary choices
 
-The strip can offer exact omitted-space splits and conservative exact joins; see
+The strip can offer exact omitted-space splits and conservative exact joins.
+P5b ranks splits with the existing public-corpus bigram model using only the short
+RAM field suffix; no personal pair/context associations or new storage are added.
+This corpus influence remains active with Learn from my typing off, while personal
+counts/calibration do not. Evaluated automatic-split gates either split lowercase
+names/products (`ina`, `malin`, `todo`, `athome`) or recovered under 10% of omitted
+spaces, so all boundary choices remain manual.
+See
 [the boundary policy](KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
 These are **suggestion-only**, with no automatic application at Space/punctuation/
 Typr-key boundaries. A manual pick replaces an owned suffix as one undoable step.

@@ -63,6 +63,8 @@ final class KeyboardSuggestionWorker {
         /// Exact split/join work is display-only and independent of touch evidence.
         var boundary: KeyboardBoundaryDecoder.Job?
         var boundaryReady: KeyboardBoundaryDecoder.Retrieval?
+        /// Shared immutable corpus maps (COW); no per-request copy of their byte payload.
+        var boundaryModel: KeyboardContextModel?
 
         /// Nothing left for the ranker: the held decode and completion retrieval are reused.
         var isSatisfied: Bool { ready != nil && (completion == nil || completionReady != nil) && (boundary == nil || boundaryReady != nil) }
@@ -96,7 +98,8 @@ final class KeyboardSuggestionWorker {
             let completion = request.completionReady
                 ?? request.completion.map { KeyboardCompletionRetrieval($0, lexicons: request.lexicons) }
             let boundary = request.boundaryReady ?? request.boundary.map {
-                KeyboardBoundaryDecoder.retrieve($0, lexicons: request.lexicons, whole: outcome)
+                KeyboardBoundaryDecoder.retrieve($0, lexicons: request.lexicons, whole: outcome,
+                                                 model: request.boundaryModel)
             }
             let elapsed = start.duration(to: .now).components
             return Result(request: request, outcome: outcome,

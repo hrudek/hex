@@ -129,6 +129,7 @@ manual suggestions only; earlier adoptions retain their pins and exclusions.
 | Source paths at this pin | Translated algorithm | Destination files |
 | --- | --- | --- |
 | `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (`joined`, `missedSpaces`, `Run.keep`, lines 513–707, 717–765) | Exact two-part segmentation, missing-boundary penalty, comparison against whole-word/OOV readings and bounded deterministic retention. Typr uses its own full-prior/relative-spatial comparison over existing TSW1/personal data, not upstream's multiword/context/neural decoder or automatic policy. Exact join removal protects two plausible parts without context. | `ios/TyprShared/FullKeyboard/KeyboardBoundaryDecoder.swift`, `KeyboardSuggestionWorker.swift`, `AutocorrectEngine.swift` (all in the same directory) |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift` (`missedSpaces` / whole comparison, lines 572–669), `LanguageModel.swift` (conditional probability/backoff, lines 1–86) | P5b: two-part conditional evidence P(left\|previous)·P(right\|left) versus whole-token evidence, translated to #118's immutable TBG1 corpus model as bounded conditional lifts on Typr's lexical scale, with lexical/code-switch backoff and ranking-only merge-noise weakening; dictionary validity stays authoritative. No upstream personal/neural model or automatic policy. Automatic-gate trials split lowercase names/products or recovered <10% and are not installed. | `ios/TyprShared/FullKeyboard/KeyboardBoundaryDecoder.swift`, `KeyboardSuggestionWorker.swift`, `AutocorrectEngine.swift`; `ios/TyprTests/KeyboardBoundaryContextTests.swift`, `KeyboardBoundaryEvaluationTests.swift` |
 | `Packages/KeyboardModules/Sources/KeyboardCore/Typing/TypingEngine+Words.swift` (boundary handling and owned suffix/revert, lines 259–417); `Packages/KeyboardModules/Tests/KeyboardCoreTests/AutocorrectTests.swift` (boundary scenarios) | Owned textual suffix, one-step revert; rewritten for Typr's revision-checked chips and existing undo path. Test scenarios reauthored with public synthetic text, not upstream fixture copies. | `ios/TyprShared/FullKeyboard/FullKeyboardEngine.swift`, `AutocorrectEngine.swift`; `ios/TyprTests/KeyboardBoundaryDecoderTests.swift`, `KeyboardBoundaryEvaluationTests.swift` |
 
 All boundary candidates are **suggestion-only**. Session phrase rejections cap at
@@ -140,7 +141,7 @@ English automatic protections remain unchanged. The existing full iikb MIT notic
 was verified against this pin's LICENSE and extended descriptively, not duplicated.
 
 Excluded: per-part spelling noise, multiword beam, space-tap/letter reinterpretation,
-number/unit runs, neural/context prediction, phrase persistence, upstream fixtures,
+number/unit runs, neural prediction, personal context learning, phrase persistence, upstream fixtures,
 resources/dependencies, dynamic hit attribution, swipe typing, emoji, themes,
 layouts, clipboard, network, neural weights and dictation changes. No upstream
 file is copied wholesale. Bounds, controls and Apple/iPhone proof limits are in

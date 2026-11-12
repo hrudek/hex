@@ -176,6 +176,11 @@ that pin's LICENSE, applies without duplication. These are rewritten manual-only
 Typr algorithms, not copied files, upstream test data, language data or dependencies;
 [PORTS.md](PORTS.md#exact-omitted-space-splits-and-joins-iikb-p5) lists paths and exclusions.
 The small closed-class short-word supplement is Typr original hand-curated work.
+P5b additionally translates two-part conditional scoring and whole comparison from
+that pin's `Corrector.swift` / `LanguageModel.swift`, using Typr's existing separately
+licensed TBG1 corpus model, lexical/code-switch backoff and manual-only policy.
+No new upstream data, neural weights, personal context storage or dependencies;
+the same MIT © 2026 Bassim Shahidy notice above applies.
 
 The bundled `keyboard-de.words` and `keyboard-en.words` are derived from **Hermit Dave /
 FrequencyWords**, revision `525f9b560de45753a5ea01069454e72e9aa541c6`, 2018 DE/EN

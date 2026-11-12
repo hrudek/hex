@@ -13,8 +13,29 @@ nonisolated enum KeyboardBoundaryDecoder {
     // readings, each in at most two tries (including rejected split endpoints).
     static let maximumLexicalQueries = 74
     static let maximumTrieEdgeChecks = maximumLexicalQueries * maxLetters * 30 * 2
+    // Conditional and unconditional mixture lookups: whole literal, eight whole
+    // competitors and both parts at every split. Each lookup uses ≤2 packs,
+    // ≤14 binary-search steps per key and ≤16 retained row edges.
+    static let maximumContextQueries = 2 + 2 * 8 + 4 * (maxLetters - 1)
+    static let maximumLanguageEvidenceQueries = 2 * (maxLetters - 1)
+    /// Bound on |ln lift| so one sparse corpus row cannot dominate the lexical scale.
+    static let maximumLogLift = log(1_000.0)
     static let missingSpacePenalty = log(0.01)
     static let joinMargin = log(100.0)
+
+    struct Context: Equatable, Sendable {
+        let previous: String?
+        let weightDE: Double
+
+        init(previous: String?, weightDE: Double) {
+            self.previous = previous.flatMap {
+                $0.utf8.count <= 128 && $0.count <= 32 ? KeyboardContextModel.key($0) : nil
+            }
+            self.weightDE = min(1, max(0, weightDE.isFinite ? weightDE : 0.5))
+        }
+    }
+
+    static var maximumContextPayloadBytes: Int { MemoryLayout<Context>.stride + 128 }
 
     struct Job: Equatable, Sendable {
         let token: String
@@ -23,6 +44,8 @@ nonisolated enum KeyboardBoundaryDecoder {
         let personal: PersonalLexiconSnapshot
         /// Explicit keeps protect whole literals even with personal ranking off.
         let kept: Set<String>
+        /// Bounded corpus-only state recomputed from the field suffix. Nil preserves unigram policy.
+        var context: Context? = nil
     }
 
     struct Candidate: Equatable, Sendable {
@@ -33,12 +56,19 @@ nonisolated enum KeyboardBoundaryDecoder {
         let replacement: String
         let score: Double
         let baseline: Double
+        /// Retained high-probability bigram evidence, never automatic authority.
+        var strongPair = false
+        /// The whole's FrequencyWords prior was treated as merge noise inside this ranking.
+        /// MainActor dictionary validity still vetoes the chip; this never relaxes it.
+        var weakWhole = false
     }
 
     struct Retrieval: Sendable {
         let job: Job
         let candidates: [Candidate]
         let lexicalQueries: Int
+        var contextQueries = 0
+        var languageEvidenceQueries = 0
     }
 
     /// Hand-curated closed-class words (Typr original work, not third-party data).
@@ -75,10 +105,14 @@ nonisolated enum KeyboardBoundaryDecoder {
     }
 
     static func retrieve(_ job: Job, lexicons: [Language: SpatialWordLexicon],
-                         whole: SpatialWordDecoder.Outcome? = nil) -> Retrieval {
-        var queries = 0
+                         whole: SpatialWordDecoder.Outcome? = nil,
+                         model: KeyboardContextModel? = nil) -> Retrieval {
+        var queries = 0, contextQueries = 0, languageEvidenceQueries = 0
         var found: [Candidate] = []
-        func result() -> Retrieval { Retrieval(job: job, candidates: found, lexicalQueries: queries) }
+        func result() -> Retrieval {
+            Retrieval(job: job, candidates: found, lexicalQueries: queries, contextQueries: contextQueries,
+                      languageEvidenceQueries: languageEvidenceQueries)
+        }
         func retain(_ candidate: Candidate) {
             found.append(candidate)
             found.sort {
@@ -106,20 +140,55 @@ nonisolated enum KeyboardBoundaryDecoder {
             }
             return best.map { $0 + job.personal.bonus(for: word) }
         }
+        let contextModel = model.flatMap {
+            job.context != nil && $0.supports(german: job.languages.contains(.german),
+                                              english: job.languages.contains(.english)) ? $0 : nil
+        }
+        func probability(_ word: String, after previous: String?) -> Double {
+            guard let contextModel else { return 0 }
+            contextQueries += 1
+            precondition(contextQueries <= maximumContextQueries)
+            return contextModel.probability(word, after: previous, weightDE: job.context?.weightDE ?? 0.5,
+                                            german: job.languages.contains(.german),
+                                            english: job.languages.contains(.english))
+        }
+        // P(w|c)/P(w): the context model's conditional evidence as a ratio. Both corpora
+        // estimate unigram frequency on different scales (subtitles vs. sentences), so the
+        // lexical TSW1 prior keeps the scale and context only multiplies it. Absent words
+        // and missing context back off to lift 1. P(left|c)·P(right|left) =
+        // P(left)·P(right)·lift(left|c)·lift(right|left) when both unigram sources agree.
+        func logLift(_ conditional: Double, _ unconditional: Double) -> Double {
+            guard conditional > 0, unconditional > 0 else { return 0 }
+            return min(maximumLogLift, max(-maximumLogLift, log(conditional / unconditional)))
+        }
+        func contextLift(_ word: String) -> Double {
+            guard let previous = job.context?.previous else { return 0 }
+            return logLift(probability(word, after: previous), probability(word, after: nil))
+        }
         let token = PersonalLexiconSnapshot.normalize(job.token)
         let wholePrior = prior(token)
         let protected = job.kept.contains(token) || (job.personal.counts[token] ?? 0) > 0
         if !protected, token.count >= 3 {
             // Corpus membership is not spelling validity (the packs contain e.g. "inthe").
-            // A known whole must lose on score too; MainActor separately vetoes valid literals.
-            var baseline = wholePrior ?? floor
+            // A known whole must lose on score too; MainActor separately vetoes every literal
+            // the enabled dictionaries accept.
+            let previous = job.context?.previous
+            let wholeContext = probability(token, after: previous)
+            let wholeUnigram = previous == nil ? wholeContext : probability(token, after: nil)
+            let literalBaseline = (wholePrior ?? floor) + logLift(wholeContext, wholeUnigram)
+            var competitorBaseline = -Double.infinity
             if case .result(let reading) = whole {
                 // Convert the existing .35-weighted whole-word score to full lexical log
                 // probability; the unchanged letters' spatial density cancels for exact splits.
                 for candidate in reading.candidates.prefix(8) where !candidate.isCompletion {
                     queries += 1
                     let p = sources.compactMap { lexicons[$0]?.logPrior(for: candidate.word) }.max() ?? floor
-                    baseline = max(baseline, candidate.score - reading.literalSpatialScore + 0.65 * p)
+                    // The literal itself is compared separately, including corpus merge noise.
+                    // candidate.score already includes its personal bonus; add it only once.
+                    if candidate.word != token {
+                        competitorBaseline = max(competitorBaseline, candidate.score - reading.literalSpatialScore
+                                                 + 0.65 * p + contextLift(candidate.word))
+                    }
                 }
             }
             let letters = Array(token)
@@ -127,10 +196,33 @@ nonisolated enum KeyboardBoundaryDecoder {
                 guard point <= maxPartLetters, letters.count - point <= maxPartLetters else { continue }
                 let left = String(letters[..<point]), right = String(letters[point...])
                 guard let a = prior(left), let b = prior(right) else { continue }
-                let score = a + b + missingSpacePenalty
+                var leftLift = 0.0, rightLift = 0.0, strongPair = false
+                if contextModel != nil {
+                    let leftUnigram = probability(left, after: nil)
+                    if let previous { leftLift = logLift(probability(left, after: previous), leftUnigram) }
+                    let pair = probability(right, after: left), rightUnigram = probability(right, after: nil)
+                    rightLift = logLift(pair, rightUnigram)
+                    // Corpus pairs do not cover code switches. Opposite-language evidence on
+                    // the parts must not let sparse monolingual rows penalize "mit you".
+                    let crossLanguage = job.languages.count == 2 && contextModel.map {
+                        languageEvidenceQueries += 2
+                        precondition(languageEvidenceQueries <= maximumLanguageEvidenceQueries)
+                        return $0.evidence(left) * $0.evidence(right) < 0
+                    } == true
+                    if crossLanguage { leftLift = max(0, leftLift); rightLift = max(0, rightLift) }
+                    // Merge noise needs an actual retained edge (not just frequent words) and a
+                    // whole absent from the independent sentence corpus. Keeps, counts and the
+                    // MainActor dictionary/contact/identifier protections still win.
+                    strongPair = wholeContext == 0 && wholeUnigram == 0 && pair >= 0.05
+                        && rightUnigram > 0 && pair / rightUnigram >= 2 && leftUnigram >= 0.001
+                }
+                let baseline = max(competitorBaseline, strongPair ? floor : literalBaseline)
+                let score = a + b + leftLift + rightLift + missingSpacePenalty
                 guard score > baseline else { continue }
                 retain(Candidate(kind: .split, original: job.token,
-                                       replacement: left + " " + right, score: score, baseline: baseline))
+                                 replacement: left + " " + right, score: score, baseline: baseline,
+                                 strongPair: strongPair,
+                                 weakWhole: strongPair && wholePrior != nil && literalBaseline > competitorBaseline))
             }
         }
         // Exact removal of one gratuitous space. Without contextual evidence TWO known parts
