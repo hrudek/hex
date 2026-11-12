@@ -351,19 +351,27 @@ final class FullKeyboardEngine {
         let before = target.documentContextBeforeInput
         let evidence = autocorrect.touchInput.evidence(beforeInput: before)
         let token = AutocorrectEngine.currentToken(in: before)
+        // Boundary chips own an exact bounded suffix, not just the current token. Ownership
+        // above includes the entire captured context/revision; recheck the actual proxy suffix too.
+        let original = suggestion.boundary?.original ?? token
+        if suggestion.boundary != nil {
+            guard let original, before?.hasSuffix(original) == true else { return }
+        }
         let keepWasNew = token.map { !autocorrect.learning.protections.kept.contains(PersonalLexiconSnapshot.normalize($0)) } ?? false
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
         }
         invalidateTouchEvidence(resetFastAim: false)
-        if let token {
-            for _ in 0..<token.count {
+        if let original {
+            for _ in 0..<original.count {
                 target.deleteBackward()
             }
         }
         autocorrect.clearPendingUndo()
         insert(suggestion.replacement + " ")
-        if suggestion.kind == .keepLiteral, let token {
+        if let boundary = suggestion.boundary {
+            autocorrect.recordAppliedBoundary(boundary, replacement: suggestion.replacement)
+        } else if suggestion.kind == .keepLiteral, let token {
             autocorrect.recordAppliedKeep(token, wasNew: keepWasNew)
         }
         // The suggestion's separator counts as the first space of double-space period.

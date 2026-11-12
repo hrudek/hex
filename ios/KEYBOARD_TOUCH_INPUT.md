@@ -106,6 +106,25 @@ before capturing evidence for feedback. Delayed completion, suspension, blocked
 worker and overlapping-held-tap tests live in `KeyboardSuggestionWorkerTests`;
 Linux does not prove real host callback/lifecycle ordering or iPhone latency.
 
+## Exact boundary suggestions
+
+The suggestion worker can compare exact two-part splits without new touch evidence.
+It can use #118's immutable corpus model and bounded previous-context/language-weight
+snapshot for conditional lifts of P(left|context) and P(right|left); no extra tap
+window or personal history. Missing selected packs retain lexical-only split policy.
+The automatic-split experiments failed name/product controls or had under 10% recall,
+so Space/punctuation/Typr remain unchanged.
+For spelling-preserving splits, observed-letter densities cancel against the literal;
+existing whole-word spatial readings remain competitors. Exact joins inspect only
+one adjacent textual suffix separated by one ASCII space, not a retained previous
+word/space-tap window. No missing-space position or boundary label is invented.
+Manual split/join choices and immediate undo teach **no taps or word counts**;
+acceptance still revalidates full ownership and the exact suffix before editing.
+The boundary retrieval cache is cleared on evidence invalidation. Current/pending
+raw taps, static hit-testing, Space/Typr gestures, double-space period and all
+existing capture invalidations remain unchanged. This is not spatial boundary-error
+recovery; see [the policy and limits](KEYBOARD_SPATIAL_DECODER.md#omitted-spaces-and-exact-joins).
+
 ## Corpus context suggestions
 
 The [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions)
