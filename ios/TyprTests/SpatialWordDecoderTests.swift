@@ -845,11 +845,15 @@ final class SpatialWordDecoderTests: XCTestCase {
         let lexicons: [SpatialWordDecoder.Language: SpatialWordLexicon] = [.english: lexicon(english), .german: lexicon(german)]
         let decoder = SpatialWordDecoder(lexicons: lexicons)
         let originBound = SpatialWordDecoder(lexicons: lexicons, usesLegacySearch: true)
-        let calibrations: [SpatialTouchCalibration?] = [nil] + [0.08, -0.5, 0.5].map { offset in
-            SpatialTouchCalibration(keys: Dictionary(uniqueKeysWithValues: "abcdefghijklmnopqrstuvwxyz".enumerated().map { index, letter in
-                (letter, .init(offsetX: offset, offsetY: -offset / 2, sigmaX: 0.30, sigmaY: 0.40,
-                               covarianceXY: index % 2 == 0 ? 0.035 : -0.035))
-            }))
+        let offsets: [Double] = [0.08, -0.5, 0.5]
+        let calibrations: [SpatialTouchCalibration?] = [nil] + offsets.map { (offset: Double) -> SpatialTouchCalibration? in
+            let keys: [(Character, SpatialTouchCalibration.Key)] = "abcdefghijklmnopqrstuvwxyz".enumerated().map { index, letter in
+                let covariance: Double = index % 2 == 0 ? 0.035 : -0.035
+                let key = SpatialTouchCalibration.Key(offsetX: offset, offsetY: -offset / 2, sigmaX: 0.30, sigmaY: 0.40,
+                                                      covarianceXY: covariance)
+                return (letter, key)
+            }
+            return SpatialTouchCalibration(keys: Dictionary(uniqueKeysWithValues: keys))
         }
         let pairs = [("gello", "hello"), ("helo", "helo"), ("heallo", "heallo"), ("hlelo", "hlelo")]
         let scenarios = calibrations.flatMap { c in pairs.map { ($0.0, $0.1, c) } }
