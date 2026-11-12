@@ -418,7 +418,8 @@ whole-word rules/corrections keep their precedence and automatic policy.
   A chip carries its exact original suffix as well as the existing full
   field/context/revision ownership. Acceptance rechecks both before one suffix edit.
   One immediate Backspace restores the entire original suffix, including a join's
-  original space. No constituent-word counts or tap labels are inferred from a pick.
+  original space. No constituent-word counts, tap labels or personal word pairs are
+  inferred from a pick; it also breaks the RAM next-word predecessor.
 
 Undo records a **session-only FIFO of at most 64 boundary rejection pairs**. These
 phrases cannot enter the existing letter/apostrophe-only persistent pair schema;
@@ -519,8 +520,12 @@ spaces likewise fabricate no points. Corrected first words, second spaces, punct
 backspace, selection/field/layout/cancel/lifecycle/memory-warning changes drop the window.
 Leading/trailing reinterpretations intentionally abstain rather than consume deliberate
 second Space; both parts must be nonempty. A geometrically ambiguous real Space cancels
-the first fragment's pending literal-learning feedback. Manual picks/undo train neither
-inferred boundary labels nor constituent counts; no new file/schema/network/settings.
+the first fragment's pending literal-learning feedback and breaks the RAM trusted-word
+chain. Manual picks/undo train neither inferred boundary labels, constituent counts nor
+personal pairs, and supply no inferred pair endpoint. Ordinary centred word boundaries
+preserve #122's predecessor while retaining P6 geometry; the follower still requires
+independent next-letter settlement. Language/evidence discontinuities clear pending
+feedback and predecessor as before. No new file/schema/network/settings.
 
 Each boundary snapshot has a **32,768-byte element/string payload cap**, checked before
 retrieval; the 32-sample limit includes the retained Space. Only one previous word is
@@ -565,13 +570,27 @@ rollover ordering, invalidation/late release, combined caps, suffix ownership an
 UIKit compilation, Apple dictionaries, two-host real Space/thumb behavior, simulator,
 physical latency/footprint and Full Access behavior remain unverified on Linux.
 
-Final Linux run: **352 total, 342 passed, 1 known Linux Foundation backup-exclusion
+Original P6-only Linux run: **352 total, 342 passed, 1 known Linux Foundation backup-exclusion
 metadata failure, 9 explicit skips**; all nine P6 tests passed. Scratch Swift 6 build/
 nine-test run with `-Xfrontend -warn-long-expression-type-checking=100` passed with
 no long-expression warnings (one pre-existing unused-variable warning in P5 evaluation).
 Repository Python checks passed **76 + 25 tests**; bash syntax, shellcheck, actionlint
 and `git diff --check` passed. No harness adaptations were needed. These are observed
 Linux checks, not Xcode/UIKit compilation, simulator or real-iPhone proof.
+
+**M6 merge verification with #122:** the full Swift 6.4.2 Linux harness ran twice:
+**370 total, 360 passed, 1 known backup-metadata failure, 9 skips**. All 11 P6 tests
+(including two new integration regressions) and all 16 personal-pair tests/evaluations
+passed. Normal real-Space and Typr-key DE/EN/mixed fixtures learned six pairs only
+after follower settlement; four spatial-pick/undo scenarios produced zero inferred
+pairs, counts or touch labels. Retained current-only splits also preserved the prior
+real-Space window without expanding the edited suffix. P6 recall/control/byte/work
+metrics were unchanged; final retrieval p95 .38–1.94 ms (max 1.94 ms), report-only.
+The incoming exhaustive personal-mixture oracle was split into explicitly typed
+scoring/sorting steps after a diagnostic compile found an 846 ms expression;
+subsequent 100 ms-warning compilation plus 23 focused tests passed without
+long-expression warnings. Repository Python 76 + 25, shell syntax, shellcheck,
+actionlint and diff checks passed. No harness adaptation or Apple/device proof.
 
 ### Original P5 Linux synthetic check (before context integration)
 
@@ -973,8 +992,14 @@ coverage, physical grip recovery and extension latency/memory remain unverified.
 
 ## Offline corpus context suggestions
 
+P4 additionally layers [trusted personal word-pair counts](KEYBOARD_LEARNING.md#personal-next-word-pairs)
+over this corpus distribution for predictions and bounded display reranking.
+The mixture, schema 3, privacy/deletion, trust gates and bounds live in that
+reference. Prediction picks honor sentence auto-capitalization without lowercasing
+German nouns. Automatic correction is unchanged.
+
 `KeyboardContextModel` adds **suggestion-only** corpus context, not a new
-correction objective or personal context learner. At a trailing space the strip
+correction objective. The corpus layer itself does not learn personal contexts. At a trailing space the strip
 can show three next words; tapping inserts that word plus the existing separator.
 No keep chip or automatic highlight is used for predictions. While typing with usable
 context and all selected packs, existing spatial/spelling/completion alternatives
@@ -1032,13 +1057,15 @@ completions from context scoring. Personal promotions keep #115's count/keep ord
 as their baseline; completion provenance and personal-pick diagnostics survive the
 rerank. **Learn from my typing off supplies no personal candidates, calibration or
 count influence**; the public-corpus context gain remains active independently of
-that switch. No personal context is learned or stored. Without usable context, with Autocorrect off, or without
+that switch. The corpus layer itself stores no personal context; P4's separate
+approved follower counts participate only while learning is on. Without usable context, with Autocorrect off, or without
 every selected pack, retrieval keeps the old two-alternative/checker-work budget.
 This ranker cannot authorize any replacement: `decide`, automatic spatial scores/
 completeness, German casing validation, protections, margins and Space/punctuation/
 undo transactions are unchanged. Names and productive compounds remain protected
 from automatic frequency chasing.
 
+Corpus context extraction remains independent of stored personal follower counts.
 Only the last **256 characters / 2,048 UTF-8 bytes** before the caret are
 read in RAM; the active token is excluded from completed-word evidence. A clipped first word is discarded. The state is recomputed from that
 suffix on each request (no repeated-word double consumption, retained cross-field

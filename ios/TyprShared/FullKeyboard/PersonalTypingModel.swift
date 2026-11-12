@@ -1,6 +1,6 @@
 import Foundation
 
-/// Aggregates only: no raw taps, word order or surrounding text are retained.
+/// Aggregates only: no raw taps, sentences or surrounding text are retained.
 @MainActor
 final class PersonalTypingModel {
     nonisolated struct TouchStats: Codable, Equatable, Sendable {
@@ -105,14 +105,17 @@ final class PersonalTypingModel {
     }
 
     nonisolated struct State: Codable, Equatable, Sendable {
-        var schemaVersion = 2
+        var schemaVersion = 3
         var layouts: [String: LayoutStats] = [:]
         var kept: [String: Date] = [:]
         var counts: [String: WordCount] = [:]
         var rejected: [RejectedCorrection] = []
+        // Optional decoding permits schema 1/2 migration without inventing observations.
+        var bigrams: PersonalBigramModel? = .init()
 
         func validated() -> State? {
-            guard (1...2).contains(schemaVersion), layouts.count <= 4,
+            guard (1...3).contains(schemaVersion), layouts.count <= 4,
+                  (schemaVersion < 3 || bigrams != nil),
                   Set(kept.keys).union(counts.keys).count <= 2000, rejected.count <= 512,
                   Set(rejected).count == rejected.count else { return nil }
             for (id, layout) in layouts {
@@ -132,7 +135,10 @@ final class PersonalTypingModel {
                       && $0.value.lastUpdated.timeIntervalSinceReferenceDate.isFinite }),
                   rejected.allSatisfy({ Self.validRejectedWord($0.typed) && Self.validRejectedWord($0.replacement) }) else { return nil }
             var migrated = self
-            migrated.schemaVersion = 2
+            migrated.schemaVersion = 3
+            // Schema 1/2 start empty (no invented observations). An out-of-bounds pair section
+            // drops only the pairs: keeps, counts, rejections and touch statistics survive.
+            if migrated.bigrams?.isValid != true { migrated.bigrams = .init() }
             return migrated
         }
 
@@ -176,11 +182,13 @@ final class PersonalTypingModel {
                         : $0.value.lastUpdated < $1.value.lastUpdated
                 })?.key {
                     counts.removeValue(forKey: victim)
+                    bigrams?.purge(victim)
                 } else if let victim = kept.min(by: {
                     $0.value == $1.value ? $0.key < $1.key : $0.value < $1.value
                 })?.key {
                     kept.removeValue(forKey: victim)
                     counts.removeValue(forKey: victim)
+                    bigrams?.purge(victim)
                 }
             }
         }
@@ -188,6 +196,11 @@ final class PersonalTypingModel {
         /// Used only to enforce the encoded byte ceiling. Touch statistics are never evicted here.
         mutating func dropOldestLexiconEntries(_ limit: Int) -> Bool {
             guard limit > 0 else { return false }
+            // Frequency associations yield to explicit protections under the whole-file ceiling.
+            if let count = bigrams?.pairCount, count > 0 {
+                for _ in 0..<min(count, limit) { bigrams?.dropWeakest() }
+                return true
+            }
             enum Entry { case kept(String), counted(String) }
             var entries: [(Date, String, Entry)] = kept.map { ($0.value, "k:" + $0.key, .kept($0.key)) }
             entries += counts.map { ($0.value.lastUpdated, "c:" + $0.key, .counted($0.key)) }
@@ -236,6 +249,8 @@ final class PersonalTypingModel {
         let countedWords: Int
         let wordCountTotal: Int
         let rejectedCorrections: Int
+        var storedPairs: Int = 0
+        var pairByteBound: Int = 0
         var effectiveTouchCount: Int { layouts.flatMap(\.keys).reduce(0) { $0 + $1.n } }
     }
 
@@ -403,6 +418,13 @@ final class PersonalTypingModel {
         return true
     }
 
+    func recordPair(_ word: String, after previous: String) {
+        guard isLearningEnabled else { return }
+        state.bigrams?.record(word, after: previous)
+    }
+
+    /// Immediate keep revert only: the word's independently learned pairs stay.
+    /// Explicit deletion in Manage learned words purges pairs in the store instead.
     func forgetKeep(_ word: String) {
         state.kept.removeValue(forKey: PersonalLexiconSnapshot.normalize(word))
         cachedLexicon = nil
@@ -413,7 +435,9 @@ final class PersonalTypingModel {
         cachedLexicon = nil
     }
 
+    /// Explicit count deletion also purges every pair naming the word.
     func forgetCount(_ word: String) {
+        state.bigrams?.purge(word)
         state.counts.removeValue(forKey: PersonalLexiconSnapshot.normalize(word))
         cachedLexicon = nil
     }
@@ -438,7 +462,8 @@ final class PersonalTypingModel {
                 })
         }
         return Summary(layouts: layouts, keptWords: state.kept.count, countedWords: state.counts.count,
-            wordCountTotal: state.counts.values.reduce(0) { $0 + $1.count }, rejectedCorrections: state.rejected.count)
+            wordCountTotal: state.counts.values.reduce(0) { $0 + $1.count }, rejectedCorrections: state.rejected.count,
+            storedPairs: state.bigrams?.pairCount ?? 0, pairByteBound: state.bigrams?.encodedByteBound ?? 0)
     }
 
     /// Mutates RAM too, so the same invalid aggregate is reported only once.

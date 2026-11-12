@@ -294,6 +294,100 @@ final class KeyboardBoundaryTouchTests: XCTestCase {
         print("EVAL P6_density sparse_recall=1 calibrated_letter_recall=1 space_training=none static_space_prior_unchanged=true learning_off_recall=1")
     }
 
+    func testRetainedRealSpacePreservesSettledPersonalPairs() throws {
+        let sources = try helper.resources()
+        let fixtures: [(String, String, Set<Language>)] = [
+            ("hello", "world", [.english]),
+            ("guten", "morgen", [.german]),
+            ("meine", "coffee", [.german, .english])
+        ]
+        for (first, second, languages) in fixtures {
+            for realSpace in [true, false] {
+                let ac = helper.engine(sources, languages: languages, trusted: [first, second])
+                let target = FixtureTextTarget(text: "")
+                target.autocapitalizationType = .some(.none)
+                let keyboard = FullKeyboardEngine(target: target, autocorrect: ac)
+                keyboard.width = grid.width
+                keyboard.configureForField()
+                for letter in first { try tap(String(letter), keyboard: keyboard) }
+                if realSpace { try tap(" ", keyboard: keyboard) } else { keyboard.typeSpaceFromTyprKey() }
+                for letter in second { try tap(String(letter), keyboard: keyboard) }
+                XCTAssertEqual(ac.learning.previousTrustedWord, first)
+                XCTAssertEqual(ac.learning.personalBigrams.pairCount, 0, "Follower must settle independently")
+                let boundary = ac.touchInput.boundaryEvidence(beforeInput: target.text)
+                XCTAssertEqual(boundary?.space != nil, realSpace, "Only real Space retains geometry")
+                if realSpace { try tap(" ", keyboard: keyboard) } else { keyboard.typeSpaceFromTyprKey() }
+                XCTAssertEqual(ac.learning.previousTrustedWord, first, "An ordinary boundary preserves adjacency")
+                XCTAssertEqual(ac.learning.personalBigrams.pairCount, 0)
+                try tap("n", keyboard: keyboard)
+                XCTAssertEqual(ac.learning.personalBigrams.followers(after: first), [second: 1])
+                XCTAssertEqual(ac.learning.previousTrustedWord, second)
+            }
+        }
+        print("EVAL M6_settlement language_buckets=3 separator_modes=2 settled_pairs=6 premature_pairs=0 fabricated_spaces=0")
+    }
+
+    func testSpatialRecoveryPickAndUndoNeverSupplyPersonalPairEndpoints() async throws {
+        let sources = try helper.resources()
+        let fixtures = [try splitTouch("greatvday", index: 5), try joinTouch("a out", aimed: "b")]
+        for touch in fixtures {
+            for undo in [false, true] {
+                let ac = helper.engine(sources, languages: [.english], trusted: ["hello", "next"])
+                let target = FixtureTextTarget(text: "")
+                target.autocapitalizationType = .some(.none)
+                let keyboard = FullKeyboardEngine(target: target, autocorrect: ac)
+                keyboard.width = grid.width
+                keyboard.configureForField()
+                for letter in "hello " { try tap(String(letter), keyboard: keyboard) }
+                var samples = touch.previous?.samples ?? []
+                if let space = touch.space { samples.append(space) }
+                samples.append(contentsOf: touch.current.samples)
+                for sample in samples {
+                    let center = CGPoint(x: sample.key.frame.midX, y: sample.key.frame.midY)
+                    keyboard.touchBegan(id: 1, at: center)
+                    keyboard.touchEnded(id: 1, at: sample.point)
+                }
+                XCTAssertEqual(target.text, "hello " + touch.original)
+                let captured = try XCTUnwrap(ac.touchInput.boundaryEvidence(beforeInput: target.text))
+                XCTAssertEqual(captured.current, touch.current)
+                if touch.space != nil {
+                    XCTAssertEqual(captured.previous, touch.previous)
+                    XCTAssertEqual(captured.space, touch.space)
+                    XCTAssertNil(ac.learning.previousTrustedWord, "Ambiguous Space breaks the earlier pair chain")
+                    XCTAssertNil(ac.learning.model.state.counts["a"])
+                } else {
+                    XCTAssertEqual(ac.learning.previousTrustedWord, "hello")
+                }
+                await keyboard.waitForSuggestions()
+                let chip = try XCTUnwrap(keyboard.suggestions.first { $0.boundary?.spatial == true })
+                let state = ac.learning.model.state
+                let labels = ac.learning.diagnostics.acceptedLabels
+                keyboard.acceptSuggestion(chip)
+                XCTAssertEqual(target.text, "hello " + chip.replacement + " ")
+                XCTAssertNil(ac.learning.previousTrustedWord)
+                XCTAssertEqual(ac.learning.personalBigrams, state.bigrams ?? .init())
+                XCTAssertEqual(ac.learning.model.state.counts, state.counts)
+                XCTAssertEqual(ac.learning.model.state.layouts, state.layouts)
+                XCTAssertEqual(ac.learning.diagnostics.acceptedLabels, labels)
+                if undo {
+                    keyboard.deleteBackward()
+                    XCTAssertEqual(target.text, "hello " + touch.original)
+                    keyboard.typeSpaceFromTyprKey()
+                }
+                for letter in "next n" { try tap(String(letter), keyboard: keyboard) }
+                XCTAssertEqual(ac.learning.personalBigrams, state.bigrams ?? .init())
+                XCTAssertEqual(ac.learning.model.state.counts["about"], state.counts["about"])
+                XCTAssertEqual(ac.learning.model.state.counts["great"], state.counts["great"])
+                XCTAssertEqual(ac.learning.model.state.counts["day"], state.counts["day"])
+                XCTAssertEqual(ac.learning.previousTrustedWord, "next", "A later independent word starts a fresh chain")
+                // Only the independently typed `next` may supply new labels, never the recovered suffix.
+                let nextLabels = ac.learning.diagnostics.acceptedLabels - labels
+                XCTAssertEqual(nextLabels, 4)
+            }
+        }
+        print("EVAL M6_recovery cases=4 inferred_pairs=0 inferred_word_counts=0 inferred_touch_labels=0 undo_steps=1")
+    }
+
     func testWorkerPickOneStepUndoAndNoBoundaryTraining() async throws {
         let sources = try helper.resources()
         for touch in [try splitTouch("greatvday", index: 5), try joinTouch("a out", aimed: "b")] {
