@@ -63,23 +63,6 @@ and verify recount the cache. Both require the **approved output hashes**, and
 verify also compares a second compilation byte-for-byte. Nothing installs output
 automatically; copying changed data requires new source/license/content review.
 
-Normalization is NFC + lowercase (not casefold: ß remains ß); English internal
-apostrophes normalize to ASCII. Invalid/numeric tokens break adjacency, sentence
-boundaries do not form lexical pairs. Sentence deduplication is global across
-sources/languages by normalized compact JSON token sequence. First SHA-256 uint64
-big-endian modulo ten: 0 test, 1 validation, 2…9 training. Vocabulary, counts and
-display casing use **training only**. Display casing uses interior observations
-before sentence-initial observations. N=8,000, K=3, count≥10, D=.5, alpha=.5 are
-fixed D3b validation-selected parameters, not re-tuned by this production compiler.
-Compile output is 662,793 bytes combined (see WordData README for hashes).
-
-The 128-sentence Common Voice fixture is CC0, first 64 SHA-ordered global-test
-sentences per language with 5–20 tokens and no invalid barriers. It is independent
-of training by normalized digest, **not** by template/author/translation family.
-`swift-reference-vectors.json` is Typr-generated numeric reference output from the
-Python scorer (47 events, published D3b sequences); the Python and Swift tests
-check all state, weight and suppressed/unsuppressed top-three probabilities.
-
 ## Credits and distribution
 
 `credits/tatoeba-training-attribution.tsv.gz` is the deterministic, complete

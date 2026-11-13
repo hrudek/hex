@@ -1,34 +1,12 @@
 # Typr
 
 Typr is a private, standalone iPhone dictation keyboard with a containing app,
-widgets and Live Activity. Speech stays on-device: Apple Speech on iOS 26+,
-Parakeet V2 via FluidAudio, or Whisper Large V3 Turbo via WhisperKit on iOS 18+
-([speech engines](ios/SPEECH_ENGINES.md)). Whisper downloads only on explicit
-request. The keyboard exchanges commands and completed text with the app; it
-never accesses the microphone, model or network.
+widgets and Live Activity. Speech stays on-device (Apple Speech, Parakeet V2 or
+Whisper Large V3 Turbo). The keyboard never accesses the microphone, model or network.
 
-Typr is based on Hex by Kit Langton
-(https://github.com/kitlangton/hex / https://github.com/anomalyco/hex), MIT
-(© Christopher Langton; the original [LICENSE](LICENSE) is preserved).
-[PORTS.md](PORTS.md) records adopted sources and how future changes are selected.
+Typr is based on Hex by Kit Langton (https://github.com/anomalyco/hex, base commit
+`cae389a8`), MIT; the original [LICENSE](LICENSE) is preserved. Other third-party
+code and data: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Build and test
-
-On macOS, install Xcode 26+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
-2.46.0+, then:
-
-```sh
-cd ios
-xcodegen generate
-xcodebuild test -project Typr.xcodeproj -scheme Typr -destination "id=<SIM_UDID>"
-```
-
-Alternatively, from the repository root:
-`bash .github/typr/agent-test.sh [Target/Class,…]` keeps the committed app
-identity unchanged. Signing and device installation require the owner's Apple
-configuration. CI validates the committed Typr identity without rewriting it.
-
-Start with [AGENTS.md](AGENTS.md) for development,
-[TYPR.md](TYPR.md) for the feature table, review and CI/TestFlight,
-and [ios/README.md](ios/README.md) for architecture and verification limits.
-The default integration branch is `main`; app code stays in `ios/`.
+Development rules: [AGENTS.md](AGENTS.md). Architecture and build:
+[ios/README.md](ios/README.md). CI and release: [.github/typr/README.md](.github/typr/README.md).

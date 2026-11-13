@@ -112,7 +112,7 @@ jobs:
             echo "### Ready to install · PR #$PR"
             echo "Reused CI run $SOURCE_RUN, source commit \`$SOURCE_SHA\`."
             echo 'No new build, no TestFlight upload; the original build number is preserved.'
-            echo 'Download the encrypted IPA artifact, decrypt it and install with iphone-wifi (TYPR.md).'
+            echo 'Download the encrypted IPA artifact, decrypt it and install with iphone-wifi (.github/typr/README.md).'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Encrypt signing diagnostics
         if: always()

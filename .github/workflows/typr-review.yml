@@ -94,8 +94,8 @@ jobs:
           prompt: |
             You are the code REVIEWER for Typr pull request #${{ github.event.pull_request.number }}
             in ${{ github.repository }}. Typr is a standalone iPhone dictation keyboard;
-            read TYPR.md first, and AGENTS.md / ios/README.md where the change touches
-            their rules.
+            read AGENTS.md first, ios/README.md where the change touches runtime, switches or
+            privacy, and .github/typr/README.md where it touches CI.
 
             Review exactly commit ${{ github.event.pull_request.head.sha }} (checked out) against
             the PR base: `git diff origin/main...HEAD` and `git log origin/main..HEAD`.
@@ -107,9 +107,10 @@ jobs:
             Report as a finding only what must change before merging:
             - bugs, crashes, races, data loss, wrong behaviour versus the PR description;
             - security or privacy problems (secrets, signing, untrusted input, workflow injection);
-            - violations of TYPR.md's rules (changes under .github/ without the infra label,
+            - violations of AGENTS.md's rules (changes under .github/ without the infra label,
               Typr switch rules, committed app identity (identity.py validates dev.rudek.typr
-              identifiers), missing simulator tests for new behaviour, missing or wrong feature-table row);
+              identifiers), missing simulator tests for new behaviour, a switch added or removed
+              without updating the switch list in ios/README.md);
             - conflict markers, broken builds you can see from the code, tests that were weakened.
             Everything optional (style, naming, small refactors, ideas) goes into `notes`, never
             into `findings`. Do not invent problems: an empty findings list is the right answer

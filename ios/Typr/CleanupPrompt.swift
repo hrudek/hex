@@ -2,7 +2,7 @@ import Foundation
 
 /// The cleanup instructions follow OpenWhispr's cleanup prompt structure (role, "the speaker is never
 /// talking to you", cleanup / conversions / formatting / examples / output sections, and the output
-/// rule repeated after the transcript; MIT, © 2024 OpenWhispr Team, see PORTS.md), adapted to Typr:
+/// rule repeated after the transcript; MIT, © 2024 OpenWhispr Team, see THIRD_PARTY_NOTICES.md), adapted to Typr:
 /// free rewriting into good written language, German examples with technical terms, the owner's
 /// hyphen rule, the Custom vocabulary spellings and data-only context. Kept compact for the on-device
 /// model's context window (instructions + prompt + answer share about 4,096 tokens).
