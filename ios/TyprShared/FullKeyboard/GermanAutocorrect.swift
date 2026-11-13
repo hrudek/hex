@@ -37,6 +37,23 @@ final class GermanAutocorrect {
         return lower.count >= 2 && isValid(lower)
     }
 
+    // MARK: - Contextual noun suggestions
+
+    /// A local cue is not a parser: nominalized verbs/adjectives remain ambiguous.
+    /// Only the dictionary (never lowercase corpus frequency) establishes noun casing.
+    func nounSuggestion(_ token: String, after previous: String?) -> String? {
+        guard (3...32).contains(token.count), token == token.lowercased(),
+              token.allSatisfy({ $0.isLetter }), let previous,
+              Self.nounCues.contains(previous) else { return nil }
+        let title = token.prefix(1).uppercased() + token.dropFirst()
+        return isValid(title) ? title : nil
+    }
+
+    private static let nounCues: Set<String> = [
+        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer", "eines",
+        "am", "beim", "im", "ins", "zum", "zur", "vom", "mit", "ohne", "bei", "für", "von",
+    ]
+
     // MARK: - Umlauts
 
     private static let digraphs: [(ascii: String, replacement: String)] = [
@@ -48,7 +65,9 @@ final class GermanAutocorrect {
         guard token.count >= 3, !token.contains("'"), !englishValid else { return nil }
         let lower = token.lowercased()
         guard Self.digraphs.contains(where: { lower.contains($0.ascii) }) else { return nil }
-        if isValid(token) || isValid(lower) { return nil }
+        let title = lower.prefix(1).uppercased() + lower.dropFirst()
+        // `masse` is valid as `Masse`; do not chase `Maße` (nor Mauer/Steuer/names).
+        if isValid(token) || isValid(lower) || isValid(title) { return nil }
 
         if let hit = Self.commonUmlautWords[lower] {
             return AutocorrectEngine.matchCase(of: token, onto: hit)

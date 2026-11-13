@@ -747,10 +747,10 @@ final class AutocorrectEngine {
         }
         if let autoFix {
             if !pool.contains(autoFix) { pool.append(autoFix) }
-        } else if englishEnabled, let suggested = Self.suggestOnlyContractions[lower] {
-            pool.append(Self.matchCase(of: token, onto: suggested))
+        } else if isEnabled, let suggested = orthographySuggestion(token, context: context) {
+            pool.append(suggested)
         }
-        // Explicit revert, automatic choice and suggest-only contraction keep their slots.
+        // Explicit revert, automatic choice and manual orthography keep their slots.
         let pinnedCount = pool.count
 
         // Imported completions precede speculative alternatives, but never an explicit/automatic pick.
@@ -1126,6 +1126,39 @@ final class AutocorrectEngine {
 
     // MARK: - Correction policy
 
+    /// Manual alternatives only. Never changes Space authority or infers a touch label.
+    private func orthographySuggestion(_ token: String, context: KeyboardContextModel.Context?) -> String? {
+        let lower = token.lowercased()
+        guard token.count <= 32, !token.dropFirst().contains(where: \.isUppercase),
+              !protectedLexicon.contains(token), !lexiconTermKeys.contains(lower),
+              !suppressedInSession.contains(lower), !learning.protections.isKept(token),
+              !Self.shorthandAllowlist.contains(lower), lexiconShortcuts[lower] == nil else { return nil }
+        var candidate: String?
+        if let german, let context, context.canPredict, context.state.weightDE >= 0.70,
+           !(englishEnabled && checker.isWordValid(token)) {
+            candidate = german.nounSuggestion(token, after: context.previous)
+        }
+        if candidate == nil, englishEnabled, german?.blocksEnglishFix(lower) != true {
+            candidate = Self.suggestOnlyContractions[lower]
+            // Translate iikb Corrector.contraction's apostrophe-at-an-internal-boundary
+            // candidate recognition, not its posterior-based automatic authority.
+            // Valid literals (including plurals with valid possessives) need no search;
+            // valid contraction homographs are handled by the manual table above.
+            if candidate == nil, (3...32).contains(token.count), lower.utf8.allSatisfy({ (97...122).contains($0) }),
+               !checker.isWordValid(token), !checker.isWordValid(lower) {
+                let letters = Array(lower)
+                for index in 1..<letters.count {
+                    let spelling = String(letters[..<index]) + "'" + String(letters[index...])
+                    if checker.isWordValid(spelling) { candidate = spelling; break }
+                }
+            }
+        }
+        guard let candidate else { return nil }
+        let cased = Self.matchCase(of: token, onto: candidate)
+        guard !learning.protections.isRejected(typed: token, replacement: cased, context: rejectionContext) else { return nil }
+        return cased
+    }
+
     private func automatic(_ text: String, token: String, kind: CorrectionKind,
                            counter: KeyboardDiagnostics.Counter, alignment: [Int?]? = nil) -> Decision {
         guard text != token else { return Decision() }
@@ -1170,6 +1203,12 @@ final class AutocorrectEngine {
         if englishEnabled, let fixed = Self.unambiguousFixes[lower], german?.blocksEnglishFix(lower) != true {
             if isAllCaps && token.count < 3 { return Decision(refusal: .refusedProtected) }
             return automatic(Self.matchCase(of: token, onto: fixed), token: token, kind: .autoRule, counter: .autoRule)
+        }
+
+        // A valid contraction homograph is manual-only even if a device dictionary
+        // omits it or spelling/spatial guesses prefer the apostrophe form.
+        if englishEnabled, Self.suggestOnlyContractions[lower] != nil {
+            return Decision(refusal: .refusedLiteralValid)
         }
 
         // 3. Context guards: inferred corrections only for plain words of 3+ letters.
@@ -1364,6 +1403,8 @@ final class AutocorrectEngine {
     /// Valid words where an apostrophe form exists, offered as a suggestion without clobbering the word.
     static let suggestOnlyContractions: [String: String] = [
         "ill": "I'll",
+        "wont": "won't",
+        "cant": "can't",
         "id": "I'd",
         "were": "we're",
         "wed": "we'd",
@@ -1391,8 +1432,6 @@ final class AutocorrectEngine {
         "im": "I'm",
         "ive": "I've",
         "dont": "don't",
-        "cant": "can't",
-        "wont": "won't",
         "didnt": "didn't",
         "doesnt": "doesn't",
         "isnt": "isn't",

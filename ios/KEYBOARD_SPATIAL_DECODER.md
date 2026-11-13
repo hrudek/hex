@@ -8,6 +8,63 @@ gestures and the three suggestion slots are unchanged. The separate
 [bounded letter-gap attribution](KEYBOARD_TOUCH_INPUT.md#bounded-adaptive-letter-attribution)
 layer can change immediate letter insertion, never drawn keycaps or function-key cells.
 
+## German/English orthography (R2-5)
+
+Main already had German ae/oe/ue/ss→ä/ö/ü/ß rules and extensive English
+contraction/typo tables; these are not newly introduced. The missing behavior is:
+
+- **Noun casing is manual-only.** The R2-4 settled-sentence posterior must assign
+  German weight ≥0.70, with an immediately preceding article/preposition from a
+  fixed 24-cue set. Only a German dictionary-validated title form is offered,
+  never capitalization inferred from lowercase frequency data. English-valid
+  literals veto this suggestion when English is enabled. Missing context packs
+  or weak/English context abstain, including German-only mode without a pack.
+  Tokens are lowercase letters, 3–32 characters; there is no phrase parser.
+- **Missing English apostrophes:** existing unambiguous rules remain. `cant`
+  (also a valid noun/verb) and `wont` join the manual table with `ill`, `were`,
+  `well`, `shell`, `hell`, `its`, `id`, `wed`, `lets`. These eleven forms
+  cannot become automatic via spelling/spatial fallback even if a device
+  dictionary omits the literal. With English enabled, a missing table entry may
+  offer the first dictionary-valid internal apostrophe insertion (e.g. `shant`
+  → `shan't`, `whod` → `who'd`), also manual-only. No suffix completion or
+  posterior margin authorizes an automatic insertion in this new path.
+- German digraph/ß protections remain, with a missing title-form literal check
+  added: lowercase `masse` valid as `Masse` must not become `Maße`.
+  Accepted Swiss ss spellings, Steuer, Mauer, Israel and Michael stay literal;
+  this does **not** introduce a Swiss locale detector or force ss→ß.
+
+The additions respect enabled correction languages, autocorrect/field switches,
+protected imported names/terms, lexicon terms, keeps and R2-3 rejection horizons.
+An immediate explicit undo/revert still owns the first slot. New suggestions are
+pinned manual alternatives, never auto highlights; selection uses the existing
+single-token acceptance path; existing automatic undo/rejection behavior is unchanged. No layout, punctuation or Typr/Space change.
+
+### Measurements and bounds
+
+On the same injected-checker fixtures, origin/main→R2-5: noun suggestions
+0→4/4, automatic 0→0; digraph suggestions/automatic 4→4/4; existing contraction
+suggestions 7→7/8, automatic 4→2/8 (`im` deliberately blocked with German on);
+additional productive apostrophes 0→2/2, automatic 0→0. Valid controls: false
+automatic 3→0/36 (`wont`, `cant`, `masse`). A proposed automatic noun gate
+would wrongly capitalize **2/3** pronoun/verb/adjective controls, so it is rejected.
+These are tiny synthetic fixtures, not measured device accuracy or a grammar claim.
+
+At most one new candidate is retained. English probing uses only ASCII words
+3–32 letters and ≤31 internal boundaries, sequentially: candidate string payload
+≤33 UTF-8 bytes, a ≤32-element character array, no retained variant list.
+The noun path uses at most one title-validation probe over ≤32 letters (Unicode
+string payload bounded by those characters, not the ASCII byte claim).
+Existing context stays ≤256 characters/2,048 bytes with eight-word evidence;
+German digraph variants stay ≤4 occurrences/15 variants. No new corpus, cache,
+persistent bytes or user switch. Test timings are diagnostics only, never gates.
+
+iPhone checks: real DE/EN checker coverage and missing dictionaries, Swiss ss,
+English `cant/wont`, homographs and code-switches; manual chip selection,
+Space/punctuation no-auto highlight, immediate undo/keep/rejection and repeated
+acceptance; imported names and deletion/reset, learning/Full Access on/off;
+keyboard appearance and suggestion latency on older hardware. Linux cannot
+prove UIKit build, actual dictionaries, extension lifecycle or device memory.
+
 ## Immediate letter attribution
 
 Before submitting deferred suggestions, edits synchronously prepare a ≤26-entry
