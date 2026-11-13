@@ -601,6 +601,19 @@ final class AutocorrectEngine {
         }
     }
 
+    /// Ownership-validated next-word pick. Settle the preceding endpoint against the
+    /// actual insertion, then defer this endpoint until a following letter/pick confirms it.
+    /// Predictions never fabricate tap labels or teach a word from an arbitrary host suffix.
+    func recordPredictionFeedback(_ word: String, beforeInput: String?) {
+        guard let beforeInput, let first = word.first, first.isLetter,
+              PersonalBigramModel.validWord(PersonalLexiconSnapshot.normalize(word)) else {
+            discardFeedback(); return
+        }
+        settleFeedback(beforeInput: beforeInput, insertedLetter: String(first), afterInput: beforeInput + String(first))
+        pendingPairChoice = learning.isLearningEnabled ? (word, learning.feedbackEpoch) : nil
+        learning.recordWord(word)
+    }
+
     private func learnIdentity(_ evidence: KeyboardTouchWord, literal: String, source: TouchLabelSource) {
         guard evidence.learningIntact, evidence.text == literal, evidence.samples.count == literal.count else { return }
         let labels = evidence.samples.compactMap { sample in
@@ -685,10 +698,11 @@ final class AutocorrectEngine {
                   let model = contextModel else { return [] }
             let words = model.suggestions(after: context.previous, weightDE: context.state.weightDE,
                                           german: german != nil, english: englishEnabled,
-                                          personal: learning.personalBigrams)
+                                          personal: learning.personalBigrams, earlier: context.earlier)
             // Most likely word in the centre slot, like the current-word strip; never automatic.
             return KeyboardContextModel.stripOrder(words).map { word in
-                let display = learning.personalBigrams.followers(after: context.previous)[word.key] != nil
+                let selected = learning.personalBigrams.select(after: context.previous, earlier: context.earlier).context
+                let display = learning.personalBigrams.followers(after: selected)[word.key] != nil
                     ? personalSpelling(word.display, token: word.display) : word.display
                 return KeyboardSuggestion(displayText: display, replacement: display,
                                           kind: word == words.first ? .primary(autoReplace: false) : .secondary,

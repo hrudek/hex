@@ -105,16 +105,17 @@ final class PersonalTypingModel {
     }
 
     nonisolated struct State: Codable, Equatable, Sendable {
-        var schemaVersion = 3
+        var schemaVersion = 4
         var layouts: [String: LayoutStats] = [:]
         var kept: [String: Date] = [:]
         var counts: [String: WordCount] = [:]
         var rejected: [RejectedCorrection] = []
-        // Optional decoding permits schema 1/2 migration without inventing observations.
+        // Historical field name retained: schema 1/2 lack it, schema 3 holds bigrams,
+        // schema 4 additionally allows two-word context keys. No observations invented.
         var bigrams: PersonalBigramModel? = .init()
 
         func validated() -> State? {
-            guard (1...3).contains(schemaVersion), layouts.count <= 4,
+            guard (1...4).contains(schemaVersion), layouts.count <= 4,
                   (schemaVersion < 3 || bigrams != nil),
                   Set(kept.keys).union(counts.keys).count <= 2000, rejected.count <= 512,
                   Set(rejected).count == rejected.count else { return nil }
@@ -135,7 +136,7 @@ final class PersonalTypingModel {
                       && $0.value.lastUpdated.timeIntervalSinceReferenceDate.isFinite }),
                   rejected.allSatisfy({ Self.validRejectedWord($0.typed) && Self.validRejectedWord($0.replacement) }) else { return nil }
             var migrated = self
-            migrated.schemaVersion = 3
+            migrated.schemaVersion = 4
             // Schema 1/2 start empty (no invented observations). An out-of-bounds pair section
             // drops only the pairs: keeps, counts, rejections and touch statistics survive.
             if migrated.bigrams?.isValid != true { migrated.bigrams = .init() }
@@ -418,9 +419,10 @@ final class PersonalTypingModel {
         return true
     }
 
-    func recordPair(_ word: String, after previous: String) {
+    func recordPair(_ word: String, after previous: String, earlier: String? = nil) {
         guard isLearningEnabled else { return }
-        state.bigrams?.record(word, after: previous)
+        if let earlier { state.bigrams?.record(word, after: previous, earlier: earlier) }
+        else { state.bigrams?.record(word, after: previous) }
     }
 
     /// Immediate keep revert only: the word's independently learned pairs stay.

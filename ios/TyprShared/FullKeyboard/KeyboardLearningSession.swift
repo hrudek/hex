@@ -29,11 +29,16 @@ final class KeyboardLearningSession {
     private var lastChange = ContinuousClock.now
     private var saveTask: Task<Void, Never>?
     private var observer: KeyboardLearningObserver?
-    /// One trusted predecessor in RAM, never serialized or restored from field text.
+    /// Two trusted predecessors in RAM, never restored from field text.
     private(set) var previousTrustedWord: String?
     var personalBigrams: PersonalBigramModel { isLearningEnabled ? model.state.bigrams ?? .init() : .init() }
 
-    func breakWordSequence() { previousTrustedWord = nil }
+    private var earlierTrustedWord: String?
+
+    func breakWordSequence() {
+        previousTrustedWord = nil
+        earlierTrustedWord = nil
+    }
 
     /// Both words must have independently settled, with exactly one intervening space.
     func settleTrustedWord(_ word: String, beforeInput: String) {
@@ -41,9 +46,15 @@ final class KeyboardLearningSession {
             breakWordSequence(); return
         }
         if let previousTrustedWord, beforeInput.hasSuffix(previousTrustedWord + " " + word + " ") {
-            model.recordPair(word, after: previousTrustedWord)
+            var earlier: String?
+            if let candidate = earlierTrustedWord {
+                let suffix = candidate + " " + previousTrustedWord + " " + word + " "
+                if beforeInput.hasSuffix(suffix) { earlier = candidate }
+            }
+            model.recordPair(word, after: previousTrustedWord, earlier: earlier)
             modelChanged()
-        }
+            earlierTrustedWord = previousTrustedWord
+        } else { earlierTrustedWord = nil }
         previousTrustedWord = word
     }
 

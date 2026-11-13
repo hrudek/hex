@@ -372,8 +372,9 @@ final class FullKeyboardEngine {
         if let token {
             autocorrect.recordSuggestionFeedback(suggestion, literal: token, evidence: evidence)
         } else {
-            // Prediction picks have no independently typed word: no unigram, label or pair.
-            autocorrect.discardFeedback()
+            // Explicit picks are word evidence, never touch-label evidence.
+            let word = casedPrediction(suggestion, before: before).replacement
+            autocorrect.recordPredictionFeedback(word, beforeInput: before)
         }
         // Idempotent with the published chip: a prediction at a sentence start is capitalized.
         let replacement = token == nil && suggestion.boundary == nil
@@ -385,7 +386,7 @@ final class FullKeyboardEngine {
             }
         }
         autocorrect.clearPendingUndo()
-        insert(replacement + " ", keepsFeedback: token != nil && suggestion.boundary == nil)
+        insert(replacement + " ", keepsFeedback: suggestion.boundary == nil)
         if let boundary = suggestion.boundary {
             autocorrect.recordAppliedBoundary(boundary, replacement: suggestion.replacement)
         } else if suggestion.kind == .keepLiteral, let token {

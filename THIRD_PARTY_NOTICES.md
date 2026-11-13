@@ -171,6 +171,14 @@ Contacts/dictation importer, bounded sorted token format and reset controls are
 original implementations. No upstream data, code file, neural model, Contacts
 service or dependency is bundled; precise scope/exclusions are in PORTS.md.
 
+R2-2 extends that adaptation to the one/two-word context keys and all-endpoint
+cleanup in `Correction/TypingMemory.swift` at the same pinned
+**`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, with P4's existing discounted
+backoff from `Correction/LanguageModel.swift`. The existing **MIT, Copyright (c)
+2026 Bassim Shahidy** notice covers it without duplication. Typr supplies its own
+bounded longest-row selection, trusted chip settlement, migration and tests;
+no new third-party data, model, code file or dependency is bundled (see PORTS.md).
+
 The P4 personal next-word layer additionally translates follower counts and cleanup
 from `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift`
 and discounted backoff from the adjacent `LanguageModel.swift` at

@@ -231,13 +231,14 @@ nonisolated struct KeyboardContextModel: Sendable {
     /// which reproduces the corpus-only ranking exactly.
     func suggestions(after context: String?, weightDE: Double, german: Bool = true, english: Bool = true,
                      suppress: Set<String> = Self.suppressed,
-                     personal: PersonalBigramModel = .init()) -> [Suggestion] {
+                     personal: PersonalBigramModel = .init(), earlier: String? = nil) -> [Suggestion] {
         guard supports(german: german, english: english) else { return [] }
         let d = german ? de : nil, e = english ? en : nil
         let a = german ? (english ? min(1, max(0, weightDE.isFinite ? weightDE : 0.5)) : 1) : 0
         let dd = d?.distribution(context) ?? Pack.Distribution(), ed = e?.distribution(context) ?? Pack.Distribution()
-        let row = personal.followers(after: context)
-        let backoff = personal.backoffWeight(after: context)
+        let selected = personal.select(after: context, earlier: earlier).context
+        let row = personal.followers(after: selected)
+        let backoff = personal.backoffWeight(after: selected)
         var seen: Set<String> = [], best: [Suggestion] = []
         func visit(_ key: String) {
             // Stock-name suppression and selected packs govern corpus words. A personal-only
@@ -250,7 +251,7 @@ nonisolated struct KeyboardContextModel: Sendable {
             let pack = dp >= ep && d?.id(key) != nil ? d : e
             let display = pack.flatMap { p in p.id(key).map { p.word($0, display: true) } } ?? key
             best.append(Suggestion(key: key, display: display,
-                                   probability: personal.probability(key, after: context, corpus: dp + ep)))
+                                   probability: personal.probability(key, after: selected, corpus: dp + ep)))
             best.sort { $0.probability == $1.probability ? $0.key.utf8.lexicographicallyPrecedes($1.key.utf8) : $0.probability > $1.probability }
             if best.count > 3 { best.removeLast() }
         }
@@ -280,6 +281,7 @@ nonisolated struct KeyboardContextModel: Sendable {
     struct Context: Sendable {
         var state = State()
         var previous: String?
+        var earlier: String?
         var canPredict = false
     }
 
@@ -302,14 +304,17 @@ nonisolated struct KeyboardContextModel: Sendable {
             guard !token.isEmpty else { return }
             if Pack.validWord(token, apostrophes: true) {
                 let key = Self.key(token)
-                result.state.consume(key, model: self); result.previous = key
+                result.state.consume(key, model: self)
+                result.earlier = result.previous == Self.bos ? nil : result.previous
+                result.previous = key
                 result.canPredict = true; atSentenceBoundary = false
-            } else { result.previous = nil; result.canPredict = false }
+            } else { result.previous = nil; result.earlier = nil; result.canPredict = false }
             token = ""
         }
         func sentenceBoundary() {
             if !atSentenceBoundary { result.state.sentenceBoundary() }
-            result.previous = Self.bos; result.canPredict = true; atSentenceBoundary = true
+            result.previous = Self.bos; result.earlier = nil
+            result.canPredict = true; atSentenceBoundary = true
         }
         let text = suffix.replacingOccurrences(of: "’", with: "'")
         for (index, line) in text.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }).enumerated() {
@@ -324,7 +329,7 @@ nonisolated struct KeyboardContextModel: Sendable {
                             && !CharacterSet.whitespacesAndNewlines.contains($0))
                 }
                 if invalidScalar || segment.contains(where: { $0.isNumber || "@/:_#-\\\\".contains($0) }) {
-                    result.previous = nil; result.canPredict = false
+                    result.previous = nil; result.earlier = nil; result.canPredict = false
                     continue
                 }
                 for ch in segment {
@@ -359,10 +364,11 @@ nonisolated struct KeyboardContextModel: Sendable {
         guard context.canPredict, let previous = context.previous else { return 0 }
         let weight: Double = context.state.weightDE
         let base: Double = probability(word, after: nil, weightDE: weight, german: german, english: english)
-        let count: Int = personal.followers(after: previous)[Self.key(word)] ?? 0
+        let selected = personal.select(after: previous, earlier: context.earlier).context
+        let count: Int = personal.followers(after: selected)[Self.key(word)] ?? 0
         guard base > 0 || count >= PersonalBigramModel.novelFollowerMinimum else { return 0 }
         let corpus: Double = probability(word, after: previous, weightDE: weight, german: german, english: english)
-        let p: Double = personal.probability(word, after: previous, corpus: corpus)
+        let p: Double = personal.probability(word, after: selected, corpus: corpus)
         let ratio: Double = max(p, 1e-12) / max(base, 1e-12)
         return min(Self.gainLimit, max(0, log(ratio)))
     }

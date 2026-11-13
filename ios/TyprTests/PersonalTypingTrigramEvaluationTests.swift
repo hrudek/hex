@@ -1,0 +1,127 @@
+import Foundation
+import XCTest
+@testable import Typr
+
+/// Authored, disjoint-context phrases. Test prefixes include a held-out lead-in, not new
+/// target transitions: measures repeated personal associations, not language generalization.
+@MainActor
+final class PersonalTypingTrigramEvaluationTests: XCTestCase {
+    static let phrases: [String: [[String]]] = [
+        "de": [["unser", "projekt", "tastatur"], ["mein", "projekt", "garten"],
+               ["dein", "projekt", "schule"], ["jedes", "projekt", "kaffee"]],
+        "en": [["our", "project", "keyboard"], ["my", "project", "garden"],
+               ["your", "project", "school"], ["every", "project", "coffee"]],
+        "mixed": [["unser", "release", "keyboard"], ["my", "release", "garten"],
+                  ["dein", "release", "school"], ["every", "release", "kaffee"]]
+    ]
+    private final class Checker: TextChecking {
+        func isWordValid(_ word: String) -> Bool { true }
+        func guesses(for word: String) -> [String] { [] }
+        func completions(for prefix: String) -> [String] { [] }
+    }
+    private func tap(_ text: String, engine: FullKeyboardEngine) {
+        for ch in text {
+            guard let key = engine.layout.key(ch == " " ? .space : .character(String(ch))) else {
+                XCTFail("Missing key"); return
+            }
+            let p = CGPoint(x: key.frame.midX, y: key.frame.midY)
+            engine.touchBegan(id: 1, at: p); engine.touchEnded(id: 1, at: p)
+        }
+    }
+    private func train(_ phrase: [String], mode: String, session: KeyboardLearningSession) {
+        session.breakWordSequence()
+        if mode == "settled" {
+            var before = ""
+            for word in phrase {
+                before += word + " "
+                session.settleTrustedWord(word, beforeInput: before)
+            }
+            return
+        }
+        let target = FixtureTextTarget()
+        target.autocapitalizationType = .some(.none)
+        let ac = AutocorrectEngine(checker: Checker(), learning: session, spatialDecoder: nil,
+                                   contextResources: .init(model: nil))
+        let engine = FullKeyboardEngine(target: target, autocorrect: ac)
+        engine.width = 393; engine.clock = { 100 }; engine.configureForField()
+        let prefix = mode == "completion" ? String(phrase[2].prefix(3)) : ""
+        tap(phrase[0] + " " + phrase[1] + " " + prefix, engine: engine)
+        var chip = KeyboardSuggestion(displayText: phrase[2], replacement: phrase[2],
+                                      kind: .primary(autoReplace: false), isCompletion: true)
+        chip.ownership = engine.suggestionOwnership
+        engine.acceptSuggestion(chip)
+        tap("n", engine: engine)
+        XCTAssertEqual(target.text, phrase.joined(separator: " ") + " n")
+    }
+    private func ranked(_ prefix: String, session: KeyboardLearningSession, model: KeyboardContextModel,
+                        language: String) -> [String] {
+        let ac = AutocorrectEngine(checker: Checker(), learning: session, spatialDecoder: nil,
+                                   contextResources: .init(model: model))
+        ac.englishEnabled = language != "de"
+        if language != "en" { ac.german = GermanAutocorrect(checker: Checker()) }
+        let chips = ac.suggestions(beforeInput: prefix, field: .text, autocorrectionType: .default)
+        let best = chips.first { if case .primary = $0.kind { return true }; return false }
+        let rest = chips.filter { $0 != best }
+        return ([best].compactMap { $0 } + rest).map { KeyboardContextModel.key($0.replacement) }
+    }
+    func testRepeatedPersonalPhrasesAndAcceptedChoices() throws {
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        for language in ["de", "en", "mixed"] {
+            let phrases = try XCTUnwrap(Self.phrases[language])
+            for mode in ["settled", "completion", "prediction"] {
+                let session = KeyboardLearningSession()
+                var repetitions = 0
+                var line = "EVAL R2_2_learning_\(language)_\(mode) targets=8"
+                for n in [0, 1, 2, 4, 8] {
+                    while repetitions < n {
+                        for phrase in phrases { train(phrase, mode: mode, session: session) }
+                        repetitions += 1
+                    }
+                    var hit1 = 0, hit3 = 0
+                    for phrase in phrases {
+                        for lead in ["", "okay "] {
+                            let prefix = lead + phrase[0] + " " + phrase[1] + " "
+                            let words = ranked(prefix, session: session, model: model, language: language)
+                            if words.first == phrase[2] { hit1 += 1 }
+                            if words.prefix(3).contains(phrase[2]) { hit3 += 1 }
+                        }
+                    }
+                    line += " n\(n)_recall1=\(hit1) n\(n)_recall3=\(hit3)"
+                }
+                print(line + " fixtures=authored_repeat_and_heldout_leadin")
+            }
+        }
+    }
+
+    func testPublicHeldoutWithTwoWordPrefixes() throws {
+        let model = try XCTUnwrap(KeyboardContextModelTests.model)
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "context-heldout-cc0", withExtension: "json", subdirectory: "WordData"))
+        struct Fixture: Decodable { let sentences: [String: [[String]]] }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+        let session = KeyboardLearningSession()
+        for _ in 0..<8 {
+            for language in ["de", "en", "mixed"] {
+                for phrase in try XCTUnwrap(Self.phrases[language]) { train(phrase, mode: "settled", session: session) }
+            }
+        }
+        for language in ["de", "en", "mixed"] {
+            // Mixed mode is public DE/EN sentences interleaved with both packs enabled,
+            // not a claim of public intra-sentence code-switch data.
+            let sentences = language == "mixed"
+                ? try XCTUnwrap(fixture.sentences["de"]) + XCTUnwrap(fixture.sentences["en"])
+                : try XCTUnwrap(fixture.sentences[language])
+            var n = 0, hit1 = 0, hit3 = 0
+            for words in sentences where words.count > 1 {
+                for i in 1..<words.count {
+                    let prefix = words.prefix(i).joined(separator: " ") + " "
+                    let ranked = ranked(prefix, session: session, model: model, language: language)
+                    let word = KeyboardContextModel.key(words[i])
+                    if ranked.first == word { hit1 += 1 }
+                    if ranked.prefix(3).contains(word) { hit3 += 1 }
+                    n += 1
+                }
+            }
+            print(String(format: "EVAL R2_2_public_%@ targets=%d recall1=%.4f recall3=%.4f training=authored_personal_not_public", language, n, Double(hit1) / Double(n), Double(hit3) / Double(n)))
+        }
+    }
+}
