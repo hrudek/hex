@@ -1,5 +1,12 @@
 # Adopted sources
 
+## Neural measurement tooling (R2-10; evaluation only)
+
+| Source / revision | Translation / destination | License / exclusions |
+| --- | --- | --- |
+| AVGVSTVS96/iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`, `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Network.swift`, `LanguageModel.swift`; `KeyboardEnglish/Resources/NETWORK-LICENSE`, `scripts/network.py` inspected only | `ios/tools/keyboard_neural/evaluate.py`: independent HXN1 layout reader, LSTM math and work accounting, never imports/runs upstream code; `ios/KEYBOARD_NEURAL_EVALUATION.md` records failed bilingual gate. Tiny MLP/TNN1 Swift test forward is Typr-original. | MIT © 2026 Bassim Shahidy, existing notice reused. No upstream weights/code files/corpora copied into Git; no runtime integration, automatic policy, personal-network training, swipe, emoji, layouts, themes, clipboard, network or dictation changes. Evaluated-only Reddit/WildChat/SODA rights and R2-9 training-corpus open questions: `ios/tools/keyboard_neural/SOURCE`; no new dataset distribution. |
+
+
 ## Larger corpus context packs (R2-9)
 
 | Source / revision | Independent adaptation / destination | License / open questions |

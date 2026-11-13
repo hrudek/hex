@@ -1,5 +1,16 @@
 # Personal typing learning and diagnostics
 
+## Neural measurement spike (R2-10)
+
+[Evaluation and reproduction](KEYBOARD_NEURAL_EVALUATION.md): the small bilingual
+int8 next-word model fails the same-set DE/EN/mixed quality gate. Evaluation-only
+tooling/tests are retained; no neural weights, runtime ranking, automatic policy,
+new personal data or settings ship. No changes to privacy copy, Full Access,
+App Group writes, deletion/reset or dictation-log retention are needed: this
+explicit offline experiment uses only public corpus samples and a synthetic
+train-only profile, never the user's contacts/history/log. The keyboard remains
+network/microphone/speech-model free. iPhone footprint/latency are unverified.
+
 ## Larger corpus context packs (R2-9)
 
 Bundled DE/EN predictions now add bounded Leipzig news, Wikipedia and OPUS subtitle
