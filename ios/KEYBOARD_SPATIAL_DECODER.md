@@ -160,9 +160,11 @@ over the literal. A prior-promoted but geometrically worse neighbor no longer
 vetoes spelling fallback (the PR #96 finding). A recorded spatial refusal may
 therefore coexist with a successful spelling-fallback decision. The dashboard calls
 these “Paths that declined to replace”, not reasons the final word stayed unchanged.
-Undo suppresses the original for the session and persists its rejected pair, with
-identity labels only for intact evidence; it never permanently keeps or counts the
-original. Rejected forms include straight/typographic apostrophes; text replacements
+Undo persists its rejected pair with a 64-trusted-word global veto and an exact
+one/two-predecessor-context veto until event 256, with identity labels only for
+intact evidence; undo itself never keeps or counts the original. A fresh independent
+literal can subsequently confirm a keep; see [learning](KEYBOARD_LEARNING.md#undo-literal-confirmation-and-acceptance-r2-3).
+Legacy migrated pairs keep their permanent veto. Rejected forms include straight/typographic apostrophes; text replacements
 with spaces, digits or other punctuation get session-only undo suppression (no saved pair).
 The explicit keep chip still permanently protects it, including while
 learning is off; off supplies no labels/counts.

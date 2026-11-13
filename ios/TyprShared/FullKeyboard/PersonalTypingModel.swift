@@ -105,7 +105,7 @@ final class PersonalTypingModel {
     }
 
     nonisolated struct State: Codable, Equatable, Sendable {
-        var schemaVersion = 4
+        var schemaVersion = 5
         var layouts: [String: LayoutStats] = [:]
         var kept: [String: Date] = [:]
         var counts: [String: WordCount] = [:]
@@ -115,7 +115,7 @@ final class PersonalTypingModel {
         var bigrams: PersonalBigramModel? = .init()
 
         func validated() -> State? {
-            guard (1...4).contains(schemaVersion), layouts.count <= 4,
+            guard (1...5).contains(schemaVersion), layouts.count <= 4,
                   (schemaVersion < 3 || bigrams != nil),
                   Set(kept.keys).union(counts.keys).count <= 2000, rejected.count <= 512,
                   Set(rejected).count == rejected.count else { return nil }
@@ -134,9 +134,21 @@ final class PersonalTypingModel {
             guard kept.allSatisfy({ Self.validWord($0.key) && $0.value.timeIntervalSinceReferenceDate.isFinite }),
                   counts.allSatisfy({ Self.validWord($0.key) && (1...10_000).contains($0.value.count)
                       && $0.value.lastUpdated.timeIntervalSinceReferenceDate.isFinite }),
-                  rejected.allSatisfy({ Self.validRejectedWord($0.typed) && Self.validRejectedWord($0.replacement) }) else { return nil }
+                  rejected.allSatisfy({ pair in
+                      guard Self.validRejectedWord(pair.typed), Self.validRejectedWord(pair.replacement) else { return false }
+                      if let remaining = pair.remaining {
+                          guard (1...256).contains(remaining), let global = pair.globalRemaining,
+                                (0...64).contains(global), global <= remaining else { return false }
+                      } else if pair.globalRemaining != nil || pair.context != nil { return false }
+                      if let context = pair.context {
+                          let words = context.split(separator: " ").map(String.init)
+                          guard (1...2).contains(words.count), words.allSatisfy(Self.validWord),
+                                words.joined(separator: " ") == context else { return false }
+                      }
+                      return true
+                  }) else { return nil }
             var migrated = self
-            migrated.schemaVersion = 4
+            migrated.schemaVersion = 5
             // Schema 1/2 start empty (no invented observations). An out-of-bounds pair section
             // drops only the pairs: keeps, counts, rejections and touch statistics survive.
             if migrated.bigrams?.isValid != true { migrated.bigrams = .init() }
@@ -400,6 +412,9 @@ final class PersonalTypingModel {
     func recordWord(_ word: String) -> Bool {
         let word = PersonalLexiconSnapshot.normalize(word)
         guard isLearningEnabled, State.validWord(word) else { return false }
+        // Manual acceptances and independent literal settlements advance the same clock.
+        // Merely continuing after automatic output does not count as acceptance.
+        ageRejections()
         let count = min(10_000, (state.counts[word]?.count ?? 0) + 1)
         state.counts[word] = WordCount(count: count, lastUpdated: now())
         state.enforceWordLimit()
@@ -408,15 +423,49 @@ final class PersonalTypingModel {
     }
 
     @discardableResult
-    func rejectCorrection(typed: String, replacement: String) -> Bool {
-        let pair = RejectedCorrection(typed: typed, replacement: replacement)
+    func rejectCorrection(typed: String, replacement: String, context: String? = nil) -> Bool {
+        var pair = RejectedCorrection(typed: typed, replacement: replacement)
+        if let context {
+            let words = context.split(separator: " ").map(String.init)
+            guard (1...2).contains(words.count), words.allSatisfy(State.validWord),
+                  words.joined(separator: " ") == context else { return false }
+        }
+        pair.context = context
+        pair.remaining = 256
+        pair.globalRemaining = 64
         guard State.validRejectedWord(pair.typed), State.validRejectedWord(pair.replacement) else { return false }
-        if !state.rejected.contains(pair) {
+        if let index = state.rejected.firstIndex(of: pair) {
+            // Do not silently weaken a migrated permanent protection.
+            if state.rejected[index].remaining != nil { state.rejected[index] = pair }
+            cachedLexicon = nil
+        } else {
             state.rejected.append(pair)
             if state.rejected.count > 512 { state.rejected.removeFirst() }
             cachedLexicon = nil
         }
         return true
+    }
+
+    /// Only independently typed, settled literals can confirm an undone spelling.
+    @discardableResult
+    func confirmLiteral(_ word: String) -> Bool {
+        let word = PersonalLexiconSnapshot.normalize(word)
+        guard isLearningEnabled, state.kept[word] == nil,
+              state.rejected.contains(where: { $0.typed == word }) else { return false }
+        return keep(word)
+    }
+
+    /// One bounded pass (≤512 records) per trusted word event; no dates or timers.
+    private func ageRejections() {
+        state.rejected = state.rejected.compactMap { saved in
+            var pair = saved
+            if let remaining = pair.remaining {
+                guard remaining > 1 else { return nil }
+                pair.remaining = remaining - 1
+                pair.globalRemaining = max(0, (pair.globalRemaining ?? 0) - 1)
+            }
+            return pair
+        }
     }
 
     func recordPair(_ word: String, after previous: String, earlier: String? = nil) {

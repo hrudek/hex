@@ -32,7 +32,7 @@ struct KeyboardLearnedWordsView: View {
     var body: some View {
         List {
             Section {
-                Text("Typr stores kept words, word counts, rejected corrections and which word followed one or two words, including words chosen from suggestions. These associations can reveal short phrases. No sentence archive, apps, websites or typed-text history is stored. Deleting a word removes every context containing it; Reset learning clears all contexts. Swipe to delete an entry. Imported contacts and dictation words are separate: use Personal names and terms in Keyboard settings to delete that list or turn off a source.")
+                Text("Typr stores kept words, word counts, rejected corrections with up to two preceding words and which word followed one or two words, including words chosen from suggestions. Undo blocks that correction everywhere for 64 learned word events, then only in its saved context until event 256. Typing the original spelling independently again keeps it. Older saved rejections stay until deleted. These associations can reveal short phrases. No sentence archive, apps, websites or typed-text history is stored. Deleting a word removes every context containing it; Reset learning clears all contexts. Swipe to delete an entry. Imported contacts and dictation words are separate: use Personal names and terms in Keyboard settings to delete that list or turn off a source.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.red) }
             }
@@ -46,7 +46,14 @@ struct KeyboardLearnedWordsView: View {
                         .onDelete { offsets in delete(offsets.map { .kept(kept[$0]) }) }
                 }
                 Section("Rejected corrections") {
-                    ForEach(pairs, id: \.self) { Text("\($0.typed) → \($0.replacement)") }
+                    ForEach(pairs, id: \.self) { pair in
+                        VStack(alignment: .leading) {
+                            Text("\(pair.typed) → \(pair.replacement)")
+                            if let context = pair.context {
+                                Text("After: \(context)").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                         .onDelete { offsets in delete(offsets.map { .rejected(pairs[$0]) }) }
                 }
                 Section("Frequent words") {
@@ -99,7 +106,7 @@ struct KeyboardLearnedWordsView: View {
                 query.isEmpty || word.localizedStandardContains(query)
             }
             kept = state.kept.keys.filter { matches($0) }.sorted()
-            pairs = state.rejected.filter { matches($0.typed) || matches($0.replacement) }
+            pairs = state.rejected.filter { matches($0.typed) || matches($0.replacement) || matches($0.context ?? "") }
                 .sorted { ($0.typed, $0.replacement) < ($1.typed, $1.replacement) }
             counts = state.counts.keys.filter { matches($0) }.sorted()
             pairWords = (state.bigrams?.words ?? []).filter { matches($0) }.sorted()

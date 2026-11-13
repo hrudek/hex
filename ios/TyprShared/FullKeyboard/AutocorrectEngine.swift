@@ -105,6 +105,7 @@ final class AutocorrectEngine {
         let original: String
         let insertedText: String
         var kind: CorrectionKind = .autoRule
+        var context: String? = nil
         var keptWordWasNew: Bool? = nil
         var boundary: KeyboardBoundaryDecoder.Candidate? = nil
     }
@@ -124,6 +125,8 @@ final class AutocorrectEngine {
         let epoch: Int
         var suffix: String { finalText + " " }
     }
+
+    private var rejectionContext: String? = nil
 
     /// One automatic-correction decision; a boundary records it exactly once.
     private struct Decision {
@@ -405,7 +408,7 @@ final class AutocorrectEngine {
 
     func recordAppliedCorrection(original: String, insertedText: String) {
         lastCorrection = AppliedCorrection(original: original, insertedText: insertedText,
-                                           kind: pendingFeedback?.kind ?? .autoRule)
+                                           kind: pendingFeedback?.kind ?? .autoRule, context: rejectionContext)
     }
 
     func recordAppliedBoundary(_ candidate: KeyboardBoundaryDecoder.Candidate, replacement: String) {
@@ -504,6 +507,7 @@ final class AutocorrectEngine {
         }
         learning.settleTrustedWord(pending.literal, beforeInput: beforeInput)
         learnIdentity(evidence, literal: pending.literal, source: .literalValid)
+        learning.confirmLiteral(pending.literal)
         learning.recordWord(pending.literal)
     }
 
@@ -541,13 +545,16 @@ final class AutocorrectEngine {
            pending.epoch == learning.feedbackEpoch, let evidence = pending.evidence {
             learnIdentity(evidence, literal: undo.original, source: .undo)
         }
-        suppressedInSession.insert(undo.original.lowercased())
         // Current boundary corrections append one separator; keep other callers safe.
         let hasSeparator = undo.insertedText.last.map { " .,?!".contains($0) } ?? false
         let replacement = hasSeparator ? String(undo.insertedText.dropLast()) : undo.insertedText
         let pair = RejectedCorrection(typed: undo.original, replacement: replacement)
         let wasRejected = learning.model.state.rejected.contains(pair)
-        learning.rejectCorrection(typed: undo.original, replacement: replacement)
+        if !PersonalTypingModel.State.validRejectedWord(pair.typed)
+            || !PersonalTypingModel.State.validRejectedWord(pair.replacement) {
+            suppressedInSession.insert(undo.original.lowercased())
+        }
+        learning.rejectCorrection(typed: undo.original, replacement: replacement, context: undo.context)
         reversibleRejection = wasRejected ? nil : pair
     }
 
@@ -710,6 +717,7 @@ final class AutocorrectEngine {
             }
         }
 
+        rejectionContext = RejectedCorrection.context(before: beforeInput, token: token)
         let lower = token.lowercased()
         let decision = isEnabled ? decide(token, evidence: evidence, forSuggestions: true) : nil
         let autoFix = decision?.text
@@ -808,7 +816,7 @@ final class AutocorrectEngine {
             if pool.count >= poolLimit { break }
             if candidate.edit != .none && protectsLiteral { continue }
             let text = spatialSpelling(candidate, token: token).text
-            if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text) { continue }
+            if candidate.edit != .none && learning.protections.isRejected(typed: token, replacement: text, context: rejectionContext) { continue }
             if !pool.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) {
                 pool.append(text)
                 spatialScores[text] = candidate.score
@@ -853,7 +861,7 @@ final class AutocorrectEngine {
                 corpus.append((Self.matchCase(of: token, onto: spelling), item.isCompletion))
             }
             func offer(_ cased: String, isCompletion: Bool, personal: Bool = false) {
-                guard pool.count < completionLimit, !learning.protections.isRejected(typed: token, replacement: cased),
+                guard pool.count < completionLimit, !learning.protections.isRejected(typed: token, replacement: cased, context: rejectionContext),
                       !pool.contains(where: { $0.caseInsensitiveCompare(cased) == .orderedSame }) else { return }
                 pool.append(cased)
                 if isCompletion { completions.insert(cased) }
@@ -956,10 +964,13 @@ final class AutocorrectEngine {
         pendingFeedback = nil
         guard isEnabled, field == .text, autocorrectionType != .no else { return nil }
         guard let token = Self.currentToken(in: beforeInput) else { return nil }
+        rejectionContext = RejectedCorrection.context(before: beforeInput, token: token)
         let started = DispatchTime.now().uptimeNanoseconds
         let decision = decide(token, evidence: evidence, forSuggestions: false)
         let learnable = decision.text == nil && evidence?.learningIntact == true && learning.isLearningEnabled
-            && literalIsValid(token)
+            && (literalIsValid(token) || learning.model.state.rejected.contains(where: {
+                $0.typed == PersonalLexiconSnapshot.normalize(token)
+            }))
         pendingFeedback = PendingFeedback(evidence: evidence, literal: token, finalText: decision.text ?? token,
                                           kind: decision.kind, alignment: decision.alignment,
                                           learnable: learnable, epoch: learning.feedbackEpoch)
@@ -1115,7 +1126,7 @@ final class AutocorrectEngine {
         if (kind == .autoSpatial || kind == .autoSpelling), Self.isPrefixExtension(text, of: token) {
             return Decision(refusal: .refusedBelowMargin)
         }
-        guard !learning.protections.isRejected(typed: token, replacement: text) else {
+        guard !learning.protections.isRejected(typed: token, replacement: text, context: rejectionContext) else {
             return Decision(refusal: .refusedProtected)
         }
         return Decision(text: text, kind: kind, counter: counter, alignment: alignment)

@@ -39,6 +39,46 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         for letter in text { tap(letter == " " ? .space : .character(String(letter)), engine) }
     }
 
+    func testUndoContextSessionAndDecayWithoutSessionBlacklist() throws {
+        let session = KeyboardLearningSession()
+        let (engine, target) = keyboard(session: session)
+        type("send to teh ", engine)
+        XCTAssertEqual(target.text, "send to the ")
+        tap(.delete, engine)
+        XCTAssertEqual(target.text, "send to teh")
+        XCTAssertEqual(session.model.state.rejected.first?.context, "send to")
+        let ac = engine.autocorrect
+        var immediate = 0
+        for prefix in ["send to ", "reply to "] {
+            if ac.replacementOnSpace(beforeInput: prefix + "teh", field: .text,
+                                     autocorrectionType: .default) != nil { immediate += 1 }
+        }
+        XCTAssertEqual(immediate, 0)
+        for _ in 0..<64 { session.recordWord("hello") }
+        XCTAssertNil(ac.replacementOnSpace(beforeInput: "send to teh", field: .text, autocorrectionType: .default))
+        XCTAssertNotNil(ac.replacementOnSpace(beforeInput: "reply to teh", field: .text, autocorrectionType: .default))
+        for _ in 0..<192 { session.recordWord("hello") }
+        XCTAssertNotNil(ac.replacementOnSpace(beforeInput: "send to teh", field: .text, autocorrectionType: .default))
+        print("EVAL R2_3_session undo=1 immediate_same=0/1 immediate_different=0/1 event64_same=0/1 event64_different=1/1 event256_same=1/1 literal_confirmation=not_in_this_session")
+    }
+
+    func testFreshLiteralAfterUndoBecomesKeptButRestoredWordDoesNot() {
+        let session = KeyboardLearningSession()
+        let (engine, _) = keyboard(session: session)
+        type("teh ", engine)
+        tap(.delete, engine)
+        type(" w", engine)
+        XCTAssertFalse(session.protections.isKept("teh"), "Undo's restored taps are not a new literal")
+        let (fresh, target) = keyboard(session: session)
+        type("teh w", fresh)
+        XCTAssertEqual(target.text, "teh w")
+        XCTAssertTrue(session.protections.isKept("teh"))
+        for _ in 0..<256 { session.recordWord("hello") }
+        XCTAssertTrue(session.model.state.rejected.isEmpty)
+        XCTAssertNil(fresh.autocorrect.replacementOnSpace(beforeInput: "teh", field: .text, autocorrectionType: .default))
+        print("EVAL R2_3_literal undo_kept=0 restored_kept=0 fresh_settled_kept=1 post_decay_auto=0")
+    }
+
     func testManualFeedbackRetainsFastAimButExternalContextResetsIt() throws {
         let session = KeyboardLearningSession()
         let (engine, _) = keyboard(session: session)

@@ -360,6 +360,22 @@ silent automatic-output learning, inferred completion/prediction tap labels, ups
 resources, swipe typing, emoji, themes, layouts, clipboard, network and dictation
 behavior changes. The existing #127 app-only protected-word importer is unchanged.
 
+## Undo, rejection and acceptance memory (iikb, R2-3)
+
+Source pin: **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, AVGVSTVS96/iikb,
+**MIT, © 2026 Bassim Shahidy**. Reuses the existing full MIT notice.
+
+| Source paths/lines at pin | Translated / deliberate differences | Typr destinations |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift:16–43` (`record`, `forget`, predecessor contexts), `:59–72` (keep/count), `:76–114` (frequency-ranked completions/predictions and cleanup); adjacent `Typing/TypingEngine+Words.swift:142–150` (revert-to-keep behavior) | Integrates confirmation/acceptance into Typr's existing keeps/counts/rejected pairs. Independent literal after undo confirms a keep; explicit accepted chips reuse capped counts/bonus/completion promotion, not a second store. Typr-specific addition (not present upstream): global 64-event and exact ≤2-word-context 256-event rejection horizons, one context per pair, ≤512 FIFO records and unchanged 256 KiB store ceiling, schema 1–4→5 preserving legacy permanent vetoes, reference deletion/reset. Strict ownership/evidence gates retained; automatic continuation is not acceptance. | `ios/TyprShared/FullKeyboard/TypingModelTypes.swift`, `PersonalTypingModel.swift`, `KeyboardLearningSession.swift`, `KeyboardLearningStore.swift`, `AutocorrectEngine.swift` integrated through existing `FullKeyboardEngine` undo/acceptance paths; `ios/Typr/KeyboardLearnedWordsView.swift`, `KeyboardSettingsCard.swift`; `ios/TyprTests/PersonalTypingRejectionTests.swift`, `KeyboardLearningIntegrationTests.swift`, `KeyboardLearningStoreTests.swift`, `KeyboardSuggestionPersonalRankingTests.swift` |
+
+No files copied wholesale; no new resources, data pack, dependencies or SOURCE
+entry needed. Decay/caps, migration, trust protocol and synthetic tests are
+Typr-authored. Excludes upstream app histories, unbounded followers, silent auto
+learning, inferred touch labels, neural weights, swipe, emoji, themes, layouts,
+clipboard, network and dictation changes. This is a bounded algorithm translation,
+not an assertion of accuracy parity or a claim upstream had rejected-pair decay.
+
 ## How to adopt changes
 
 1. Inspect the specific source revision in a separate checkout or on GitHub.

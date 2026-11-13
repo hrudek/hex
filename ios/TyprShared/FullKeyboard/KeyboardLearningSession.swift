@@ -234,8 +234,13 @@ final class KeyboardLearningSession {
         modelChanged()
     }
 
-    func rejectCorrection(typed: String, replacement: String) {
-        guard model.rejectCorrection(typed: typed, replacement: replacement) else { return }
+    func confirmLiteral(_ word: String) {
+        guard model.confirmLiteral(word) else { return }
+        modelChanged()
+    }
+
+    func rejectCorrection(typed: String, replacement: String, context: String? = nil) {
+        guard model.rejectCorrection(typed: typed, replacement: replacement, context: context) else { return }
         diagnostics.increment(.correctionsRejected)
         modelChanged()
     }

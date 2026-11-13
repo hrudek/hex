@@ -373,7 +373,7 @@ final class PersonalTypingBigramTests: XCTestCase {
             object["schemaVersion"] = version; object.removeValue(forKey: "bigrams")
             let decoded = try JSONDecoder().decode(PersonalTypingModel.State.self, from: JSONSerialization.data(withJSONObject: object))
             let migrated = try XCTUnwrap(decoded.validated())
-            XCTAssertEqual(migrated.schemaVersion, 4)
+            XCTAssertEqual(migrated.schemaVersion, 5)
             XCTAssertEqual(migrated.bigrams, .init(), "No invented observations")
             XCTAssertEqual(migrated.kept, state.kept)
         }
@@ -386,7 +386,7 @@ final class PersonalTypingBigramTests: XCTestCase {
         XCTAssertEqual(repaired.kept, state.kept)
         XCTAssertEqual(repaired.rejected, state.rejected)
         // Unknown future schema fails closed; a schema-3 snapshot must carry its pair section.
-        state.schemaVersion = 5
+        state.schemaVersion = 6
         XCTAssertNil(state.validated())
         state.schemaVersion = 3; state.bigrams = nil
         XCTAssertNil(state.validated())
