@@ -26,13 +26,22 @@ extension KeyboardBoundaryDecoderTests {
     }
 
     /// Original synthetic fixtures: every part has one substituted letter; observed
-    /// coordinates are centered on the intended key. Not human-touch accuracy evidence.
+    /// coordinates favor the intended key. Not human-touch accuracy evidence.
+    /// Pin adjacent substitutions: sorting equidistant keys by floating-point distance
+    /// can choose different neighbors on arm64 and x86_64 (notably y → t vs y → u).
+    /// For "have a nice day", that changes decoder rank two to three, beyond the
+    /// strip's two boundary slots. Both platforms use the injected corpus Checker,
+    /// not UITextChecker; exact recall below applies to these fixed fixtures only.
     func testEvaluationMultipartOneErrorPerPart() throws {
         let sources = try resources()
         let modes: [(String, Set<Language>, [String])] = [
             ("DE", [.german], ["guten morgen heute", "wir haben zeit", "bitte komm morgen", "ich habe hunger", "das ist gut", "wir sind hier"]),
             ("EN", [.english], ["great day today", "please come home", "we have time", "this is good", "you are here", "have a nice day"]),
             ("mixed", [.german, .english], ["guten morning heute", "please komm morgen", "wir have zeit", "this ist gut", "you bist hier", "have einen nice tag"])
+        ]
+        let substitutions: [Character: Character] = [
+            "a": "s", "d": "s", "e": "w", "g": "f", "h": "g", "m": "n",
+            "n": "b", "r": "t", "s": "a", "t": "r", "u": "y", "y": "u"
         ]
         for (name, languages, phrases) in modes {
             let ac = engine(sources, languages: languages)
@@ -44,11 +53,13 @@ extension KeyboardBoundaryDecoderTests {
                 let noisy = try parts.map { part -> String in
                     var letters = Array(part)
                     let last = try XCTUnwrap(letters.last)
+                    let neighbor = try XCTUnwrap(substitutions[last])
+                    XCTAssertNotEqual(last, neighbor)
                     let key = try XCTUnwrap(grid.key(.character(String(last))))
-                    let neighbors = grid.keys.filter {
-                        $0.character?.count == 1 && $0.frame.midY == key.frame.midY && $0 != key
-                    }.sorted { abs($0.frame.midX - key.frame.midX) < abs($1.frame.midX - key.frame.midX) }
-                    let neighbor = try XCTUnwrap(neighbors.first?.character?.first)
+                    let adjacent = try XCTUnwrap(grid.key(.character(String(neighbor))))
+                    XCTAssertEqual(key.row, adjacent.row)
+                    XCTAssertLessThanOrEqual(abs(key.frame.midX - adjacent.frame.midX),
+                                             key.frame.width + grid.metrics.gap + 0.001)
                     letters[letters.count - 1] = neighbor
                     return String(letters)
                 }.joined()
@@ -73,6 +84,8 @@ extension KeyboardBoundaryDecoderTests {
                 let chips = ac.suggestions(beforeInput: noisy, field: .text,
                                            autocorrectionType: .default, boundaryRetrieval: result)
                 if chips.contains(where: { $0.replacement.lowercased() == phrase }) { strip3 += 1 }
+                XCTAssertTrue(chips.contains { $0.replacement.lowercased() == phrase },
+                              "\(name): \(phrase), noisy=\(noisy), candidates=\(words), chips=\(chips.map(\.replacement))")
                 autos += chips.filter { $0.boundary != nil && $0.willAutoReplace }.count
             }
             XCTAssertEqual(autos, 0)
