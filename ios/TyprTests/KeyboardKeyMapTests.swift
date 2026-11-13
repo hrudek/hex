@@ -504,6 +504,14 @@ final class KeyboardKeyMapTests: XCTestCase {
             ("prefix4", .init(boundaryFraction: 0.10, novelFloor: 0.50, minimumPrefix: 4,
                               densityMargin: log(2), posteriorMargin: log(4), requiresConsistency: false)),
             ("conservative", .conservative),
+            ("R2_short", .init(boundaryFraction: 0.015, novelFloor: 0.90, minimumPrefix: 2,
+                               densityMargin: log(4), posteriorMargin: log(16), requiresConsistency: true)),
+            ("R2_edges", .init(boundaryFraction: 0.10, novelFloor: 0.90, minimumPrefix: 4,
+                               densityMargin: log(4), posteriorMargin: log(16), requiresConsistency: true,
+                               includesKeyEdges: true)),
+            ("R2_wider", .init(boundaryFraction: 0.10, novelFloor: 0.90, minimumPrefix: 2,
+                               densityMargin: log(4), posteriorMargin: log(16), requiresConsistency: true,
+                               includesKeyEdges: true)),
             ("narrow", .init(boundaryFraction: 0.005, novelFloor: 0.95, minimumPrefix: 4,
                              densityMargin: log(8), posteriorMargin: log(32), requiresConsistency: true))
         ]
@@ -588,7 +596,7 @@ final class KeyboardKeyMapTests: XCTestCase {
         }
         for (policyName, policy) in policies {
             for (mode, languages, known) in modes {
-                var allOOV = Counts(), allKnown = Counts()
+                var allOOV = Counts(), allKnown = Counts(), compounds = Counts()
                 for (profile, profileName) in profiles.enumerated() {
                     var novel = Counts(), vocabulary = Counts()
                     for (ordinal, item) in oov.enumerated() {
@@ -596,6 +604,7 @@ final class KeyboardKeyMapTests: XCTestCase {
                         let result = simulate(item.1, points: taps, languages: languages, policy: policy,
                                               timed: policyName == "conservative" && mode == "mixed")
                         novel.add(result)
+                        if item.0 == "compounds" { compounds.add(result) }
                         if policyName == "conservative", result.harmWords > 0 {
                             print("EVAL P8b_harm mode=\(mode) noise=\(profileName) category=\(item.0) intended=\(item.1) harm_taps=\(result.harmTaps)")
                         }
@@ -610,6 +619,9 @@ final class KeyboardKeyMapTests: XCTestCase {
                         XCTAssertLessThanOrEqual(Double(novel.harmWords) / Double(novel.words), 0.01)
                         print("EVAL P8b_profile mode=\(mode) noise=\(profileName) oov_words=\(novel.words) correct_taps=\(novel.correctTaps) harm_taps=\(novel.harmTaps) harm_words=\(novel.harmWords) known_static_errors=\(vocabulary.staticErrors) known_adaptive_errors=\(vocabulary.adaptiveErrors) known_fixed=\(vocabulary.fixed)")
                     }
+                }
+                if policyName == "conservative" || policyName.hasPrefix("R2_") {
+                    print("EVAL R2_7_compounds policy=\(policyName) mode=\(mode) runs=\(compounds.words) correct_taps=\(compounds.correctTaps) harm_taps=\(compounds.harmTaps) harm_words=\(compounds.harmWords)")
                 }
                 let tapRate = Double(allOOV.harmTaps) / Double(allOOV.correctTaps)
                 let wordRate = Double(allOOV.harmWords) / Double(allOOV.words)
@@ -696,6 +708,156 @@ final class KeyboardKeyMapTests: XCTestCase {
         }
     }
 
+    func testWiderValidLiteralGateEvaluation() throws {
+        let sources = try resources()
+        let controls = ["ina", "malin", "andi", "jens", "maren", "alice", "george", "siemens",
+                        "microsoft", "openai", "herdr", "typr", "whisper", "fahrradlieferzeit",
+                        "kindergartenplatz", "haustuerschluessel"]
+        var builder = ProtectedPersonalLexicon.Builder()
+        builder.add(controls.joined(separator: " "))
+        let imported = builder.build()
+        let policies: [(String, KeyboardKeyMap.Policy)] = [
+            ("shipping", .conservative),
+            ("short", .init(boundaryFraction: 0.015, novelFloor: 0.90, minimumPrefix: 2,
+                            densityMargin: log(4), posteriorMargin: log(16), requiresConsistency: true)),
+            ("edges", .init(boundaryFraction: 0.10, novelFloor: 0.90, minimumPrefix: 4,
+                            densityMargin: log(4), posteriorMargin: log(16), requiresConsistency: true,
+                            includesKeyEdges: true)),
+            ("wider", .init(boundaryFraction: 0.10, novelFloor: 0.90, minimumPrefix: 2,
+                            densityMargin: log(4), posteriorMargin: log(16), requiresConsistency: true,
+                            includesKeyEdges: true))
+        ]
+        let modes: [(String, Set<Language>)] = [
+            ("DE", [.german]), ("EN", [.english]), ("mixed", [.german, .english])
+        ]
+        for (mode, languages) in modes {
+            for (name, policy) in policies {
+                var harms = [0, 0], probes = 0, centerChanges = 0
+                for word in controls {
+                    var prefix = ""
+                    for letter in word {
+                        if let priors = KeyboardKeyMap.priors(prefix: prefix, languages: languages,
+                                                             lexicons: sources, personal: nil, policy: policy) {
+                            let map = KeyboardKeyMap(layout: grid, prefix: prefix, calibration: calibration(),
+                                                     priors: priors, policy: policy)
+                            let k = key(letter)
+                            let centered = map.attributedKey(at: center(k), geometric: k, layout: grid, prefix: prefix)
+                            if centered != k { centerChanges += 1 }
+                            // Both directions, on the correct side of hit boundary and just inside keycap.
+                            let xs: [CGFloat] = [k.hitFrame.minX + 0.1, k.hitFrame.maxX - 0.1,
+                                                 k.frame.minX + 0.1, k.frame.maxX - 0.1]
+                            for x in xs {
+                                let p = CGPoint(x: x, y: k.frame.midY)
+                                guard grid.hitTest(p) == k else { continue }
+                                probes += 1
+                                if map.attributedKey(at: p, geometric: k, layout: grid, prefix: prefix) != k {
+                                    harms[0] += 1
+                                    let guarded = imported.contains(prefix) || imported.protectsPrefix(prefix + String(letter))
+                                    if !guarded { harms[1] += 1 }
+                                }
+                            }
+                        }
+                        prefix.append(letter)
+                    }
+                }
+                XCTAssertEqual(centerChanges, 0)
+                XCTAssertEqual(harms[1], 0)
+                print("EVAL R2_7_controls policy=\(name) mode=\(mode) words=\(controls.count) correct_side_probes=\(probes) without_import_harm=\(harms[0]) with_import_harm=\(harms[1]) dead_center_changes=\(centerChanges)")
+            }
+        }
+    }
+
+    /// Synthetic dictation-style vocabulary: common DE/EN words plus names/terms, no private log.
+    /// Before is the exact #127 prefix-wide guard; after uses the production per-tap guard.
+    func testDictationImportBranchCoverageEvaluation() throws {
+        let sources = try resources()
+        let words = SpatialTypoEvaluationFixtures.german + SpatialTypoEvaluationFixtures.english
+        let names = ["malin", "maren", "ina", "typr", "herdr", "whisper", "fahrradlieferzeit"]
+        var builder = ProtectedPersonalLexicon.Builder()
+        builder.add((words + names).joined(separator: " "))
+        let imported = builder.build()
+        let modes: [(String, Set<Language>)] = [
+            ("DE", [.german]), ("EN", [.english]), ("mixed", [.german, .english])
+        ]
+        for (mode, languages) in modes {
+            let (engine, _, checker) = keyboard(sources, languages: languages)
+            engine.autocorrect.loadProtectedLexicon(imported)
+            let frozen = try XCTUnwrap(engine.autocorrect.learning.calibration(for: grid))
+            var branches = 0, before = 0, after = 0, changesBefore = 0, changesAfter = 0
+            var protectedTaps = 0
+            for word in words + names {
+                var prefix = ""
+                for letter in word.lowercased() {
+                    let priors = KeyboardKeyMap.priors(prefix: prefix, languages: languages,
+                                                       lexicons: sources, personal: nil)
+                    if prefix.count >= 4, let priors {
+                        let map = KeyboardKeyMap(layout: grid, prefix: prefix, calibration: frozen, priors: priors)
+                        // Every intended continuation of an imported word must remain protected.
+                        XCTAssertTrue(engine.autocorrect.protectsAttribution(prefix: prefix, letter: String(letter)))
+                        protectedTaps += 1
+                        for entry in map.entries {
+                            let text = entry.key.character!
+                            let oldGuard = imported.protectsPrefix(prefix) || imported.protectsPrefix(prefix + text)
+                            let newGuard = engine.autocorrect.protectsAttribution(prefix: prefix, letter: text)
+                            branches += 1
+                            if !oldGuard { before += 1 }
+                            if !newGuard { after += 1 }
+                            let point = CGPoint(x: entry.key.hitFrame.minX + 0.1, y: entry.key.frame.midY)
+                            let actual = map.attributedKey(at: point, geometric: entry.key, layout: grid, prefix: prefix)
+                            if actual != entry.key {
+                                if !oldGuard { changesBefore += 1 }
+                                if !newGuard { changesAfter += 1 }
+                            }
+                        }
+                    }
+                    prefix.append(letter)
+                }
+            }
+            XCTAssertGreaterThan(after, before)
+            XCTAssertGreaterThan(changesAfter, changesBefore)
+            XCTAssertEqual(checker.calls, 0)
+            XCTAssertLessThanOrEqual(imported.words.count, 2_000)
+            print("EVAL R2_7_import mode=\(mode) imported=\(imported.words.count) branch_probes=\(branches) before_available=\(before) after_available=\(after) before_changes=\(changesBefore) after_changes=\(changesAfter) protected_continuations=\(protectedTaps) checker_calls=\(checker.calls) synthetic_dictation=1")
+        }
+        // Integration: an imported competing branch must not suppress recovery of 'where'.
+        let (engine, target, checker) = keyboard(sources)
+        var competing = ProtectedPersonalLexicon.Builder()
+        competing.add("whereas")
+        engine.autocorrect.loadProtectedLexicon(competing.build())
+        type("wher", engine)
+        tap(gap("e"), engine)
+        XCTAssertEqual(target.text, "where")
+        XCTAssertEqual(checker.calls, 0)
+        XCTAssertTrue(engine.autocorrect.protectsAttribution(prefix: "whereas", letter: "x"))
+    }
+
+    func testAttributedFeedbackCurveRemainsNoUpdateAfterFailedWideningGate() throws {
+        let sources = try resources()
+        var curve: [Int] = []
+        for index in 0..<16 {
+            // Fresh sessions use independent calibration, never attributed pseudo-labels.
+            let (engine, target, _) = keyboard(sources)
+            let session = engine.autocorrect.learning
+            let trustedLabels = session.diagnostics.acceptedLabels
+            XCTAssertGreaterThan(trustedLabels, 0)
+            type("wher", engine)
+            tap(gap("e"), engine)
+            XCTAssertEqual(target.text, "where")
+            if index % 2 == 0 {
+                engine.deleteBackward()
+                tap(gap("e"), engine)
+                XCTAssertEqual(target.text, "wherr", "backspace/retype must stay geometric")
+            } else {
+                tap(center(engine.layout.key(.space)!), engine)
+                type("w", engine)
+            }
+            curve.append(session.diagnostics.acceptedLabels - trustedLabels)
+            XCTAssertNil(session.model.lexicon.counts["where"])
+        }
+        XCTAssertEqual(curve, [Int](repeating: 0, count: 16))
+        print("EVAL R2_7_feedback trials=16 not_undone=8 backspace_undo=8 attributed_label_curve=\(curve) attributed_word_counts=0 soft_labels_shipped=0")
+    }
+
     func testMapWorkPayloadAndLatencyEvaluation() throws {
         let sources = try resources()
         let start = ProcessInfo.processInfo.systemUptime
@@ -712,6 +874,8 @@ final class KeyboardKeyMapTests: XCTestCase {
         let resourceBytes = sources.values.reduce(0) { $0 + $1.continuationPayloadBytes }
         XCTAssertLessThanOrEqual(bytes, 16 * 1_024)
         XCTAssertLessThanOrEqual(MemoryLayout<KeyboardKeyMap.Policy>.stride, 64)
+        XCTAssertFalse(KeyboardKeyMap.Policy.conservative.includesKeyEdges)
+        XCTAssertEqual(KeyboardKeyMap.Policy.conservative.minimumPrefix, 4)
         XCTAssertEqual(resourceBytes, sources.values.reduce(0) { $0 + $1.nodeCount * 8 })
         XCTAssertLessThanOrEqual(resourceBytes, 6_400_000)
         print("EVAL P8_bounds map_entries=26 max_neighbor_scores=2 max_entry_inspections=52 map_payload_bytes=\(bytes) policy_bytes=\(MemoryLayout<KeyboardKeyMap.Policy>.stride) recovery_bits=1 continuation_index_bytes=\(resourceBytes) map_and_center_probes_mean_ms=\(ms) wall_clock_assertions=0")

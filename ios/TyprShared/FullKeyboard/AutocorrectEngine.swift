@@ -179,9 +179,10 @@ final class AutocorrectEngine {
         invalidateDecode()
     }
 
-    /// Geometric letters stay literal while they could still spell an imported name/term.
+    /// Protect the actual geometric continuation, not every branch of an imported prefix.
+    /// A completed imported literal still protects its next tap. No checker work on insertion.
     func protectsAttribution(prefix: String, letter: String) -> Bool {
-        protectedLexicon.protectsPrefix(prefix) || protectedLexicon.protectsPrefix(prefix + letter)
+        protectedLexicon.contains(prefix) || protectedLexicon.protectsPrefix(prefix + letter)
     }
 
     private var lexiconTerms: [String] = []
@@ -225,7 +226,7 @@ final class AutocorrectEngine {
         guard isEnabled, learning.isLearningEnabled, permitsCorrection,
               layout.layer == .letters, layout.field == .text,
               let token = Self.currentToken(in: context), token.utf8.count <= 256,
-              !protectedLexicon.protectsPrefix(token),
+              !protectedLexicon.contains(token),
               (KeyboardKeyMap.Policy.conservative.minimumPrefix...31).contains(token.count),
               token.dropFirst().allSatisfy({ $0.isLowercase }),
               let calibration = learning.calibration(for: layout), !calibration.keys.isEmpty else { return nil }

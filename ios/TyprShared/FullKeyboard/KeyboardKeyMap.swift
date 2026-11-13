@@ -15,6 +15,8 @@ nonisolated struct KeyboardKeyMap: Sendable {
         let densityMargin: Double
         let posteriorMargin: Double
         let requiresConsistency: Bool
+        /// Evaluation-only alternatives; production always uses conservative.
+        var includesKeyEdges: Bool = false
 
         static let conservative = Policy(boundaryFraction: 0.015, novelFloor: 0.90,
                                          minimumPrefix: 4, densityMargin: log(4),
@@ -96,7 +98,9 @@ nonisolated struct KeyboardKeyMap: Sendable {
         guard current == layout, currentPrefix == prefix, prefix.count >= policy.minimumPrefix,
               layout.layer == .letters,
               layout.field == .text, point.x.isFinite, point.y.isFinite,
-              layout.hitTest(point) == geometric, !geometric.frame.contains(point),
+              layout.hitTest(point) == geometric,
+              (policy.includesKeyEdges || !geometric.frame.contains(point)),
+              abs(point.x - geometric.frame.midX) > geometric.frame.width * 0.35,
               let hit = entries.first(where: { $0.key == geometric }),
               abs(point.y - geometric.frame.midY) <= geometric.frame.height * 0.30 else { return geometric }
         let pitchX = Double(geometric.frame.width + layout.metrics.gap)
@@ -114,7 +118,9 @@ nonisolated struct KeyboardKeyMap: Sendable {
             let dx = entry.key.frame.midX - geometric.frame.midX
             guard abs(dx) <= CGFloat(pitchX) * 1.05 else { continue }
             let boundary = dx > 0 ? geometric.hitFrame.maxX : geometric.hitFrame.minX
-            let band = min(geometric.frame.width * policy.boundaryFraction, layout.metrics.gap / 2)
+            let band: CGFloat = policy.includesKeyEdges
+                ? layout.metrics.gap / 2 + geometric.frame.width * policy.boundaryFraction
+                : min(geometric.frame.width * policy.boundaryFraction, layout.metrics.gap / 2)
             guard abs(point.x - boundary) <= band,
                   entry.logPrior > hit.logPrior else { continue }
             if policy.requiresConsistency {

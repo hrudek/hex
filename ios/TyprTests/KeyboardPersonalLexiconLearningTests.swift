@@ -126,6 +126,8 @@ final class KeyboardPersonalLexiconLearningTests: XCTestCase {
         let ac = engine()
         ac.loadProtectedLexicon(value)
         XCTAssertTrue(ac.protectsAttribution(prefix: "mali", letter: "n"))
+        XCTAssertFalse(ac.protectsAttribution(prefix: "mali", letter: "x"), "unrelated branches remain available")
+        XCTAssertTrue(ac.protectsAttribution(prefix: "malin", letter: "x"), "completed imported literal stays protected")
         XCTAssertTrue(ac.protectsAttribution(prefix: "", letter: "m"))
         XCTAssertFalse(ac.protectsAttribution(prefix: "hello", letter: "s"))
         let chips = ac.suggestions(beforeInput: "mal", field: .text, autocorrectionType: .default)

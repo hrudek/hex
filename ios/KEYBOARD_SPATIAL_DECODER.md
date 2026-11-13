@@ -177,7 +177,10 @@ boundary candidates. Imported binary-prefix completions are manual-only and
 precede speculative alternatives without displacing explicit/automatic choices.
 Changing the snapshot invalidates suggestion configuration/caches so stale worker
 results cannot authorize an edit. Straight/curly internal apostrophes now share
-word-token handling. Adaptive prefix veto and device limits are documented in
+word-token handling. R2-7 narrows adaptive protection to exact completed imported
+words and the actual geometric continuation, not all branches of any imported
+prefix. Wider edge/short-prefix policy experiments remain disabled after failing
+valid-literal/OOV gates; no non-undo soft labels. Measurements and device limits are documented in
 KEYBOARD_TOUCH_INPUT.md. The pre-existing unimported-name/OOV automatic gates
 remain suggestion-only; this package does not enable automatic split/join.
 
