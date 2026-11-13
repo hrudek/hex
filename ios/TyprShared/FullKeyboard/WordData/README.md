@@ -59,8 +59,11 @@ inclusion. In particular, missing technical terms and compounds are expected.
 
 ## Corpus context sidecars (TBG1)
 
-`keyboard-{de,en}.tbg` are **separate** Common Voice CC0 + named-owner Tatoeba
-CC BY 2.0 FR adaptations, not FrequencyWords/CC BY-SA or MIT data. See
+`keyboard-{de,en}.tbg` are **separate** corpus adaptations: Common Voice CC0,
+named-owner Tatoeba CC BY 2.0 FR, Leipzig news (CC BY terms/version qualification),
+Wikipedia (CC BY-SA), and OPUS OpenSubtitles (underlying rights unresolved).
+They are not FrequencyWords or MIT data. R2-9 source-by-source terms, notices,
+open questions and reproduction are in [SOURCE](../../../tools/keyboard_context/SOURCE). See
 [ATTRIBUTION.md](ATTRIBUTION.md), [tatoeba-contributors.tsv](tatoeba-contributors.tsv)
 and the linked full sentence source mapping. Preserve all three when redistributing.
 The [explicit offline compiler](../../../tools/keyboard_context/README.md) pins
@@ -68,10 +71,11 @@ all input hashes and documents rebuilds; no acquisition or input files are bundl
 
 | Resource | Lexical words | Edges | Bytes | SHA-256 |
 | --- | ---: | ---: | ---: | --- |
-| keyboard-de.tbg | 8,000 | 8,263 | 323,104 | `3efe6edcec45e6a134eaa80ee336e2549d173a432ff57c4b37b8d81c0ad04e79` |
-| keyboard-en.tbg | 8,000 | 14,255 | 339,689 | `26bdef6715570b7e7b8890467fc165c586974b417d3cc7f0ae8791a52b3578d9` |
+| keyboard-de.tbg | 8,000 | 15,340 | 382,140 | `5b19683277b453d6d93189d6a615f63ce012deba0f50e05880dedf1c8a9c5ed3` |
+| keyboard-en.tbg | 8,000 | 20,065 | 388,490 | `a270578241a627473dac054d2a340e763dab87af95fc57dc7bde95684cc7aee5` |
 
-Combined packs: **662,793 bytes**, below 1 MiB. They contain no audio, raw sentences,
+Combined packs: **770,630 bytes**, up **107,837** from 662,793, still below the
+unchanged 1 MiB loader cap (and the R2-9 target of ~2 MiB). They contain no audio, raw sentences,
 neural weights, personal data or network URLs. Observed display casing is manual
 suggestion spelling, never authority for automatic German noun correction. Stock
 corpus names `tom`, `mary`, `maria`, `john` are suppressed in next-word predictions,
@@ -95,9 +99,12 @@ not just visited rows: ≤8,001 records, K≤16, ≤1 MiB combined, ≤128 UTF-8
 unknown/no-total contexts use lambda=1. Pruned/OOV continuation mass backs off,
 not renormalization of only stored edges. Unknown context is not `<s>`.
 The only resident index is sorted unigram IDs, **32,000 bytes combined**.
-Mapped file+index payload is 694,793 bytes, not an extension RSS measurement.
+Mapped file+index payload is 802,630 bytes, not an extension RSS measurement.
 
 `context-heldout-cc0.json` is a small **CC0 Common Voice** test fixture with source
 revision/selection recorded inside. `swift-reference-vectors.json` is Typr-generated
 numeric reference output for the fixed bilingual formulas. Both are inert test
 resources, not runtime model inputs. Neither changes the sidecar training counts.
+`context-heldout-r2.json` adds 64 globally test-partitioned sentences per language
+and new source (384 sentences); it is **not CC0**. It is a test-only input, not
+runtime prediction data; SOURCE and ATTRIBUTION apply to its excerpts too.

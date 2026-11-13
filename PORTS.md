@@ -1,5 +1,25 @@
 # Adopted sources
 
+## Larger corpus context packs (R2-9)
+
+| Source / revision | Independent adaptation / destination | License / open questions |
+| --- | --- | --- |
+| Leipzig Corpora Collection `deu_news_2024_1M` / `eng_news_2024_1M`, first 300k rows each, 2026-11-13 hash-pinned downloads | Train-only sparse counts and observed casing, TBG1 packs; `ios/tools/keyboard_context/tools/larger_corpora.py`, curve/evaluation/selected manifests, new heldout fixture | Corpus compilation CC BY, exact version unverified (official page bot-protected); publisher rights unresolved. Credit Goldhahn, Eckart & Quasthoff, LREC 2012. |
+| Wikipedia contributors via Leipzig `deu_wikipedia_2021_100K` / `eng_wikipedia_2016_100K` | Same count adaptation, `credits/wikipedia-{de,en}-sources.tsv.gz` article attribution supersets | Historic text CC BY-SA 3.0; Typr copyrightable Wikipedia adaptations offered under CC BY-SA 4.0. Share-alike/database rights, exact historic revision mapping and DRM scope open. |
+| OPUS OpenSubtitles v2018 DE/EN mono, first 1M lines each | Same count adaptation; text only, no upstream code | Underlying subtitle/translation/film rights retained, no blanket license verified; credit Lison & Tiedemann, LREC 2016. Per-line film/author permission/provenance unresolved. |
+
+Full license links, pinned URLs/hashes, modifications and reproduction:
+[SOURCE](ios/tools/keyboard_context/SOURCE),
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md#larger-corpus-context-packs-r2-9).
+This narrowly supersedes #118's no-share-alike context-data boundary.
+Existing iikb algorithm translation remains `LanguageModel.swift` /
+`Corrector.swift` at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`,
+MIT © 2026 Bassim Shahidy; no new iikb code/data or duplicate MIT notice.
+No loader/format/algorithm change, corpus trigrams, neural weights, network,
+microphone, dictation or personal storage. Existing source exclusions elsewhere
+are historical unless explicitly superseded here.
+
+
 Typr is a standalone iPhone dictation keyboard. It is based on Hex by Kit
 Langton (https://github.com/kitlangton/hex / https://github.com/anomalyco/hex),
 MIT; [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

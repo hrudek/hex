@@ -1,0 +1,62 @@
+[
+  {
+    "source": "news",
+    "language": "de",
+    "path": "/chosen/raw-r2/news/de/download",
+    "kind": "leipzig",
+    "max_lines": 300000,
+    "sha256": "203d98de187f6d87e7f97c1f516a64a9d19016d0dc81c935a72e769ef184fa64",
+    "url": "https://downloads.wortschatz-leipzig.de/corpora/deu_news_2024_1M.tar.gz",
+    "bytes": 228813522
+  },
+  {
+    "source": "news",
+    "language": "en",
+    "path": "/chosen/raw-r2/news/en/download",
+    "kind": "leipzig",
+    "max_lines": 300000,
+    "sha256": "8f1d4d07b9771f8a7fc219ad587d5382eabf5009ef563f1bc4c12a467a8e3a97",
+    "url": "https://downloads.wortschatz-leipzig.de/corpora/eng_news_2024_1M.tar.gz",
+    "bytes": 288362970
+  },
+  {
+    "source": "wiki",
+    "language": "de",
+    "path": "/chosen/raw-r2/wiki/de/download",
+    "kind": "leipzig",
+    "max_lines": 100000,
+    "sha256": "7f3141fc07250b173305561ed78e1c4bc6f50b63197fe0201acdca5cdfcd31ac",
+    "url": "https://downloads.wortschatz-leipzig.de/corpora/deu_wikipedia_2021_100K.tar.gz",
+    "bytes": 20776551
+  },
+  {
+    "source": "wiki",
+    "language": "en",
+    "path": "/chosen/raw-r2/wiki/en/download",
+    "kind": "leipzig",
+    "max_lines": 100000,
+    "sha256": "04aa301072a612e0368f1a0abe5f6b011ab03df84961c29b80bd126883a5a6f0",
+    "url": "https://downloads.wortschatz-leipzig.de/corpora/eng_wikipedia_2016_100K.tar.gz",
+    "bytes": 25566797
+  },
+  {
+    "source": "opus",
+    "language": "de",
+    "path": "/chosen/raw-r2/opus/de/download",
+    "kind": "opus",
+    "max_lines": 1000000,
+    "sha256": "34cf5c39c9a48d7068c253ffa960cb3a924acd3f52cf7ae2716e0431ad44f855",
+    "url": "https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/de.txt.gz",
+    "bytes": 475884373
+  },
+  {
+    "source": "opus",
+    "language": "en",
+    "path": "/chosen/raw-r2/opus/en/download",
+    "kind": "opus",
+    "max_lines": 1000000,
+    "sha256": "1b176037f8d4af6a3d9b7aa5ab1fd567d93aff5f36a8f71d25d522a392083631",
+    "url": "https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/en.txt.gz",
+    "bytes": 3663376519
+  }
+]

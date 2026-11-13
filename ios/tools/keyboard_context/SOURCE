@@ -1,0 +1,121 @@
+R2-9 — larger German/English context corpora, retrieved 2026-11-13 UTC
+
+The shipped TBG1 packs adapt the original CV CC0 and named-owner Tatoeba CC BY
+2.0 FR training corpus PLUS the following bounded samples. See inputs.json for
+complete download hashes/bytes, selected.json for output hashes, curve.json for
+ALL validation candidates, evaluation.json for untouched final test results.
+Mutable upstream URLs are not permission to accept a changed hash.
+
+LEIPZIG CORPORA COLLECTION — University of Leipzig / Deutscher Wortschatz
+https://downloads.wortschatz-leipzig.de/corpora/deu_news_2024_1M.tar.gz
+https://downloads.wortschatz-leipzig.de/corpora/eng_news_2024_1M.tar.gz
+Use first 300,000 sentence-export rows per language (not entire 1M archives).
+Credit: Dirk Goldhahn, Thomas Eckart and Uwe Quasthoff. 2012. Building Large
+Monolingual Dictionaries at the Leipzig Corpora Collection: From 100 to 200
+Languages. Proceedings of LREC 2012.
+Terms generally stated for Leipzig downloadable corpora: Creative Commons
+Attribution (CC BY); retain corpus/provider credit and indicate modifications.
+https://wortschatz.uni-leipzig.de/en/download
+https://creativecommons.org/licenses/by/4.0/
+OPEN QUESTION: the official download-page request returned Anubis bot protection,
+NOT evidence of a particular CC BY version. Archive metadata has no explicit
+license version. CC BY 4.0 is the working notice link, not a verified version grant
+for every news article. Provider corpus/database terms do not necessarily clear
+publisher/author rights in source news text. Retain this qualification; release
+owner must confirm exact corpus terms and third-party rights. No corpus code,
+SQL, scripts or executables are imported or run.
+
+WIKIPEDIA — Wikipedia contributors, via Leipzig sentence exports
+https://downloads.wortschatz-leipzig.de/corpora/deu_wikipedia_2021_100K.tar.gz
+https://downloads.wortschatz-leipzig.de/corpora/eng_wikipedia_2016_100K.tar.gz
+Use all 100,000 exported rows per language. Leipzig corpus compilation CC BY
+qualification above also applies. Underlying Wikipedia text from these historic
+snapshots: Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0),
+https://creativecommons.org/licenses/by-sa/3.0/ ; possible GFDL dual licensing is
+not relied on. Current Wikipedia terms refer to CC BY-SA 4.0; that does NOT prove
+the historic exports were originally supplied under 4.0.
+https://en.wikipedia.org/wiki/Wikipedia:Copyrights
+https://de.wikipedia.org/wiki/Wikipedia:Lizenzbestimmungen
+credits/wikipedia-{de,en}-sources.tsv.gz preserves ALL supplied article URLs and
+crawl dates (a deliberate attribution superset including training/test rows).
+Credit the linked article contributors: use each article's history page to see
+the authors. Keep these lists publicly accessible with distributed adaptations:
+https://github.com/hrudek/typr/tree/main/ios/tools/keyboard_context/credits
+Modifications: extract text statistics only, tokenize/NFC/lowercase, deduplicate,
+partition, prune and compile counts with other sources, as described below.
+For any copyrightable Wikipedia-derived adaptation in the new packs/fixture,
+Typr offers its contribution under CC BY-SA 4.0, the later version permitted for
+an adaptation by 3.0 section 4(b). License text is already in WordData/
+CC-BY-SA-4.0.txt. Other source rights and qualifications remain; this is NOT a
+claim to relicense subtitle rights or the entire app/Swift code under CC BY-SA.
+OPEN QUESTIONS: whether sparse aggregate n-gram counts are copyrightable or a
+substantial database extraction; scope of share-alike in a combined count pack;
+article-history links versus exact historic revision attribution; compatibility
+of app-store DRM/redistribution with applicable CC freedoms. We conservatively
+retain attribution, changes and share-alike notice, not a legal exemption claim.
+The archive source IDs/crawl dates are NOT immutable Wikipedia revision IDs.
+
+OPUS / OPENSUBTITLES — subtitle contributors, OpenSubtitles.org, OPUS maintainers
+https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/de.txt.gz
+https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/en.txt.gz
+Use first 1,000,000 decompressed lines per language. Downloads complete, gzip
+integrity checked; sample is export-order-biased, not a uniform movie sample.
+https://opus.nlpl.eu/legacy/OpenSubtitles.php
+https://www.opensubtitles.org/
+Credit: Pierre Lison and Jörg Tiedemann. 2016. OpenSubtitles2016: Extracting Large
+Parallel Corpora from Movie and TV Subtitles. Proceedings of LREC 2016.
+License: upstream subtitle/film/translation rights retained; NO blanket CC BY,
+CC BY-SA or public-domain grant was verified for these v2018 mono exports.
+The OPUS page supplies a citation and takedown process, not clearance of all
+underlying rights. Do not confuse corpus availability with a universal license.
+OPEN QUESTIONS: contributor/film provenance, upstream translation/copyright
+permission and redistribution terms for derived counts/test excerpts. Mono files
+supply no per-line film IDs/author roster. This limitation is explicit rather
+than inventing attribution/license metadata. Owner's R2 permission permits the
+experiment and notices with unresolved licensing; it is not a legal opinion.
+
+Original CV/Tatoeba inputs, owner roster and training sentence-ID mapping remain
+unchanged; see README.md and WordData/ATTRIBUTION.md. No FrequencyWords counts or
+casing, iikb data, neural weights or personal/runtime data are used.
+
+SELECTION / DEDUP / BOUNDS
+One canonical NFC/lowercase (not casefold) token-sequence SHA256 groups sentence
+variants. First uint64 big-endian mod10: 0=test, 1=dev, others=train. This is the
+SAME split as round one, globally consistent across corpora/languages; existing
+old test sentences found in a new source cannot become training. New source
+sentences already present in the original corpus are excluded; selected new
+sources deduplicate with each other, lexical-first source chooses display form.
+All counts, vocabulary selection and display spelling use only train. No
+cross-sentence lexical pairs, no context across invalid/number barriers.
+The 30-candidate curve compares base-only/news/wiki/subtitles/all, K=3/6/12,
+N=8000, min=10. Pick positive DE and EN mean dev recall@3 gains divided by combined
+pack bytes, <=1MiB. Mean is equally weighted over original CV + new news/wiki/
+subtitles validation domains (not token-pooled, not tested on final fixture).
+Winner: all three new sources, K=3 in both languages. No corpus trigrams built:
+there is no measured trigram gain to justify bytes; personal R2-2 trigrams stay.
+Tradeoff accepted explicitly: larger encyclopedic/news coverage but full Tatoeba
+heldout recall@3 drops DE 19.0541%->18.4022%, EN 28.1190%->27.5861%.
+64-CV test improves DE 14.0625%->14.5089%, EN 17.7419%->18.4332%.
+Packs 662793->770630 bytes (+107837); mapped+index payload 694793->802630.
+Loader, format, N and combined 1MiB cap unchanged; no automatic-policy authority.
+
+REPRODUCE (repository root; all external directories explicitly chosen)
+1. Recreate original corpus.sqlite using README.md's build_d3b.py prepare $DATA.
+   Original compile/verify reproduce ROUND ONE packs, intentionally unchanged.
+   Keep those packs in $BASELINE, together with original heldout/reference JSON.
+2. Download each URL above into its own newly created EMPTY directory under
+   $DATA/raw-r2/<source>/; do not extract archives. Never execute contents. Match
+   hashes in inputs.json. Adjust only path fields in a COPY of inputs.json to
+   the explicit local download paths; keep SHA256/max_lines/source/kind unchanged.
+3. Run:
+python3 -I ios/tools/keyboard_context/tools/larger_corpora.py prepare /chosen/inputs.json /chosen/new.sqlite
+python3 -I ios/tools/keyboard_context/tools/larger_corpora.py build /chosen/new.sqlite "$DATA/work-d3b/corpus.sqlite" "$BASELINE" /chosen/output
+python3 -I ios/tools/keyboard_context/tools/evaluate_r2.py ios/tools/keyboard_context/tools/larger_corpora.py /chosen/new.sqlite "$DATA/work-d3b/corpus.sqlite" "$BASELINE" /chosen/output "$BASELINE/context-heldout-cc0.json" "$BASELINE/swift-reference-vectors.json"
+python3 -I ios/tools/keyboard_context/tools/corpus_credits.py /chosen/de-wiki.tar.gz /chosen/wikipedia-de-sources.tsv.gz
+python3 -I ios/tools/keyboard_context/tools/corpus_credits.py /chosen/en-wiki.tar.gz /chosen/wikipedia-en-sources.tsv.gz
+python3 -I -m unittest discover -s ios/tools/keyboard_context -v
+4. Independently repeat build to a new output directory; cmp both emitted packs.
+   Install ONLY selected keyboard-{de,en}.tbg, generated reference vectors and
+   context-heldout-r2.json into WordData; preserve the unchanged CC0 fixture.
+   No raw corpora or SQLite files enter Git or app bundles. Per-download metadata,
+   source-license evidence/failures and logs are retained externally under $DATA.

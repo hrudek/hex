@@ -6,7 +6,21 @@ SQLite cache **must remain outside Git**. Do not run the iikb research checkout.
 The two compiler modules were narrowed from Typr's D3b research builder; there is
 no dependency on that checkout or any upstream executable.
 
-## Approved inputs
+## R2-9 current packs
+
+The current packs add Leipzig news, Wikipedia and OPUS OpenSubtitles. See
+[SOURCE](SOURCE) for per-source license/provenance/open questions and exact
+reproduction commands, [inputs.json](inputs.json) for download pins,
+[curve.json](curve.json) for 30 validation candidates, and
+[evaluation.json](evaluation.json) for identical final held-outs before/after.
+`selected.json` pins the current hashes. Two independent builds matched bytes.
+New corpus/credit tools and tests run with `python3 -I`; inputs stay outside Git.
+Current combined packs are 770,630 bytes, with no format/loader-cap change.
+The sections below reproduce **round one**, retained to recreate the baseline
+and original global split/cache. Their approved round-one hashes are deliberately
+not replaced with R2 hashes; current output is built by `larger_corpora.py`.
+
+## Round-one approved inputs
 
 Arrange an external directory `$DATA` as follows (obtain these exact snapshots
 separately; mutable URLs are not permission to accept a new hash):
@@ -26,7 +40,8 @@ Licenses, exact source URLs, named contributor roster, modifications and the
 required distribution attribution are in
 [`WordData/ATTRIBUTION.md`](../../TyprShared/FullKeyboard/WordData/ATTRIBUTION.md).
 The Tatoeba-derived portions are **not CC0**. No FrequencyWords/OpenSubtitles
-counts, vocabularies or casing enter this builder.
+counts, vocabularies or casing enter the historical `build_d3b.py` builder.
+R2-9 adds OpenSubtitles through the separate larger-corpora experiment.
 
 ## Rebuild
 

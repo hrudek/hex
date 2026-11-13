@@ -1,5 +1,41 @@
 # Personal typing learning and diagnostics
 
+## Larger corpus context packs (R2-9)
+
+Bundled DE/EN predictions now add bounded Leipzig news, Wikipedia and OPUS subtitle
+samples to Common Voice/Tatoeba. [SOURCE](tools/keyboard_context/SOURCE), WordData
+ATTRIBUTION and third-party notices state licenses/provenance and unresolved
+rights questions. This is static public-corpus data, not learning from users.
+No personal bytes/schema/imports, reset/deletion semantics, Full Access gating,
+privacy permission, network, microphone or dictation behavior changes. Personal
+contexts stay deletable/resettable. Static corpus data remains active with Learn
+from my typing off. No new switch or automatic-policy authority.
+
+TBG1 and the combined 1 MiB loader cap remain unchanged: 8,000 words plus BOS per
+language, K=3/min=10. Packs 662,793→770,630 bytes (+107,837); load validates 16,002
+word records / 35,405 edges; 32,000-byte derived index, 802,630 mapped+index bytes
+(not measured RSS). No corpus trigrams built: no measured gain justifies bytes;
+personal R2-2 trigrams/backoff remain unchanged.
+
+Only dev partitions selected the best balanced recall gain per combined byte
+from 30 candidates. Identical CC0 64-sentence recall@1/@3: DE 6.47/14.06→7.59/14.51%,
+EN 10.37/17.74→11.29/18.43%; mixed 417-pair recall@3 15.11→15.35% and wrong-language
+slot rate 1.92→1.44%. Full CV and all three full new-source domain tests improve,
+but full Tatoeba recall@3 falls DE 19.05→18.40%, EN 28.12→27.59%. The new small
+alternating-language subtitle fixture also falls 15.88→15.44% recall@3 (while
+wrong-language slots fall 1.27→1.12%); news/wiki alternating recall improves.
+These are explicit domain tradeoffs, not an across-the-board gain. Same injected-vocabulary noisy correction retains
+DE 684/722 @1, 688/722 @3; EN 669/686 both; mixed 713/746 @1, 717/746 @3, with
+zero unwanted autos and zero changed automatic decisions.
+
+Linux proves split/counts/formulas and injected-checker controls, not legal
+clearance or iPhone behavior. iPhone checks: cold/warm offline DE/EN/mixed
+predictions and language toggles; extension memory/load; Apple dictionaries;
+manual picks/undo and boundary chips; learning/Full Access on/off; deletion/reset
+of personal contexts; archived resources and attribution links. Subtitle/news
+provenance and App Store DRM/share-alike remain owner release-review questions.
+
+
 Typr's full keyboard can retain bounded personal touch statistics, word choices
 and text-free diagnostic counters on this iPhone. This owner-approved storage
 replaces the old kept-word store; it is **not RAM-only**. It is not a typed-text
