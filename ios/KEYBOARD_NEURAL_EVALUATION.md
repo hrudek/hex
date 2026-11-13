@@ -54,12 +54,12 @@ in `tools/keyboard_neural/results.json`):
 
 | Set (events) | Corpus before | Corpus + personal before | Neural alone after | Rerank corpus top 3 | Rerank personal top 3 |
 | --- | --- | --- | --- | --- | --- |
-| DE (2,039) | 5.35 / 10.99 | 4.86 / 10.54 | 0.59 / 3.04 | 3.14 / 10.99 | 3.33 / 10.54 |
+| DE (2,039) | 5.35 / 10.99 | 4.90 / 10.64 | 0.59 / 3.04 | 3.14 / 10.99 | 3.33 / 10.64 |
 | EN (2,285) | 9.85 / 17.46 | 9.41 / 17.46 | 5.73 / 10.46 | 8.32 / 17.46 | 8.32 / 17.46 |
 | Mixed (2,162) | 7.49 / 13.60 | 6.80 / 13.37 | 4.12 / 8.00 | 6.06 / 13.60 | 6.06 / 13.37 |
 
 Neural alone vs corpus recall@3: **DE −7.95 pp; EN −7.00 pp; mixed −5.60 pp**.
-Compared with personal baseline: −7.50 / −7.00 / −5.37 pp. A rerank restricted to
+Compared with personal baseline: −7.60 / −7.00 / −5.37 pp. A rerank restricted to
 the same three words mathematically cannot increase recall@3; here it also harms
 recall@1. A broader fixed candidate pool could be evaluated in future, but is not
 silently selected after seeing these results. **Quality gate fails decisively.**
