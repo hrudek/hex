@@ -1,0 +1,174 @@
+{
+  "task": "R2-9",
+  "baseline_commit": "3a8b5af74fec4f0c2fc246f963b61a5c2bda29d4",
+  "python": "3.13.18 (main, Oct 26 2026, 14:08:20) [Clang 23.1.3 ]",
+  "unicode_version": "15.1.0",
+  "inputs": [
+    {
+      "source": "news",
+      "language": "de",
+      "path": "/chosen/raw-r2/news/de/download",
+      "kind": "leipzig",
+      "max_lines": 300000,
+      "sha256": "203d98de187f6d87e7f97c1f516a64a9d19016d0dc81c935a72e769ef184fa64",
+      "url": "https://downloads.wortschatz-leipzig.de/corpora/deu_news_2024_1M.tar.gz",
+      "bytes": 228813522
+    },
+    {
+      "source": "news",
+      "language": "en",
+      "path": "/chosen/raw-r2/news/en/download",
+      "kind": "leipzig",
+      "max_lines": 300000,
+      "sha256": "8f1d4d07b9771f8a7fc219ad587d5382eabf5009ef563f1bc4c12a467a8e3a97",
+      "url": "https://downloads.wortschatz-leipzig.de/corpora/eng_news_2024_1M.tar.gz",
+      "bytes": 288362970
+    },
+    {
+      "source": "wiki",
+      "language": "de",
+      "path": "/chosen/raw-r2/wiki/de/download",
+      "kind": "leipzig",
+      "max_lines": 100000,
+      "sha256": "7f3141fc07250b173305561ed78e1c4bc6f50b63197fe0201acdca5cdfcd31ac",
+      "url": "https://downloads.wortschatz-leipzig.de/corpora/deu_wikipedia_2021_100K.tar.gz",
+      "bytes": 20776551
+    },
+    {
+      "source": "wiki",
+      "language": "en",
+      "path": "/chosen/raw-r2/wiki/en/download",
+      "kind": "leipzig",
+      "max_lines": 100000,
+      "sha256": "04aa301072a612e0368f1a0abe5f6b011ab03df84961c29b80bd126883a5a6f0",
+      "url": "https://downloads.wortschatz-leipzig.de/corpora/eng_wikipedia_2016_100K.tar.gz",
+      "bytes": 25566797
+    },
+    {
+      "source": "opus",
+      "language": "de",
+      "path": "/chosen/raw-r2/opus/de/download",
+      "kind": "opus",
+      "max_lines": 1000000,
+      "sha256": "34cf5c39c9a48d7068c253ffa960cb3a924acd3f52cf7ae2716e0431ad44f855",
+      "url": "https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/de.txt.gz",
+      "bytes": 475884373
+    },
+    {
+      "source": "opus",
+      "language": "en",
+      "path": "/chosen/raw-r2/opus/en/download",
+      "kind": "opus",
+      "max_lines": 1000000,
+      "sha256": "1b176037f8d4af6a3d9b7aa5ab1fd567d93aff5f36a8f71d25d522a392083631",
+      "url": "https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/en.txt.gz",
+      "bytes": 3663376519
+    }
+  ],
+  "original_inputs": "README.md: round-one approved inputs; unchanged",
+  "outputs": [
+    {
+      "path": "ios/TyprShared/FullKeyboard/WordData/keyboard-de.tbg",
+      "bytes": 382140,
+      "sha256": "5b19683277b453d6d93189d6a615f63ce012deba0f50e05880dedf1c8a9c5ed3"
+    },
+    {
+      "path": "ios/TyprShared/FullKeyboard/WordData/keyboard-en.tbg",
+      "bytes": 388490,
+      "sha256": "a270578241a627473dac054d2a340e763dab87af95fc57dc7bde95684cc7aee5"
+    },
+    {
+      "path": "ios/TyprShared/FullKeyboard/WordData/context-heldout-cc0.json",
+      "bytes": 19559,
+      "sha256": "81bc5ee144d3c3f292d648c0f1bbe828abfbe7a6aaa942ab36186e43ac077397"
+    },
+    {
+      "path": "ios/TyprShared/FullKeyboard/WordData/context-heldout-r2.json",
+      "bytes": 80850,
+      "sha256": "d05c43d39dc6a86c39331c22a37c201647a5be407dc6bf39ccaacccc0eca1860"
+    },
+    {
+      "path": "ios/TyprShared/FullKeyboard/WordData/swift-reference-vectors.json",
+      "bytes": 37772,
+      "sha256": "38fa7e40d9d0ba1bc06529f8330de47b8b751508e76add5d9abb203b8cff2011"
+    },
+    {
+      "path": "ios/TyprShared/FullKeyboard/WordData/ATTRIBUTION.md",
+      "bytes": 5160,
+      "sha256": "a3d98f94d8c4b6b5c9c0f0207ea247094ebe90b2f1afab6ee8b3058f7eb347f1"
+    },
+    {
+      "path": "ios/tools/keyboard_context/SOURCE",
+      "bytes": 8845,
+      "sha256": "fa5d2ce9cbc8b19f638f838167970c6c41fc8484b54d464e7055880b4919fbee"
+    },
+    {
+      "path": "ios/tools/keyboard_context/inputs.json",
+      "bytes": 2038,
+      "sha256": "231f9621b673b641b7795a0e4ad1527a7ad9eab286286f0925f9526e3726f7ec"
+    },
+    {
+      "path": "ios/tools/keyboard_context/selected.json",
+      "bytes": 3694,
+      "sha256": "145ba32459f8462de336a4c1b4e4df9862a0a1584aa8b47a9e64d51196b93ffc"
+    },
+    {
+      "path": "ios/tools/keyboard_context/curve.json",
+      "bytes": 54305,
+      "sha256": "1881977c385d586610395b54077fdbba7fc35c307be0508f7edc0bd986ea0656"
+    },
+    {
+      "path": "ios/tools/keyboard_context/evaluation.json",
+      "bytes": 3170,
+      "sha256": "1e4abee78a8d7bad034e3f97e1ec546b36ef015c540d2a415831bd5bd45b0648"
+    },
+    {
+      "path": "ios/tools/keyboard_context/tools/build_bigrams.py",
+      "bytes": 17430,
+      "sha256": "16d921deb39e2d8e628f624632d941328d9037b9b8e2eeae6561cc7c29007759"
+    },
+    {
+      "path": "ios/tools/keyboard_context/tools/build_d3b.py",
+      "bytes": 10285,
+      "sha256": "51803be8f3c595b435873fb210c3d7ffd63001d4982719cac6c6a0ea930a3bf6"
+    },
+    {
+      "path": "ios/tools/keyboard_context/tools/heldout_fixture.py",
+      "bytes": 1661,
+      "sha256": "b79d43824dc0ef0f2201c43c8cdc9c7f3d00c34f034ba43ce522216cdd198ab9"
+    },
+    {
+      "path": "ios/tools/keyboard_context/tools/larger_corpora.py",
+      "bytes": 8706,
+      "sha256": "dcd459afc90e2125d2c5fb43d1cdba4d6ed2f83ed515408b78adc558f4d64335"
+    },
+    {
+      "path": "ios/tools/keyboard_context/tools/evaluate_r2.py",
+      "bytes": 2924,
+      "sha256": "7ef68d5b2525894057b6389a4a72a836485003819d55dc861b131f52e147cb7a"
+    },
+    {
+      "path": "ios/tools/keyboard_context/tools/corpus_credits.py",
+      "bytes": 1623,
+      "sha256": "0b769e505e10cfc3e8124a4ee2d6a09835ab41f930e6451e69db087fd070d327"
+    },
+    {
+      "path": "ios/tools/keyboard_context/credits/wikipedia-de-sources.tsv.gz",
+      "bytes": 1387239,
+      "sha256": "3bc1ce5404e0d11ae2bcc09c224a4369494691236d40a296fcbea9288d3cd7f4"
+    },
+    {
+      "path": "ios/tools/keyboard_context/credits/wikipedia-en-sources.tsv.gz",
+      "bytes": 252796,
+      "sha256": "145938fcee587309ee82e6ed3004eb8b68b124a2971c53b867ea5bb3133787ab"
+    }
+  ],
+  "rebuild": "Independent second count/compile: both selected packs byte-identical",
+  "pack_bytes_before": 662793,
+  "pack_bytes_after": 770630,
+  "worddata_bytes_before": 3794933,
+  "worddata_bytes_after": 3986124,
+  "worddata_bundle_delta_per_target": 191191,
+  "app_plus_embedded_keyboard_uncompressed_resource_delta": 382382,
+  "attribution_gzip_repository_only_bytes": 1640035
+}

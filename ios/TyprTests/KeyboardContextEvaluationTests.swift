@@ -60,7 +60,7 @@ final class KeyboardContextEvaluationTests: XCTestCase {
         }
         times.sort()
         XCTAssertEqual(times.count, 41) // Deterministic fixture work, never a wall-clock gate.
-        XCTAssertEqual(model.residentPayloadBytes, 694_793)
+        XCTAssertEqual(model.residentPayloadBytes, 802_630)
         XCTAssertLessThan(model.residentPayloadBytes, 1_048_576)
         print(String(format: "EVAL context_cost calls=%d mean_ms=%.4f p95_ms=%.4f max_ms=%.4f mapped_bytes=%d index_bytes=32000 resident_payload_bytes=%d max_seen_keys=16000 context_utf8_cap=2048", times.count, times.reduce(0,+)/Double(times.count), times[Int(Double(times.count-1)*0.95)], times.last!, model.residentPayloadBytes-32000, model.residentPayloadBytes))
     }
@@ -428,10 +428,10 @@ final class KeyboardContextEvaluationTests: XCTestCase {
         await withCheckedContinuation { continuation in
             resources.prepare { continuation.resume() }
         }
-        XCTAssertEqual(resources.model?.residentPayloadBytes, 694_793)
+        XCTAssertEqual(resources.model?.residentPayloadBytes, 802_630)
         let elapsed = start.duration(to: .now).components
         let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
-        print(String(format: "EVAL context_prepare elapsed_ms=%.3f payload_bytes=694793 mapping=if_safe timing=%@", milliseconds, Self.timingPlatform))
+        print(String(format: "EVAL context_prepare elapsed_ms=%.3f payload_bytes=802630 mapping=if_safe timing=%@", milliseconds, Self.timingPlatform))
     }
 
     @MainActor private final class Checker: TextChecking {

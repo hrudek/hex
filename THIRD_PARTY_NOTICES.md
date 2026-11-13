@@ -1,5 +1,47 @@
 # Third-party notices
 
+## Larger corpus context packs (R2-9)
+
+The packs and `context-heldout-r2.json` additionally adapt these sources.
+The [SOURCE notice](ios/tools/keyboard_context/SOURCE) records exact URLs, hashes,
+modifications, reproduction and open questions; retain it with distributed data.
+
+- **Leipzig Corpora Collection / Deutscher Wortschatz, University of Leipzig**,
+  DE/EN news 2024, first 300k rows each: compilation **CC BY**, exact version
+  unverified (official page bot-protected); underlying news publishers' rights
+  remain unresolved. Working notice link https://creativecommons.org/licenses/by/4.0/
+  is not a verified grant for every article. Credit: Dirk Goldhahn, Thomas Eckart
+  and Uwe Quasthoff, *Building Large Monolingual Dictionaries at the Leipzig
+  Corpora Collection: From 100 to 200 Languages*, LREC 2012.
+  https://wortschatz.uni-leipzig.de/en/download
+- **Wikipedia contributors**, DE 2021 / EN 2016 100K Leipzig exports: historic
+  underlying text **CC BY-SA 3.0 Unported**, https://creativecommons.org/licenses/by-sa/3.0/ .
+  Typr's copyrightable derived Wikipedia adaptations are offered under
+  **CC BY-SA 4.0** (later-version adaptation under 3.0 §4(b)); preserve changes,
+  attribution, share-alike and accompanying WordData license text. This does not
+  relicense other sources or app code. Keep the accompanying
+  [DE article URL/date list](ios/tools/keyboard_context/credits/wikipedia-de-sources.tsv.gz)
+  and [EN list](ios/tools/keyboard_context/credits/wikipedia-en-sources.tsv.gz)
+  publicly accessible there or alongside redistributed data. Each article's
+  history credits its authors; crawl dates are not immutable revision IDs.
+  Whether aggregate counts carry copyright/database rights, mixed-count
+  share-alike scope, exact historic attribution and App Store DRM remain open.
+- **OPUS / OpenSubtitles.org / subtitle contributors**, OpenSubtitles v2018
+  DE/EN mono exports, first 1M lines each: **underlying subtitle/film/translation
+  rights retained; no universal CC license verified**. Credit: Pierre Lison and
+  Jörg Tiedemann, *OpenSubtitles2016: Extracting Large Parallel Corpora from Movie
+  and TV Subtitles*, LREC 2016. https://opus.nlpl.eu/legacy/OpenSubtitles.php and
+  https://www.opensubtitles.org/ . Public download/citation/takedown availability
+  does not clear all authors' rights. Per-line film/author provenance and rights
+  in derived counts/excerpts remain unresolved; mono files omit that mapping.
+
+NFC/lowercase tokenization, global deduplication/split, train-only vocabulary,
+display spelling and counts, pruning and TBG1 compilation are modifications.
+No endorsement is implied. Retain CV/Tatoeba notices below. Owner R2 permission
+allows these sources with explicit open questions; it is not legal clearance.
+No upstream code/executables, GPL/AGPL/LGPL code, audio or personal data enter.
+
+
 Hex+'s own code and the adopted Hex iOS base are covered by the repository's
 [MIT license](LICENSE), whose original © Christopher Langton notice is retained.
 Source adoption history, including the inherited MIT OpenCode iOS scope port,
@@ -297,9 +339,10 @@ at an accessible public data/credits location or accompany redistributed data wi
 it; generic Tatoeba credit alone is insufficient. Official CC0 subset rows are
 labelled in that mapping. Tatoeba-derived portions are **not CC0 or MIT**. No
 endorsement is implied. Preserve applicable credits/license links and do not add
-restrictions defeating the granted rights. No audio or share-alike data enters
-these sidecars. The unchanged FrequencyWords `.words` files retain separate CC
-BY-SA terms. `context-heldout-cc0.json` is a Common Voice CC0 test-only fixture;
+restrictions defeating the granted rights. No audio enters these sidecars.
+R2-9 additionally incorporates share-alike Wikipedia-derived counts; see the
+source-specific notice below. The unchanged FrequencyWords `.words` files retain
+separate CC BY-SA terms. `context-heldout-cc0.json` is a Common Voice CC0 test-only fixture;
 `swift-reference-vectors.json` is Typr-generated numeric reference output.
 
 ## FluidAudio 0.15.5

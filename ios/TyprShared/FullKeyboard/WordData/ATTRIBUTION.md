@@ -1,5 +1,36 @@
 # Attribution — D3b contextual statistics (German / English)
 
+## Larger sources (R2-9)
+
+Current packs also adapt Leipzig DE/EN news 2024 (300k rows each), Wikipedia
+contributors via Leipzig DE 2021 / EN 2016 (100k rows each), and OPUS OpenSubtitles
+v2018 DE/EN (first 1M mono lines each). These are **not CC0/MIT**.
+
+- Leipzig / Deutscher Wortschatz, University of Leipzig: corpus CC BY terms,
+  exact version unverified; underlying publisher rights unresolved. Credit
+  Goldhahn, Eckart & Quasthoff, LREC 2012.
+- Wikipedia contributors: historic text CC BY-SA 3.0,
+  https://creativecommons.org/licenses/by-sa/3.0/ ; Typr's copyrightable derived
+  Wikipedia adaptations offered under CC BY-SA 4.0 (later-version adaptation),
+  see accompanying `CC-BY-SA-4.0.txt`. Preserve article/history attribution,
+  changes and share-alike rights; no relicensing claim for other sources/code.
+  Full article URL/date supersets are publicly distributed with the Tatoeba
+  mapping in the [credits directory](https://github.com/hrudek/typr/tree/main/ios/tools/keyboard_context/credits).
+- OPUS / OpenSubtitles.org / subtitle contributors: underlying subtitle, film
+  and translation rights retained, **no blanket CC license verified**. Credit
+  Lison & Tiedemann, *OpenSubtitles2016*, LREC 2016. Mono exports omit per-line
+  film/contributor metadata. Availability is not universal rights clearance.
+
+[Full SOURCE notice](https://github.com/hrudek/typr/blob/main/ios/tools/keyboard_context/SOURCE)
+and THIRD_PARTY_NOTICES.md name exact URLs/hashes, reproduction, license links
+and open questions. Preserve accessible notices/credit lists with redistributed
+packs and new test-only `context-heldout-r2.json` excerpts. Modifications:
+NFC/lowercase tokenization, cross-source deduplication, same global digest split,
+train-only vocabulary/casing/counts and K=3/min=10 pruning. No endorsement.
+Copyright/database/share-alike scope for n-grams, source rights, exact historical
+Wikipedia revision credit and App Store DRM remain release-owner review items.
+
+
 `keyboard-de.tbg` and `keyboard-en.tbg` contain adapted statistics from:
 
 1. **Common Voice and its sentence-collector contributors**, German and English

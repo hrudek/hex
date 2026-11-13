@@ -73,8 +73,10 @@ class ContextBuilderTests(unittest.TestCase):
     def test_committed_packs_hashes_budget_vectors_and_credits(self):
         models = [API['Model']((DATA/f'keyboard-{l}.tbg').read_bytes()) for l in ['de', 'en']]
         self.assertLessEqual(sum(m.meta['compiled_bytes'] for m in models), 1048576)
+        selected = json.loads((ROOT/'selected.json').read_text())
+        hashes = {c['language']: c['binary']['sha256'] for c in selected}
         for l, m in zip(['de', 'en'], models):
-            self.assertEqual(m.meta['sha256'], BUILD['PACK_HASHES'][l])
+            self.assertEqual(m.meta['sha256'], hashes[l])
         spec = json.loads((DATA/'swift-reference-vectors.json').read_text())
         state, sequence = None, None
         for v in spec['vectors']:

@@ -1,0 +1,148 @@
+[
+  {
+    "language": "de",
+    "sources": [
+      "news",
+      "wiki",
+      "opus"
+    ],
+    "k": 3,
+    "file": "de-news+wiki+opus-k3.tbg",
+    "binary": {
+      "vocabulary_records": 8001,
+      "edges": 15340,
+      "compiled_bytes": 382140,
+      "sha256": "5b19683277b453d6d93189d6a615f63ce012deba0f50e05880dedf1c8a9c5ed3",
+      "string_bytes": 99336,
+      "vocabulary_bytes": 160020,
+      "edge_bytes": 122720,
+      "header_bytes": 64
+    },
+    "selection": {
+      "train_tokens": 12422506,
+      "train_word_types": 389075,
+      "selected_types": 8000,
+      "retained_train_tokens": 10670845,
+      "selection": "training-only top-N; existing Typr tries NOT used"
+    },
+    "dev": {
+      "news": {
+        "pairs": 419562,
+        "recall1": 0.07415352200628274,
+        "recall3": 0.13859691773802205
+      },
+      "wiki": {
+        "pairs": 131385,
+        "recall1": 0.0687216957795791,
+        "recall3": 0.12842409711915365
+      },
+      "opus": {
+        "pairs": 263516,
+        "recall1": 0.0865374398518496,
+        "recall3": 0.16384583858285645
+      },
+      "cv": {
+        "pairs": 25887,
+        "recall1": 0.07857225634488353,
+        "recall3": 0.1489937034032526
+      }
+    },
+    "before_dev": {
+      "news": {
+        "pairs": 419562,
+        "recall1": 0.04182933630786392,
+        "recall3": 0.09364766113232371
+      },
+      "wiki": {
+        "pairs": 131385,
+        "recall1": 0.03776686836396849,
+        "recall3": 0.08696578757087947
+      },
+      "opus": {
+        "pairs": 263516,
+        "recall1": 0.0827957315684816,
+        "recall3": 0.15756538502405926
+      },
+      "cv": {
+        "pairs": 25887,
+        "recall1": 0.07451616641557539,
+        "recall3": 0.14609649631088964
+      }
+    },
+    "balanced_gain": 0.023896306701283166,
+    "gain_per_byte": 6.253285890323747e-08
+  },
+  {
+    "language": "en",
+    "sources": [
+      "news",
+      "wiki",
+      "opus"
+    ],
+    "k": 3,
+    "file": "en-news+wiki+opus-k3.tbg",
+    "binary": {
+      "vocabulary_records": 8001,
+      "edges": 20065,
+      "compiled_bytes": 388490,
+      "sha256": "a270578241a627473dac054d2a340e763dab87af95fc57dc7bde95684cc7aee5",
+      "string_bytes": 67886,
+      "vocabulary_bytes": 160020,
+      "edge_bytes": 160520,
+      "header_bytes": 64
+    },
+    "selection": {
+      "train_tokens": 20557812,
+      "train_word_types": 194110,
+      "selected_types": 8000,
+      "retained_train_tokens": 19127641,
+      "selection": "training-only top-N; existing Typr tries NOT used"
+    },
+    "dev": {
+      "news": {
+        "pairs": 543805,
+        "recall1": 0.12573440847362566,
+        "recall3": 0.21118415608536148
+      },
+      "wiki": {
+        "pairs": 189286,
+        "recall1": 0.12075906300518792,
+        "recall3": 0.19956045349365512
+      },
+      "opus": {
+        "pairs": 178713,
+        "recall1": 0.10868263640585743,
+        "recall3": 0.2054523174027631
+      },
+      "cv": {
+        "pairs": 43475,
+        "recall1": 0.10622196664749856,
+        "recall3": 0.19717078780908567
+      }
+    },
+    "before_dev": {
+      "news": {
+        "pairs": 543805,
+        "recall1": 0.0994621233714291,
+        "recall3": 0.1660301027022554
+      },
+      "wiki": {
+        "pairs": 189286,
+        "recall1": 0.1034413532960705,
+        "recall3": 0.17029257314328583
+      },
+      "opus": {
+        "pairs": 178713,
+        "recall1": 0.10557150291249098,
+        "recall3": 0.19621404150789254
+      },
+      "cv": {
+        "pairs": 43475,
+        "recall1": 0.10093156986774009,
+        "recall3": 0.18610695802185165
+      }
+    },
+    "balanced_gain": 0.023681009853894985,
+    "gain_per_byte": 6.09565493420551e-08
+  }
+]
