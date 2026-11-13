@@ -110,11 +110,12 @@ their existing automatic protection; deterministic `fuer → für` rules remain.
 Touch evidence for the current word and its one pending-feedback transaction
 stays **RAM-only**. Only slow aggregated per-key and all-key touch statistics are serialized;
 there is no sample reservoir, point sequence, field text, ordered word stream,
-sentence/trigram history, host-app history, transcript or audio in these
+sentence archive, host-app history, transcript or audio in these
 learning/diagnostic files. The personal lexicon **does contain word strings**
-and rejected word pairs, plus which word followed which (aggregate next-word pairs
-only, no sentences or app/host information): it is sensitive personal data, not
-anonymized data. Even isolated word pairs can reveal private associations.
+and rejected word pairs, plus followers after **one or two words** (aggregate
+bigrams/trigrams, no sentence archive or app/host information): it is sensitive
+personal data, not anonymized data. These associations can reveal short phrases.
+Explicitly accepted next-word and completion chips also supply word evidence.
 
 | Stored learning state | Bound and retention |
 | --- | --- |
@@ -122,7 +123,7 @@ anonymized data. Even isolated word pairs can reveal private associations.
 | Slow touch statistics | Up to 26 keys plus one global aggregate/layout: capped effective count, mean x/y offset and full xx/xy/yy covariance in pitch units; layout last-update time, no raw points |
 | Fast aim (never stored) | One active layout, two shared affine ridge regressions (~40/~8 trusted-label decay) plus three predictive weights; 24 sufficient sums, no per-key fast banks or point reservoir |
 | Kept words and trusted word counts | **One combined bound: kept ∪ counted ≤2,000 words**; normalized lowercase NFC, 2–32 letters, ≤256 UTF-8 bytes; keeps have priority. Evict unkept counts by lowest count then oldest update, then oldest keeps (with their counts); spelling breaks timestamp ties. Keeps store last-kept time; counts saturate at 10,000 and store last-update time |
-| Next-word pairs | ≤512 pair types, ≤8 followers/context, count ≤255; normalized lowercase NFC, 1–32 letters / ≤128 UTF-8 bytes per word, ä/ö/ü/ß remain distinct; ≤64 KiB conservative encoded byte bound inside the unchanged whole-store limit. All counts halve every 256 valid pair events; zeros disappear; weakest counts then lexically greatest context/follower are evicted deterministically |
+| Next-word contexts | ≤512 combined bigram/trigram edge types, ≤8 followers/context, count ≤255; normalized lowercase NFC, 1–32 letters / ≤128 UTF-8 bytes per word, ä/ö/ü/ß remain distinct; ≤64 KiB conservative encoded byte bound inside the unchanged whole-store limit. All counts halve every 256 valid row updates (a word with two predecessors updates two rows); zeros disappear; weakest counts then lexically greatest context/follower are evicted deterministically |
 | Rejected typed→replacement pairs | At most 512 unique normalized pairs, FIFO; repeated rejection does not refresh order |
 | Diagnostics (separate statistics epoch) | Fixed known counters, accepted labels by source (`literalValid`, `keep`, `undo`, `manualPick`), rejected labels by reason, since/updated dates and two seven-bucket latency histograms; each count saturates at Int32.max |
 
@@ -370,22 +371,38 @@ See [evaluation regression gates](KEYBOARD_SPATIAL_DECODER.md#evaluation-regress
 
 ## Personal next-word pairs
 
-Owner-approved P4 adds a small personal follower model above the public corpus.
-There is **one previous trusted word in RAM** and no sequence archive. Unchanged
+Owner-approved P4, extended by R2-2, adds a small personal follower model above
+the public corpus. There are **at most two trusted predecessor words in RAM**
+and no sequence archive. Both bigram and trigram edges share the original caps. Unchanged
 valid/kept literals still settle only on the next unambiguous letter with their
 suffix intact. A pair is counted only once both endpoints independently settle,
 and the current field suffix ends exactly in `previous + " " + word + " "`.
-No pair is reconstructed from existing field text. Manual kept/alternative/prefix
-choices can supply a pair endpoint, but wait for that same next-letter settlement;
-the existing immediate unigram/label rules are unchanged. Prediction picks have no
-typed word/evidence and teach neither endpoint nor pair. Automatic output, undo,
+No context endpoint is reconstructed from existing field text. A trigram additionally
+requires all three independently settled endpoints and the exact three-word suffix.
+Manual kept/alternative/completion choices supply an endpoint after the same
+settlement; next-word picks now do too. A following owned prediction pick can
+settle its predecessor, allowing chip chains without inventing taps. Picks supply
+an immediate word count, but no prediction/completion touch labels. Backspace
+before settlement discards the pending context endpoint (it does not roll back
+an already-counted explicit-choice unigram). Automatic output, undo,
 in-word deletion/retyping, second separators, Return and punctuation do not teach
 pairs, nor do manual split/join boundary picks or their undo. A failed settlement
 breaks adjacency; a later valid word may start a new chain.
 Field, selection, layout/lifecycle/ambiguous-input discontinuities, selected-language
 changes, learning toggle, authoritative reload, either reset and Full Access
-revocation clear the RAM predecessor/pending pair choice. Ordinary word boundaries
+revocation clear both RAM predecessors and the pending choice. Ordinary word boundaries
 and applied manual choices alone do not. A clipped/missing proxy suffix abstains.
+
+For prediction and display reranking, hard-backoff row selection probes the
+normalized `earlier + " " + previous` key first, then `previous`, then uses only
+corpus packs if neither exists. A retained trigram row takes precedence; this is
+**row-presence backoff**, not interpolation of two personal orders. Each selected
+row is discounted against the corpus mixture below (no recursive blending).
+The corpus still conditions on the last word. Sentence/newline and identifier/
+numeric barriers clear the extra context; a current completion token is excluded.
+Row selection uses at most two personal-map probes (one on trigram hit); the
+selected row has at most eight followers. Existing corpus search and ≤32-candidate
+rerank limits remain, with no history-length scan.
 
 For a retained context row, let `N=sum(counts)`, `T=number of followers`, `c=count(h,w)`:
 
@@ -416,8 +433,9 @@ changes automatic decisions, completeness, margins, validation or undo. Learning
 off supplies an empty personal model for both prediction and ranking and disables
 pair updates, but retains saved counts. Corpus context remains active.
 
-Pair counts halve (integer division, dropping zeros) **before every 256th valid
-adjacent event is inserted**; the modulo counter persists. This is event ageing,
+Context counts halve (integer division, dropping zeros) **before every 256th
+valid row update is inserted**; a settled word with two trusted predecessors
+updates the bigram then trigram row (two events), sharing the modulo clock; the modulo counter persists. This is event ageing,
 not wall-clock expiry: unused data remains until eviction/deletion/reset or further
 pair events. Rows/totals are derived after ageing so no stale totals survive.
 Keep/rejection protections never age. Row eviction removes the lowest count, then
@@ -431,11 +449,29 @@ allocator overhead and encoding transients are extra, not measured RSS. The whol
 store still caps at 256 KiB and trims pairs before unigram/protection entries.
 
 Deleting a kept or counted word in **Manage learned words**, or a word in its
-**Words in next-word pairs** section, purges that word's row and every incoming
-reference. The immediate Backspace revert of a just-added keep only withdraws the
+**Words in next-word contexts** section, purges every row naming it in either
+predecessor position and every incoming follower reference. The immediate Backspace revert of a just-added keep only withdraws the
 keep: it is not a deletion request and leaves earlier pairs. Reset learning clears
-all pairs. Schema-3 snapshots with an out-of-bounds pair section are repaired by
-dropping only the pairs; keeps, counts and rejections survive.
+all contexts. Schema **1/2/3 → 4** migration preserves valid bigram counts without
+inventing trigrams; the historical `bigrams` field/type and `learning-v1.json`
+filename remain. Older clients reject schema 4 (downgrades may lose learning).
+An invalid context section drops only context counts; keeps, counts and rejections
+survive. Corrupt/oversized file handling and epoch-protected reset remain unchanged.
+Dictation transcripts are **not seeded into this context model**; #127's existing
+app-only protected-word imports are unchanged. The keyboard still never uses a
+microphone, speech model or network.
+
+`PersonalTypingTrigramTests` / `PersonalTypingTrigramEvaluationTests` add schema-3
+migration, both-predecessor deletion, reset races, corrupt contexts, prediction
+chains/undo, Unicode byte caps, deterministic eviction and held-out-lead-in repeat
+curves for settled/completion/prediction learning. The same fixtures run against
+the old schema-3 baseline; public DE/EN held-out recall stays 14.06% / 17.74% @3,
+not an asserted public-corpus improvement. The mixed public measurement enables
+both packs on DE/EN sentences, not public intra-sentence code-switch data. These
+small synthetic repeat gains do not establish human benefit or iPhone performance.
+Real iPhone checks: actual checker/casing, fast chip chains, undo, limited host
+context, Full Access revocation, app deletion/reset live refresh, protected-file
+migration and physical extension memory/latency (see R2-2 report).
 
 `PersonalTypingBigramTests` and `PersonalTypingBigramEvaluationTests` cover settlement and forbidden sources, discontinuities,
 manual choice/undo, migration, reset/delete races, revocation, learning-off isolation,

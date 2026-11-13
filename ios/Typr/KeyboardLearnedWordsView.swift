@@ -32,7 +32,7 @@ struct KeyboardLearnedWordsView: View {
     var body: some View {
         List {
             Section {
-                Text("Typr stores kept words, word counts, rejected corrections and which word followed which. Word pairs only: no sentences, apps or websites, and no typed-text history or per-word dates. Deleting a word here removes every pair containing it; Reset learning in Typing diagnostics clears all pairs. Swipe to delete an entry. Imported contacts and dictation words are separate: use Personal names and terms in Keyboard settings to delete that list or turn off a source.")
+                Text("Typr stores kept words, word counts, rejected corrections and which word followed one or two words, including words chosen from suggestions. These associations can reveal short phrases. No sentence archive, apps, websites or typed-text history is stored. Deleting a word removes every context containing it; Reset learning clears all contexts. Swipe to delete an entry. Imported contacts and dictation words are separate: use Personal names and terms in Keyboard settings to delete that list or turn off a source.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.red) }
             }
@@ -55,7 +55,7 @@ struct KeyboardLearnedWordsView: View {
                     }
                     .onDelete { offsets in delete(offsets.map { .count(counts[$0]) }) }
                 }
-                Section("Words in next-word pairs") {
+                Section("Words in next-word contexts") {
                     ForEach(results.pairWords, id: \.self) { Text($0) }
                         .onDelete { offsets in delete(offsets.map { .pairWord(results.pairWords[$0]) }) }
                 }

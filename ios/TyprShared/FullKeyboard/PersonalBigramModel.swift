@@ -1,14 +1,15 @@
 import Foundation
 
-/// Owner-approved personal next-word layer: aggregate `previous → follower` counts only.
-/// No sentence, sequence, timestamp, app/host identity or language guess is stored.
+/// Bounded aggregate one/two-word contexts → follower counts, never a transcript,
+/// timestamp, app/host identity or language guess. The historical type/file name is
+/// retained so existing bigram JSON loads without losing observations.
 ///
 /// Follower counts and the discounted backoff are translated from AVGVSTVS96/iikb
 /// `Correction/TypingMemory.swift` and `Correction/LanguageModel.swift` at 09a2e9c
 /// (MIT, © 2026 Bassim Shahidy). Typr adds fixed caps, saturated counts, deterministic
 /// event-count halving and all-reference deletion; trust/settlement lives in the session.
 nonisolated struct PersonalBigramModel: Codable, Equatable, Sendable {
-    /// Total `previous → follower` pair types.
+    /// Combined one/two-word-context → follower edge types.
     static let pairLimit = 512
     /// Followers retained per previous word.
     static let followerLimit = 8
@@ -35,9 +36,44 @@ nonisolated struct PersonalBigramModel: Codable, Equatable, Sendable {
             && word == PersonalLexiconSnapshot.normalize(word)
     }
 
+    static func validContext(_ context: String) -> Bool {
+        let words = context.split(separator: " ", omittingEmptySubsequences: false)
+        return (1...2).contains(words.count) && words.allSatisfy { validWord(String($0)) }
+    }
+
     var pairCount: Int { following.values.reduce(0) { $0 + $1.count } }
-    /// Every word named by a pair (either side); for deletion UI, never the associations.
-    var words: Set<String> { Set(following.keys).union(following.values.flatMap(\.keys)) }
+    /// Every endpoint, including both predecessor words; associations are never shown in UI.
+    var words: Set<String> {
+        Set(following.keys.flatMap { $0.split(separator: " ").map(String.init) })
+            .union(following.values.flatMap(\.keys))
+    }
+
+    struct Selection: Equatable, Sendable {
+        let context: String?
+        let lookups: Int
+    }
+
+    /// Hard backoff: prefer a retained two-word row, otherwise the one-word row,
+    /// otherwise corpus. At most two personal dictionary probes, regardless of history size.
+    func select(after previous: String?, earlier: String?) -> Selection {
+        guard let previous else { return Selection(context: nil, lookups: 0) }
+        let normalized = PersonalLexiconSnapshot.normalize(previous)
+        if let earlier {
+            let key = PersonalLexiconSnapshot.normalize(earlier) + " " + normalized
+            if following[key] != nil { return Selection(context: key, lookups: 1) }
+        }
+        let probes = earlier == nil ? 1 : 2
+        return Selection(context: following[normalized] == nil ? nil : normalized, lookups: probes)
+    }
+
+    /// A trusted word teaches both orders; each retained-row update is one ageing event.
+    mutating func record(_ word: String, after previous: String, earlier: String) {
+        guard Self.validWord(PersonalLexiconSnapshot.normalize(earlier)),
+              Self.validWord(PersonalLexiconSnapshot.normalize(previous)),
+              Self.validWord(PersonalLexiconSnapshot.normalize(word)) else { return }
+        record(word, after: previous)
+        record(word, after: earlier + " " + previous)
+    }
 
     /// Conservative JSON bound: every UTF-8 byte may need a six-byte escape; quotes,
     /// separators, three-digit counts and the envelope included. Not allocator/RSS bytes.
@@ -51,16 +87,18 @@ nonisolated struct PersonalBigramModel: Codable, Equatable, Sendable {
     var isValid: Bool {
         (0..<Self.ageingInterval).contains(updates) && pairCount <= Self.pairLimit
             && encodedByteBound <= Self.maximumBytes && following.allSatisfy { previous, row in
-                Self.validWord(previous) && !row.isEmpty && row.count <= Self.followerLimit
+                Self.validContext(previous) && !row.isEmpty && row.count <= Self.followerLimit
                     && row.allSatisfy { Self.validWord($0.key) && (1...Self.countLimit).contains($0.value) }
             }
     }
 
-    /// One trusted adjacent pair. Work per call is bounded: one halving pass over ≤512 edges
-    /// at most every 256 events, then ≤3 evictions (one new row and edge) of ≤513-edge scans.
+    /// One trusted context edge. One halving pass over ≤512 edges every 256 updates;
+    /// then ≤513 evictions, each a ≤513-edge scan (the independent byte cap may
+    /// require multiple small victims for a long Unicode context). Two-order recording
+    /// calls this twice, never scanning an unbounded history.
     mutating func record(_ word: String, after previous: String) {
         let word = PersonalLexiconSnapshot.normalize(word), previous = PersonalLexiconSnapshot.normalize(previous)
-        guard Self.validWord(word), Self.validWord(previous) else { return }
+        guard Self.validWord(word), Self.validContext(previous) else { return }
         // Event-count ageing is deterministic across clocks, restarts and devices.
         // Keeps and rejected corrections are separate and never age.
         updates += 1
@@ -116,11 +154,15 @@ nonisolated struct PersonalBigramModel: Codable, Equatable, Sendable {
         return true
     }
 
-    /// Deleting a word removes its outgoing row and every incoming reference.
+    /// Delete every row containing the word in either predecessor position,
+    /// plus every incoming follower reference.
     mutating func purge(_ word: String) {
         let word = PersonalLexiconSnapshot.normalize(word)
-        following.removeValue(forKey: word)
         for context in following.keys.sorted() {
+            if context.split(separator: " ").contains(Substring(word)) {
+                following.removeValue(forKey: context)
+                continue
+            }
             following[context]?.removeValue(forKey: word)
             if following[context]?.isEmpty == true { following.removeValue(forKey: context) }
         }

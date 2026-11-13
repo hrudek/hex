@@ -344,6 +344,22 @@ swipe/emoji/themes/layout/clipboard, network and changes to dictation output.
 Contacts names/companies and already-kept dictation terms are the explicitly
 owner-approved local data sources, both opt-in and resettable.
 
+## Personal two-word contexts (iikb, R2-2)
+
+Source pin: **`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`**, AVGVSTVS96/iikb,
+**MIT, © 2026 Bassim Shahidy**. The existing notice is reused, not duplicated.
+
+| Source paths at pin | Translated / deliberate differences | Typr destinations |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift` (`record`, `contexts`, follower-reference cleanup); adjacent `LanguageModel.swift` (`probability`, discount/backoff) | Two-word space-delimited aggregate keys, learning both orders, all-predecessor reference deletion. Reuses P4's .5-discount / Witten–Bell-style corpus blend, but chooses the longest retained personal row (hard row-presence backoff) rather than upstream recursive blending. Typr retains strict independent settlement, allows explicitly accepted next-word chips to settle/chain, invents no taps, shares 512-edge/8-follower/64 KiB caps and deterministic ageing, and migrates schema 1/2/3→4. | `ios/TyprShared/FullKeyboard/PersonalBigramModel.swift`, `PersonalTypingModel.swift`, `KeyboardLearningSession.swift`, `KeyboardContextModel.swift`, `AutocorrectEngine.swift`, `FullKeyboardEngine.swift`; `ios/TyprTests/PersonalTypingTrigramTests.swift`, `PersonalTypingTrigramEvaluationTests.swift` |
+
+No files copied wholesale, new resources/dependencies or new licensed data. Synthetic
+phrases/tests, caps, trust/reset protocol and migration are Typr-authored. Excludes
+per-app histories, sentence archives, transcript seeding, neural weights/training,
+silent automatic-output learning, inferred completion/prediction tap labels, upstream
+resources, swipe typing, emoji, themes, layouts, clipboard, network and dictation
+behavior changes. The existing #127 app-only protected-word importer is unchanged.
+
 ## How to adopt changes
 
 1. Inspect the specific source revision in a separate checkout or on GitHub.
