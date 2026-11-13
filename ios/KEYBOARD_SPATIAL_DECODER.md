@@ -325,6 +325,53 @@ verification record. Test existence is not a pass.
 Real-device checker timing, event-loop delay, rapid Space overlap in two hosts,
 Full Access/lifecycle races and peak physical footprint remain unverified.
 
+## Decoder statistics evaluation (R2-8)
+
+**Evaluation only; production scoring remains Gaussian/max-path.**
+`DecoderStatisticsEvaluationTests` translates iikb's two-dimensional Student-t
+predictive formula and log-sum-exp over readings into a bounded, test-only
+reranker. The same baseline retrieval supplies at most eight above-literal plus
+two below-literal candidates. Ablations compare Gaussian/summed, Student-t/max
+and Student-t/summed readings; no trial has automatic authority. Scores retain
+the corpus/personal prior, radius 1.6 and six-log-unit emission gates, with one
+missing/extra/swapped-letter edit at `log(.01)` and spatial substitutions.
+Calibration is frozen, including full xy covariance and aim offsets; unlike
+upstream, hypothetical readings never update the model. The trial fixes ν=4 and
+uses the existing covariance as Student-t **scale**, not variance: the central
+density is unchanged, while its variance is twice that scale. This is not a
+port of upstream's NIW posterior or variable degrees of freedom.
+
+Identical synthetic public fixtures (64 DE + 64 EN, five noisy edit classes,
+plus a new inward 1/1.25/1.5-pitch outlier tap) run in DE/EN/mixed modes with
+cold and representative correlated aim snapshots. Noisy English with aim loses
+recall@3 **291→290/320**; noisy mixed with aim loses recall@1 **529→527/640**.
+Cold English outliers gain recall@1 **22→24/64**, but recall@3 stays **25/64**.
+Across all 3,072 calls (including unavailable results as misses), pooled
+recall@1 is **2,260→2,264**, but recall@3 falls **2,429→2,428**. These mixed
+results do not justify shipping either scoring change. This is a
+fixed-retrieval reranking experiment, not evidence about a new Student-t trie
+search or general human typing accuracy. Candidates excluded by Gaussian
+retrieval cannot be rescued; low outlier recall exposes that limitation.
+
+The trial streams at most **33 readings/candidate, 330/call**, each visiting at
+most 32 taps (≤10,560 score additions), plus a ≤32×30 emission matrix and ≤10
+ranked scores. Numeric buffer payload ceiling is **8,520 bytes** on the Linux
+64-bit target, including a scratch emission row and label indices, excluding
+string/container headers, ordering arrays, allocator overhead and RSS. Trial
+work is extra to unchanged retrieval: ≤6,000 pops, ≤12,000 states/trails and
+1,632,000 arena element-payload bytes. There are no new resources, persistence,
+privacy categories, switches or runtime code paths.
+
+**Completeness:** the proof below remains exactly the frozen max-path proof.
+It must not be claimed for trial reordered candidates. Dominance discards
+alternative paths and a max-path top-eight frontier need not contain the
+summed-score top eight. With at most 33 readings, a *global* summed-word bound
+can add `log(33)` to an admissible maximum-reading bound, but this alone does
+not repair dominance, retained candidates, the literal comparator or stopping
+criteria. A future integrated marginal search must address all four (or remain
+explicitly suggestion-only), remeasure work/quality, and preserve independent
+learning alignment. No such integrated-search result is claimed here.
+
 ## Evidence, scoring and bounded search
 
 - Decode only a fully observed word with 3–32 aligned letter taps, matching the
