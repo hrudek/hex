@@ -24,8 +24,7 @@ commands: [.github/typr/README.md](.github/typr/README.md).
 
 ## Implementation and privacy
 
-- Add a feature switch only when the owner asks for one. Store its value in
-  `TyprShared/TyprSettings.swift`, never in `FullKeyboardSettings.swift`.
+- Add a feature switch only when the owner asks for one.
 - No speculative abstractions: generalize only for two real implementations or a
   current test need.
 - The keyboard never touches network, speech model or microphone. Captured audio
