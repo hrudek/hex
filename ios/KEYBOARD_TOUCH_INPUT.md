@@ -283,16 +283,46 @@ claim follows from synthetic Linux improvements. See the spatial document for me
 ## Imported-name attribution guard
 
 The app-built [personal lexicon](KEYBOARD_LEARNING.md#personal-names-and-terms)
-adds a synchronous binary-prefix veto: no adaptive map for an imported prefix,
-and the final insertion additionally checks the geometric prefix-plus-letter.
-This preserves geometric name/company/product taps before any worker result and
-does not create trusted labels from attributed output. Prefix overlap can reduce
-adaptation for unrelated words; unimported OOV/compound residual harm from #124
+uses a synchronous, checker-free **branch-specific** veto (R2-7). An exact
+completed imported word blocks the map and its next tap. Otherwise final insertion
+protects the geometric **prefix-plus-letter** only when that continuation still
+matches an imported word. Merely sharing the current prefix no longer suppresses
+every competing branch. This protects every geometrically correct imported
+name/company/product continuation without looking up dictionary validity or
+weakening contacts that happen to be common words. It does not create trusted
+labels from attributed output; unimported OOV/compound residual harm from #124
 is not claimed fixed. With the same 16 imported-name/term/compound controls and
 one correct gap tap at every letter position, the integrated Linux fixture has
 3/122 harmful runs without imports and 0/122 with imports in each DE/EN/mixed mode.
 This is a synthetic guard measurement, not a human accuracy or global zero-harm
 claim. No geometry/layout/frame changes or new touch persistence.
+
+## R2-7 widening evaluation and decision
+
+Shipping remains **gap-only, prefix ≥4**, with the existing backspace veto and
+whole-word learning exclusion. Internal value-policy alternatives allow evaluating
+prefix ≥2 and outer key edges (10% key width beyond half-gap); no product switch
+selects them. The central 70% horizontal band, controls and other rows never donate.
+Using the identical 455-OOV/four-profile P8b fixtures, combined widening harmed
+21/30/26 words per 1,820 DE/EN/mixed runs (1.15%/1.65%/1.43%: fails ≤1%).
+It reduced known-word errors 25→20 / 25→14 / 55→40 but introduced 8/3/12
+harmful known-word changes. Edge-only improved errors 25→19 / 25→19 / 55→41,
+but still failed deliberate valid-name/compound controls: 6 harmful probes per
+mode without imports, versus shipping's existing 3. Therefore neither wider
+geometry, shorter prefixes nor non-undo soft-label training is enabled. Not being
+undone is not independent evidence of intention; the retained policy's 16-trial
+learning curve is zero new attributed labels, including eight backspace/retypes.
+This is **not** a measured successful soft-label learner.
+
+A synthetic dictation-style import of 262 common fixture words/names restores
+available competing branch probes from 0 to 7,335/8,112 DE, 5,212/5,824 EN and
+7,735/8,528 mixed. These are branch opportunities, not human coverage or accuracy;
+potential changed insertions on candidate-branch gap probes rise from 0 to
+577/379/710 (not counted as successful corrections).
+All intended imported continuations remain vetoed; imported valid controls have
+zero harm. The list is public/synthetic, not an owner's dictation log. Two bounded
+binary queries (≤11 comparisons each, ≤64 UTF-8 bytes per key) replace the old
+prefix queries; no source scan, spell checker or new persisted state.
 
 ## Proof limits
 

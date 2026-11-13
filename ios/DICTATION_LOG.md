@@ -73,6 +73,10 @@ It reads only final output from finished entries in the existing recent cache
 (up to 50), plus active Custom vocabulary spellings. It does not read archive
 audio, rejected/raw speech/model output, sounds-like forms, notes or human
 references, and does not alter the speech pipeline or the log schema.
+R2-7 changes only how the keyboard protects imported word continuations during
+letter attribution: common shared prefixes no longer blanket unrelated branches.
+No extra log access, history import, inferred touch labels or retained data is added;
+import consent, deletion and Reset learning remain unchanged.
 
 Only normalized word keys cross the App Group boundary (≤2,000 entries, ≤64
 UTF-8 bytes/token, ≤256 KiB file); sentences/contact details beyond the explicitly

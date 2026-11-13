@@ -299,6 +299,13 @@ partially observed prefix. They cannot become personal pair endpoints either. Ex
 and rejection protections still work. This prevents self-confirming covariance,
 aim, counts or personal continuation priors. Other trusted-word rules are unchanged.
 
+R2-7 deliberately retains this exclusion: wider/shorter-prefix experiments failed
+the zero-false-change gate, and absence of undo is not independent intent evidence.
+No soft-label trainer is shipped or claimed successful. A 16-trial fixture measures
+zero new attributed labels/counts both after eight unchanged settlements and eight
+backspace/retypes; independently trusted calibration still learns normally. See
+[the measured widening decision](KEYBOARD_TOUCH_INPUT.md#r2-7-widening-evaluation-and-decision).
+
 No new persisted text, raw taps, context history or schema. TSW1 continuation indexes
 are immutable derived public-resource data; the personal index adds bounded prefix
 sums to its existing snapshot. The map itself is RAM-only and ownership checked.
@@ -366,10 +373,15 @@ contraction/digraph rules and iOS shortcuts, while unlisted words retain existin
 policy. They are valid learning literals under the existing independent
 settlement/trusted-touch gates. Prefix completions are manual only. Split/join
 chips are vetoed if any original token is imported; boundary automation remains
-suggestion-only. Adaptive attribution abstains if the current prefix or the
-geometric prefix-plus-letter can still be an imported term. This intentionally
-widens abstention for shared prefixes; it does not promise better recall with an
-arbitrary owner's entire dictionary. No inferred touch label is created.
+suggestion-only. Adaptive attribution protects an **exact completed imported word**
+and each geometric **prefix-plus-letter** that can still spell an imported term.
+R2-7 removes the blanket current-prefix veto: unrelated branches of a common
+imported prefix can adapt under the unchanged #124 gates. Every intended imported
+continuation stays literal, including contacts also valid in the corpus. The
+keyboard does not inspect source identity, dictation history or system validity
+on insertion. No inferred touch label is created and no new data is collected.
+The same imported-word deletion/reset and Full Access rules apply; privacy copy
+remains accurate because storage, import consent and data categories are unchanged.
 
 ### Deletion and device checks
 
