@@ -15,7 +15,7 @@ context, pair counts, posterior or history of its own**. The separately approved
 [personal word-pair layer](#personal-next-word-pairs) adds bounded follower counts; no new switch.
 Autocorrect and its selected languages govern it, independently of Learn from my
 typing. Picking a next-word prediction has no aligned current-token evidence and
-teaches no touch labels or personal count. Ordinary typed-prefix completion picks
+teaches no touch labels; its explicit word count and later context settlement follow the personal next-word rules. Ordinary typed-prefix completion picks
 retain the existing trusted-count/no-label rules. Full Access-gated personal
 persistence, resets, keeps and rejected pairs below are unchanged.
 
@@ -75,7 +75,7 @@ history of pending words. Automatic output alone is never a trusted label.
 | Automatic replacement, with no explicit feedback | None, even if the user moves on | Decision counter only; no count for automatic output |
 | Unchanged literal, valid in an enabled dictionary or already kept, with complete aligned evidence | Identity labels only when the next word's first unambiguous letter is inserted and the previous word plus separator is still intact; second Space, double-space-period, Return and punctuation do not teach | +1 trusted literal count; no novel-word promotion from silence |
 | Explicit keep (quoted literal chip) | Identity labels if evidence matches the literal and has no deletion/retyping | Protect literal immediately; +1 count only if not deletion/retyping |
-| Immediate undo of automatic replacement | Original literal's identity labels only if pending literal/inserted suffix/epoch/evidence still match | Suppress original for this session and persist typed→replacement rejection; **no permanent keep and no word-count increment** |
+| Immediate undo of automatic replacement | Original literal's identity labels only if pending literal/inserted suffix/epoch/evidence still match | Persist a context-aware typed→replacement veto with deterministic decay (below); **no immediate permanent keep or word-count increment**. Unsupported phrase/punctuation pairs retain session-only suppression |
 | Manual alternative pick (spatial or spelling) | Only unambiguous tap↔selected-letter pairs from the text aligner; model rejects samples beyond 1 pitch; no labels after deletion/retyping | +1 count for chosen word, unless deletion/retyping |
 | Manual strict prefix extension pick, from any source (including spatial/spelling) | None, including the prefix taps | +1 count for completion, unless deletion/retyping |
 | Deletion/word deletion, external text change, selection move, dictation/paste, popup/slide, layout change, cancellation, dismissal, overflow or lost association | Discard affected current/pending evidence; no label inferred from the edit itself | No trusted word event from the invalidated transaction |
@@ -124,7 +124,7 @@ Explicitly accepted next-word and completion chips also supply word evidence.
 | Fast aim (never stored) | One active layout, two shared affine ridge regressions (~40/~8 trusted-label decay) plus three predictive weights; 24 sufficient sums, no per-key fast banks or point reservoir |
 | Kept words and trusted word counts | **One combined bound: kept ∪ counted ≤2,000 words**; normalized lowercase NFC, 2–32 letters, ≤256 UTF-8 bytes; keeps have priority. Evict unkept counts by lowest count then oldest update, then oldest keeps (with their counts); spelling breaks timestamp ties. Keeps store last-kept time; counts saturate at 10,000 and store last-update time |
 | Next-word contexts | ≤512 combined bigram/trigram edge types, ≤8 followers/context, count ≤255; normalized lowercase NFC, 1–32 letters / ≤128 UTF-8 bytes per word, ä/ö/ü/ß remain distinct; ≤64 KiB conservative encoded byte bound inside the unchanged whole-store limit. All counts halve every 256 valid row updates (a word with two predecessors updates two rows); zeros disappear; weakest counts then lexically greatest context/follower are evicted deterministically |
-| Rejected typed→replacement pairs | At most 512 unique normalized pairs, FIFO; repeated rejection does not refresh order |
+| Rejected typed→replacement pairs | At most 512 unique normalized pairs, FIFO; optional ≤2 predecessor words and remaining-event counters (global ≤64, context ≤256). Repeated undo refreshes horizons/context, not FIFO position. Migrated legacy pairs remain permanent until deletion |
 | Diagnostics (separate statistics epoch) | Fixed known counters, accepted labels by source (`literalValid`, `keep`, `undo`, `manualPick`), rejected labels by reason, since/updated dates and two seven-bucket latency histograms; each count saturates at Int32.max |
 
 Keeps and counts can overlap, but loading validates their **union**, not just each
@@ -134,6 +134,85 @@ umlauts to ASCII. Counts/dates are per retained type, not a chronology of word u
 No time-based expiry runs: data remains until reset, bounded eviction or invalid
 state discard. Updates continue adapting statistics; effective count is not a
 lifetime tap count.
+
+### Undo, literal confirmation and acceptance (R2-3)
+
+The learning value schema is **5** (same `learning-v1.json`, same App Group and
+256 KiB whole-file cap). Schema 1–4 migrates without inventing observations;
+old rejected pairs have no horizons/context and retain their permanent veto.
+Older clients reject schema 5: downgrades can lose learning. There is no parallel
+feedback store. Optional metadata extends the existing rejected-pair records;
+pair identity/deletion remains normalized typed→replacement, not its counters.
+
+A single ownership-validated undo blocks that pair in **every context for the
+next 64 trusted word events**. Afterwards it blocks only its exact saved context
+until **256 events**, then the record is removed and the correction may return.
+Context is up to two immediately preceding normalized 2–32-letter words, read
+from at most 96 preceding characters; punctuation/unsupported forms terminate it.
+The longest available key is exact, not a fuzzy semantic or cross-sentence match.
+With no meaningful context, only the 64-event global veto applies; metadata still
+expires at 256. A new undo refreshes both horizons and replaces its context.
+One pair retains one context, not an unbounded list. Full-store byte pressure may
+evict records before their horizons, as with prior FIFO protections.
+
+An event is an independently settled literal or an explicit accepted alternative,
+completion or prediction that qualifies for a word count. Automatic output alone,
+refresh/polling, undo itself, punctuation, deletion/retyping and attributed words
+never advance this clock. With Learn from my typing off the clock and implicit
+literal confirmation pause; explicit undo/keep still protect. There is **no
+calendar expiry**. Each word-count update ages ≤512 records in one pass; an
+independent literal confirmation can inspect another ≤512. Existing lookup and
+snapshot/word-limit bounds remain. These are operation counts, not wall-clock or RSS
+claims. Persistence still requires actual Full Access before every write.
+
+A **fresh independently typed** original spelling after undo may now settle even
+if absent from the dictionary. With intact geometric evidence, its next word's
+first letter confirms it as a keep (and one word count). The restored undo word
+itself cannot confirm it; deletion/retyping, stale fields, attributed letters and
+learning-off cannot either. Keeps retain the ordinary 2,000-word budget and are
+deletable; they outlive rejection decay until deletion/reset/eviction.
+
+Repeated explicit acceptance reuses the existing capped counts (≤10,000), spatial
+bonus `min(1, .25 × log2(1+count))` and personal completion ranking rather than
+adding another weight table. Eight `hello` completion picks in the injected
+`he → help, hello` fixture move `hello` from rank 2 to rank 1, with zero touch
+labels. Merely continuing after automatic corrections remains **not** acceptance:
+there is no silent self-training. No automatic thresholds, dictionary guards or
+split/join policy are relaxed. This is a measured synthetic ranking result, not a
+human accuracy claim.
+
+Manage learned words displays/searches the predecessor key with its rejected pair;
+deleting that row removes the full record. Deleting a kept/counted/context word
+also removes rejected records naming it as original, replacement or predecessor.
+Reset learning clears horizons and confirmed keeps too, with existing epoch races
+and Full Access gating unchanged. These short associations are sensitive personal
+data, not anonymous statistics; no raw sentences, hosts, taps, microphone or network
+are added. Settings/management privacy copy discloses predecessor storage. Dictation
+log data/import behavior is unchanged.
+
+Regression/evaluation: `PersonalTypingRejectionTests`, `KeyboardLearningIntegrationTests`,
+`KeyboardLearningStoreTests` and `KeyboardSuggestionPersonalRankingTests` cover migration,
+horizon boundaries, same/different context, refresh, deletion/reset, byte/FIFO caps,
+independent confirmation and bounded acceptance. Full before/after EVAL lines are
+in the R2-3 research report. Observed Linux Swift 6.4.2 full harness: 416 tests,
+406 passed, the one pre-existing backup-metadata failure, nine baseline skips
+(before: 407 / 397 / one / nine). Held-out noisy strip recall@1/@3 was unchanged:
+DE 684/722 and 688/722, EN 669/686 at both cutoffs, mixed 713/746 and 717/746;
+0/1,077 unwanted automatic control changes before and after. One undo gave
+0/1 same-context and 0/1 different-context immediate recurrences; event 64 allowed
+1/1 different-context recurrence, event 256 allowed 1/1 same-context recurrence.
+512 short rejection records encoded to 49,770 state bytes; maximal-Unicode input
+at 512 records was trimmed by the existing writer to 422 records / 247,840 file
+bytes (262,144-byte cap). Scratch build with the 100 ms long-expression warning
+flag had no long-expression warnings. These are synthetic Linux results, not
+iPhone accuracy, timing budgets or RSS measurements.
+
+Linux cannot validate Apple UI compilation, protected
+files/backup flags, actual Full Access transitions, host callback timing or real
+checker behavior. On iPhone test undo and fresh retyping in two hosts, after-space
+and punctuation/Typr boundaries, recreation/reload, 64/256-event sessions, off/on,
+revocation, deletion/reset live refresh, context rows/search/accessibility and
+rapid typing latency/extension peak memory.
 
 ### Slow covariance and fast aim
 

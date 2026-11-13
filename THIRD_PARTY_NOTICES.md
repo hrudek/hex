@@ -47,6 +47,13 @@ Their notices are reproduced below.
 
 ### iikb
 
+Undo/literal confirmation and acceptance memory additionally translate
+`Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift:16–114`
+and adjacent `Typing/TypingEngine+Words.swift` revert feedback at
+`09a2e9cdfbe851adff6c4646333c0a3f74ba8765` (R2-3). Typr adds its own bounded
+event-decayed rejected-pair metadata; upstream does not implement that decay.
+The same MIT notice below applies; no upstream files/data/dependencies are copied.
+
 The bounded adaptive letter-gap attribution additionally translates posterior ×
 prefix continuation scoring and synchronous current-revision maps from
 `Correction/KeyMap.swift`, `Correction/LanguageModel.swift` and

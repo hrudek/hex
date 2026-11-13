@@ -114,10 +114,10 @@ final class PersonalTypingTrigramTests: XCTestCase {
         object["value"] = value
         try JSONSerialization.data(withJSONObject: object).write(to: file)
         let loaded = try XCTUnwrap(store.load().0)
-        XCTAssertEqual(loaded.schemaVersion, 4)
+        XCTAssertEqual(loaded.schemaVersion, 5)
         XCTAssertEqual(loaded.bigrams?.following, ["hello": ["world": 1]])
         XCTAssertNil(loaded.bigrams?.following["hello world"])
-        XCTAssertNil(PersonalTypingModel.State(schemaVersion: 5).validated(), "Future schemas fail closed")
+        XCTAssertNil(PersonalTypingModel.State(schemaVersion: 6).validated(), "Future schemas fail closed")
     }
 
     func testAllReferenceDeletionIncludingBothPredecessorsAndReset() throws {

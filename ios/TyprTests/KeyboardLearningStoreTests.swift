@@ -63,6 +63,54 @@ final class KeyboardLearningStoreTests: XCTestCase {
         XCTAssertEqual(session.diagnostics, initialDiagnostics, "Learning edits leave statistics alone")
     }
 
+    func testRejectionCapHonorsWholeFileByteCeiling() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        let model = PersonalTypingModel()
+        let stem = String(repeating: "𐐨", count: 30)
+        let contextWord = String(repeating: "𐐨", count: 32)
+        for index in 0..<512 {
+            let a = String(UnicodeScalar(97 + index / 26)!)
+            let b = String(UnicodeScalar(97 + index % 26)!)
+            model.rejectCorrection(typed: stem + a + b, replacement: contextWord,
+                                   context: contextWord + " " + contextWord)
+        }
+        XCTAssertEqual(model.state.rejected.count, 512)
+        let rawBytes = try JSONEncoder().encode(model.state).count
+        var counters = KeyboardDiagnostics()
+        XCTAssertTrue(fixture.store().save(model: model.state, diagnostics: &counters))
+        let bytes = try Data(contentsOf: fixture.file("learning-v1.json")).count
+        let saved = try XCTUnwrap(fixture.store().load().0)
+        XCTAssertLessThanOrEqual(bytes, KeyboardLearningStore.maximumLearningBytes)
+        XCTAssertLessThan(saved.rejected.count, 512, "Byte limit may evict FIFO protections")
+        XCTAssertFalse(saved.rejected.isEmpty)
+        XCTAssertEqual(saved.rejected.first?.remaining, 256)
+        print("EVAL R2_3_file_cap input_pairs=512 raw_state_bytes=\(rawBytes) saved_pairs=\(saved.rejected.count) saved_file_bytes=\(bytes) cap=262144")
+    }
+
+    func testContextRejectionDeletionReloadAndReset() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        let session = KeyboardLearningSession(store: fixture.store(), defaults: fixture.defaults)
+        session.keep("send")
+        session.rejectCorrection(typed: "teh", replacement: "the", context: "send to")
+        for _ in 0..<64 { session.recordWord("hello") }
+        session.flush()
+        let loaded = try XCTUnwrap(fixture.store().load().0)
+        XCTAssertEqual(loaded.rejected.first?.remaining, 192)
+        XCTAssertEqual(loaded.rejected.first?.globalRemaining, 0)
+        XCTAssertEqual(loaded.rejected.first?.context, "send to")
+        XCTAssertTrue(fixture.store().deleteLearnedEntry(.kept("send")))
+        XCTAssertTrue(try XCTUnwrap(fixture.store().load().0).rejected.isEmpty)
+        session.refresh()
+        session.rejectCorrection(typed: "teh", replacement: "the", context: "reply to")
+        session.flush()
+        XCTAssertTrue(fixture.store().deleteLearnedEntry(.rejected(.init(typed: "teh", replacement: "the"))))
+        XCTAssertTrue(try XCTUnwrap(fixture.store().load().0).rejected.isEmpty)
+        XCTAssertTrue(fixture.store().requestLearningReset())
+        session.refresh()
+        XCTAssertTrue(session.model.state.rejected.isEmpty)
+        print("EVAL R2_3_store reloaded_remaining=192 reloaded_global=0 predecessor_deletion_remaining=0 pair_deletion_remaining=0 reset_remaining=0")
+    }
+
     func testDeleteWithoutPersistentStorageDoesNotPretendToSucceed() {
         XCTAssertFalse(KeyboardLearningStore(directory: nil, defaults: nil).deleteLearnedEntry(.kept("hello")))
     }
@@ -123,7 +171,7 @@ final class KeyboardLearningStoreTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: object).write(to: file)
         let (loaded, diagnostics) = store.load()
         let migrated = try XCTUnwrap(loaded)
-        XCTAssertEqual(migrated.schemaVersion, 4)
+        XCTAssertEqual(migrated.schemaVersion, 5)
         XCTAssertEqual(migrated.kept, model.state.kept)
         XCTAssertEqual(migrated.counts, model.state.counts)
         XCTAssertEqual(migrated.rejected, model.state.rejected)

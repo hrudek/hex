@@ -118,18 +118,54 @@ nonisolated enum TouchLabelRejection: String, Codable, CaseIterable, Sendable {
 nonisolated struct RejectedCorrection: Hashable, Codable, Sendable {
     let typed: String
     let replacement: String
+    // Nil horizons preserve legacy explicit rejections indefinitely.
+    var context: String? = nil
+    var remaining: Int? = nil
+    var globalRemaining: Int? = nil
+
+    // Identity excludes decay/context: deletion and reversal still address the pair.
+    // Counter changes invalidate the model's snapshot through its word-event generation.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.typed == rhs.typed && lhs.replacement == rhs.replacement
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(typed)
+        hasher.combine(replacement)
+    }
+
+    /// Bounded local predecessor key; punctuation terminates rather than crossing sentences.
+    static func context(before input: String?, token: String) -> String? {
+        guard let input, input.hasSuffix(token) else { return nil }
+        let prefix = input.dropLast(token.count).suffix(96)
+        var words: [String] = []
+        for part in prefix.split(separator: " ").reversed().prefix(2) {
+            let word = PersonalLexiconSnapshot.normalize(String(part))
+            guard PersonalTypingModel.State.validWord(word) else { break }
+            words.insert(word, at: 0)
+        }
+        return words.isEmpty ? nil : words.joined(separator: " ")
+    }
+
+    func blocks(in currentContext: String?) -> Bool {
+        guard let remaining else { return true }
+        return remaining > 0 && ((globalRemaining ?? 0) > 0 || (context != nil && context == currentContext))
+    }
 
     init(typed: String, replacement: String) {
         self.typed = PersonalLexiconSnapshot.normalize(typed)
         self.replacement = PersonalLexiconSnapshot.normalize(replacement)
     }
 
-    private enum CodingKeys: String, CodingKey { case typed, replacement }
+    private enum CodingKeys: String, CodingKey { case typed, replacement, context, remaining, globalRemaining }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(typed: try container.decode(String.self, forKey: .typed),
                   replacement: try container.decode(String.self, forKey: .replacement))
+        context = try container.decodeIfPresent(String.self, forKey: .context)
+        remaining = try container.decodeIfPresent(Int.self, forKey: .remaining)
+        globalRemaining = try container.decodeIfPresent(Int.self, forKey: .globalRemaining)
     }
 }
 
@@ -203,8 +239,9 @@ nonisolated struct PersonalLexiconSnapshot: Equatable, Sendable {
         kept.contains(Self.normalize(word))
     }
 
-    func isRejected(typed: String, replacement: String) -> Bool {
-        rejected.contains(RejectedCorrection(typed: typed, replacement: replacement))
+    func isRejected(typed: String, replacement: String, context: String? = nil) -> Bool {
+        let pair = RejectedCorrection(typed: typed, replacement: replacement)
+        return rejected.first(where: { $0 == pair })?.blocks(in: context) == true
     }
 
     func bonus(for word: String) -> Double {

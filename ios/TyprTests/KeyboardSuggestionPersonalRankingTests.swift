@@ -39,6 +39,24 @@ final class KeyboardSuggestionPersonalRankingTests: XCTestCase {
     private let grid = KeyboardLayout(width: 393, orientation: .portrait, layer: .letters, field: .text,
                                       showsGlobe: false, showsStrip: true)
 
+    func testRepeatedExplicitAcceptanceStrengthensCompletionBoundedly() throws {
+        let (session, _) = session()
+        let checker = Checker(valid: ["he"], completions: ["he": ["help", "hello"]])
+        let ac = AutocorrectEngine(checker: checker, learning: session, spatialDecoder: nil)
+        let before = alternatives(ac, "he")
+        XCTAssertEqual(before, ["help", "hello"])
+        let pick = KeyboardSuggestion(displayText: "hello", replacement: "hello", kind: .secondary, isCompletion: true)
+        for _ in 0..<8 { ac.recordSuggestionFeedback(pick, literal: "he", evidence: nil) }
+        let after = alternatives(ac, "he")
+        XCTAssertEqual(after.first, "hello")
+        XCTAssertEqual(session.model.lexicon.counts["hello"], 8)
+        XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
+        for _ in 0..<10_010 { ac.recordSuggestionFeedback(pick, literal: "he", evidence: nil) }
+        XCTAssertEqual(session.model.lexicon.counts["hello"], 10_000)
+        XCTAssertEqual(session.model.lexicon.bonus(for: "hello"), 1)
+        print("EVAL R2_3_acceptance accepts=8 rank_before=2 rank_after=1 touch_labels=0 count_cap=10000 bonus_cap=1.0 automatic_output_training=0")
+    }
+
     // MARK: - Helpers
 
     private func session(learning: Bool = true) -> (KeyboardLearningSession, UserDefaults) {
