@@ -1149,12 +1149,20 @@ lexical edge. Corpus stock names `tom/mary/maria/john` are skipped by prediction
 ranking only; they remain valid contexts/evidence. User contact, text replacement,
 keep/revert and system spelling names remain available as before.
 
-Bilingual weights implement the exact D3b contract with Float64 natural logs:
+Bilingual weights now use the [R2-4 sentence posterior](KEYBOARD_LEARNING.md#sentence-language-posterior-r2-4)
+with Float64 natural logs. The D3b lexical likelihood remains
 `M=union lexical size`, `q_l(w)=(u_l(w)+.5)/(U_l+.5*(M+1))`,
-`e=clip(log(q_de/q_en),-3,3)` (both OOV gives zero),
-`S=clip(.75*S+e,-6,6)`, `a_de=.05+.90/(1+exp(-S))`, `a_en=1-a_de`.
-Sentence boundaries halve S; numeric/non-prose barriers break adjacency and add no
-evidence. Single-language selection uses only that pack, not the bilingual floor.
+`e=clip(log(q_de/q_en),-3,3)` (both OOV gives zero). Umlaut/ß and English
+apostrophe cues add ±2 before clipping; known mid-sentence capitalized German nouns
+with corpus ratio >4:1 add .6 after clipping. Fold at most eight recent observations
+with `.75*S+e`, then clip S to ±6; `a_de=.05+.90/(1+exp(-S))`, `a_en=1-a_de`.
+Two consecutive contrary cues, the latest of magnitude ≥1 (or an explicit umlaut/apostrophe
+cue) clear old observations and discount the sentence's starting prior by .2.
+One isolated loan word therefore does not discard the sentence. Sentence boundaries
+clear observations and use `.25*S + .5*personalPrior`. The personal prior is ±1
+at most, derived only from existing deletable counts while learning is on; see the
+learning reference for caps/privacy. Numeric/non-prose barriers break adjacency
+and add no evidence. Single-language selection uses only that pack, not the bilingual floor.
 Exact top-three merges keys, seeds all row boosts, then scans descending unigram
 orders until the third score is **strictly greater** than the next-background
 bound. Ties use UTF-8 key order; display uses the larger weighted language
@@ -1189,7 +1197,9 @@ Corpus context extraction remains independent of stored personal follower counts
 Only the last **256 characters / 2,048 UTF-8 bytes** before the caret are
 read in RAM; the active token is excluded from completed-word evidence. A clipped first word is discarded. The state is recomputed from that
 suffix on each request (no repeated-word double consumption, retained cross-field
-posterior, checkpoint history, schema, file, log or network). Long fields therefore
+posterior, checkpoint history, new schema, file, log or network). R2-4 additionally
+uses a generation-cached weak prior from existing trusted word counts; this does
+not persist the reconstructed posterior or field suffix. Long fields therefore
 use a bounded approximate history, not all earlier words. Unknown/empty fields
 are not invented BOS. URL/email/identifier/number spans, malformed apostrophes and
 non-whitespace control/format scalars are conservative barriers; ordinary tabs separate

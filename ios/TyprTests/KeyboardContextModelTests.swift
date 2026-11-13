@@ -16,13 +16,16 @@ final class KeyboardContextModelTests: XCTestCase {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "swift-reference-vectors", withExtension: "json", subdirectory: "WordData"))
         let spec = try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: url))
         XCTAssertEqual(model.unionSize, spec.union_size)
-        var state = KeyboardContextModel.State(), sequence: [String] = []
+        // D3b vectors pin pack math and its historical accumulator, not R2-4's new
+        // sentence filter. Keep their probability/top-three resource oracle intact.
+        var state = (value: 0.0, weightDE: 0.5), sequence: [String] = []
         for v in spec.vectors {
-            if v.sequence != sequence { state = .init(); sequence = v.sequence }
+            if v.sequence != sequence { state = (0, 0.5); sequence = v.sequence }
             if let word = v.consumed {
                 XCTAssertEqual(model.evidence(word), try XCTUnwrap(v.evidence), accuracy: 1e-12)
-                state.consume(word, model: model)
-            } else { state.sentenceBoundary() }
+                state.value = min(6, max(-6, 0.75 * state.value + model.evidence(word)))
+            } else { state.value *= 0.5 }
+            state.weightDE = 0.05 + 0.90 / (1 + exp(-state.value))
             XCTAssertEqual(state.value, v.state, accuracy: 1e-12)
             XCTAssertEqual(state.weightDE, v.weight_de, accuracy: 1e-12)
             for (suppress, expected) in [(Set<String>(), v.top3), (KeyboardContextModel.suppressed, v.top3_suppressed)] {

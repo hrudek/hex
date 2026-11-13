@@ -2,7 +2,7 @@ import Foundation
 
 /// Corpus-only discounted backoff, inspired by iikb LanguageModel/Corrector at
 /// 09a2e9cdfbe851adff6c4646333c0a3f74ba8765 (MIT, © 2026 Bassim Shahidy).
-/// TBG1, bilingual weighting and all policy/bounds are Typr's. No personal history.
+/// TBG1, sentence posterior and all policy/bounds are Typr's. No sentence archive.
 nonisolated struct KeyboardContextModel: Sendable {
     static let bos = "<s>"
     static let suppressed: Set<String> = ["tom", "mary", "maria", "john"]
@@ -207,13 +207,72 @@ nonisolated struct KeyboardContextModel: Sendable {
         return log(qd / qe)
     }
     func evidence(_ word: String) -> Double { min(3, max(-3, logRatio(word))) }
+    /// Sentence-level log odds, reconstructed from the bounded settled-word suffix. The
+    /// eight most recent words have exponentially discounted evidence; repeated contrary
+    /// observations or explicit orthography discount old evidence before saturation.
     struct State: Sendable {
-        private(set) var value = 0.0
-        var weightDE: Double { 0.05 + 0.90 / (1 + exp(-value)) }
-        mutating func consume(_ word: String, model: KeyboardContextModel) {
-            value = min(6, max(-6, 0.75 * value + model.evidence(word)))
+        static let window = 8
+        private(set) var value: Double
+        private(set) var observations: [Double] = []
+        private(set) var wordsInSentence = 0
+        private var prior: Double
+        private var boundaryPrior: Double
+        init(prior: Double = 0) {
+            let bounded = prior.isFinite ? min(1, max(-1, prior)) : 0
+            self.prior = bounded; boundaryPrior = bounded; value = bounded
         }
-        mutating func sentenceBoundary() { value *= 0.5 }
+        var weightDE: Double { 0.05 + 0.90 / (1 + exp(-value)) }
+        var weightEN: Double { 1 - weightDE }
+        mutating func consume(_ word: String, model: KeyboardContextModel) {
+            let key = KeyboardContextModel.key(word)
+            var cue = model.evidence(key)
+            if key.contains(where: { "äöüß".contains($0) }) { cue += 2 }
+            if key.contains("'") && (model.en?.count(key) ?? 0) > 0 { cue -= 2 }
+            // A known German noun, not any capitalized name or sentence-initial word.
+            var nounCue = 0.0
+            if wordsInSentence > 0, word.first?.isUppercase == true,
+               let pack = model.de, let id = pack.id(key),
+               pack.word(id, display: true).first?.isUppercase == true,
+               model.logRatio(key) > log(4) { nounCue = 0.6 }
+            cue = min(3, max(-3, cue)) + nounCue
+            // One loan word is not a switch. Two consecutive contrary observations
+            // switch quickly; explicit umlauts/contractions can switch immediately.
+            let explicitCue = key.contains(where: { "äöüß'".contains($0) })
+            let repeatedCue = (observations.last ?? 0) * cue > 0
+            if abs(cue) >= 1, cue * value < 0, explicitCue || repeatedCue {
+                observations.removeAll(keepingCapacity: true)
+                boundaryPrior *= 0.2
+            }
+            if observations.count == Self.window { observations.removeFirst() }
+            observations.append(cue)
+            value = boundaryPrior
+            for observation in observations { value = 0.75 * value + observation }
+            value = min(6, max(-6, value))
+            wordsInSentence = min(Self.window, wordsInSentence + 1)
+        }
+        mutating func sentenceBoundary() {
+            boundaryPrior = 0.25 * value + 0.5 * prior
+            value = boundaryPrior
+            observations.removeAll(keepingCapacity: true)
+            wordsInSentence = 0
+        }
+    }
+
+    /// Reuses deletable trusted word counts/dates, not a second language-history store.
+    /// No host identifier is available. Most recent 32 retained word types, count capped
+    /// at four per type, yield only a weak prior (at most ±1 log odds). Ties are lexical.
+    func personalLanguagePrior(_ counts: [String: PersonalTypingModel.WordCount]) -> Double {
+        guard counts.count <= 2_000 else { return 0 }
+        let recent = counts.sorted {
+            if $0.value.lastUpdated != $1.value.lastUpdated { return $0.value.lastUpdated > $1.value.lastUpdated }
+            return $0.key < $1.key
+        }.prefix(32)
+        var sum = 0.0, mass = 4.0
+        for (word, count) in recent {
+            let weight = Double(min(4, max(0, count.count)))
+            sum += weight * evidence(word); mass += weight
+        }
+        return min(1, max(-1, sum / mass))
     }
 
     struct Suggestion: Equatable, Sendable {
@@ -288,7 +347,7 @@ nonisolated struct KeyboardContextModel: Sendable {
     /// Recompute from a short RAM-only suffix every request: edits cannot double-consume
     /// evidence and field changes cannot retain a posterior. Discard a clipped first word.
     /// Unknown/numeric/identifier barriers are NOT BOS; sentence punctuation is BOS.
-    func context(before input: String?, currentToken: String?) -> Context {
+    func context(before input: String?, currentToken: String?, prior: Double = 0) -> Context {
         guard let input else { return Context() }
         let bytes = input.utf8.suffix(Self.contextByteLimit + 1)
         let tail = String(decoding: bytes.suffix(Self.contextByteLimit), as: UTF8.self).suffix(Self.contextLimit + 1)
@@ -298,13 +357,13 @@ nonisolated struct KeyboardContextModel: Sendable {
         var suffix = String(tail.suffix(Self.contextLimit))
         if clipped { suffix = String(suffix.drop(while: { !$0.isWhitespace && !".!?…".contains($0) })) }
         if let token = currentToken, suffix.hasSuffix(token) { suffix.removeLast(token.count) }
-        var result = Context(), token = ""
+        var result = Context(state: State(prior: prior)), token = ""
         var atSentenceBoundary = false
         func flush() {
             guard !token.isEmpty else { return }
             if Pack.validWord(token, apostrophes: true) {
                 let key = Self.key(token)
-                result.state.consume(key, model: self)
+                result.state.consume(token, model: self)
                 result.earlier = result.previous == Self.bos ? nil : result.previous
                 result.previous = key
                 result.canPredict = true; atSentenceBoundary = false
@@ -382,7 +441,9 @@ nonisolated struct KeyboardContextModel: Sendable {
                 german: Bool, english: Bool, personal: PersonalBigramModel = .init()) -> [String] {
         var pool = Array(candidates.prefix(Self.candidateLimit))
         guard context.canPredict, context.previous != nil else { return pool }
-        let gains = pool.map { Self.gainWeight * contextGain($0, context: context, german: german, english: english, personal: personal) }
+        let gains: [Double] = pool.map { word in
+            Self.gainWeight * contextGain(word, context: context, german: german, english: english, personal: personal)
+        }
         guard gains.contains(where: { $0 > 0 }) else { return pool }
         for scored in [true, false] {
             let slots = pool.indices.filter { (spatialScores[pool[$0]] != nil) == scored }
