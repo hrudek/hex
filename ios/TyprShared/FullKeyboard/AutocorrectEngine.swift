@@ -157,6 +157,7 @@ final class AutocorrectEngine {
     let touchInput = KeyboardTouchInput()
     let spatialDecoder: SpatialWordDecoder?
     let contextResources: KeyboardContextResources
+    private var languagePriorCache: (generation: Int, value: Double)?
     let checker: TextChecking
     let learning: KeyboardLearningSession
     var isEnabled = true { didSet { invalidateDecode() } }
@@ -699,7 +700,14 @@ final class AutocorrectEngine {
         let contextModel = isEnabled ? contextResources.model.flatMap {
             $0.supports(german: german != nil, english: englishEnabled) ? $0 : nil
         } : nil
-        let context = contextModel?.context(before: beforeInput, currentToken: activeToken)
+        var languagePrior = 0.0
+        if let model = contextModel, learning.isLearningEnabled {
+            if languagePriorCache?.generation != learning.generation {
+                languagePriorCache = (learning.generation, model.personalLanguagePrior(learning.model.state.counts))
+            }
+            languagePrior = languagePriorCache?.value ?? 0
+        }
+        let context = contextModel?.context(before: beforeInput, currentToken: activeToken, prior: languagePrior)
         guard let token = activeToken else {
             guard canPredictNextWord(after: beforeInput), let context, context.canPredict,
                   let model = contextModel else { return [] }

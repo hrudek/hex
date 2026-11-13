@@ -10,8 +10,9 @@ The keyboard never accesses the microphone, speech model or network.
 The separate [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions)
 uses bundled public DE/EN statistics for after-space predictions and display-only
 reranking. It reads at most a 256-character/2,048-byte field suffix in RAM,
-recomputes a bounded language-evidence state per request, and stores **no personal
-context, pair counts, posterior or history of its own**. The separately approved
+recomputes a bounded sentence language posterior per request, and stores **no
+posterior or history of its own**. With learning on, its weak language-usage prior
+is derived from existing deletable trusted word counts and update dates (see below). The separately approved
 [personal word-pair layer](#personal-next-word-pairs) adds bounded follower counts; no new switch.
 Autocorrect and its selected languages govern it, independently of Learn from my
 typing. Picking a next-word prediction has no aligned current-token evidence and
@@ -447,6 +448,74 @@ remain EVAL diagnostics only; deterministic entry/result and byte bounds gate
 regressions rather than noisy shared-runner timing. The same applies to aim
 snapshot/trusted-label update timings; numeric/encoded byte limits remain asserted.
 See [evaluation regression gates](KEYBOARD_SPATIAL_DECODER.md#evaluation-regression-gates).
+
+## Sentence language posterior (R2-4)
+
+DE/EN suggestions use a sentence-level running posterior rather than a separate
+weight for each candidate word. Every request reconstructs it from completed words
+in the existing ≤256-character / 2,048-byte RAM-only field suffix; the active token
+is excluded. Only the last eight word-evidence values survive within a sentence.
+Lexical evidence uses membership/frequency in the selected bundled context packs,
+with additional cues for umlauts/ß, known English apostrophized words and known
+German capitalized nouns mid-sentence. A capitalized unknown name or sentence-initial
+word is not a noun cue. This is a bounded heuristic posterior, not a calibrated
+probability of a human speaker's language. A completed proxy word is evidence for
+ranking only, **not permission to learn** from pasted or automatically changed text.
+
+Two consecutive contrary observations (the latest strong) discount old evidence immediately;
+a single loan word does not force a switch. Explicit umlaut/contraction cues can
+switch immediately. Sentence punctuation and newlines clear the eight observations
+and start with a decayed prior (`.25 * previous log odds + .5 * personal prior`).
+Repeated punctuation does not reset repeatedly. Non-prose barriers break word
+adjacency, not sentence punctuation inside a URL. Edits retokenize rather than
+consume twice; no sentence posterior crosses an unavailable field suffix.
+
+There is no reliable host-app/field identity in the pure engine. With **Learn from
+my typing** on, recent usage instead supplies a weak prior derived from the **32
+most recently updated retained counted word types**, with lexical tie order,
+per-type weight `min(count,4)` and four neutral pseudocounts; the weighted mean of
+clipped corpus log ratios is capped at ±1 log odds. These are retained types, not
+an ordered 32-event history. Old dates have no wall-clock expiry. This deliberately
+reuses existing counts/dates: **zero new stored fields, files or bytes**, no app IDs,
+no schema change, no transcript seeding. Keeps without counts contribute nothing.
+The ≤2,000 counted types are sorted/classified only when the learning generation
+changes; at most 32 classifications run per refresh, and only the resulting scalar
+is cached by the engine. Learning off removes
+this prior and retains the underlying data. RAM learning without Full Access still
+works; the existing session gates every persistent load/save and stops on revocation.
+
+Deleting a word's count removes its usage contribution on authoritative refresh;
+removing only its keep leaves an independently counted word in use, as before.
+Reset learning removes every contribution. No separate reset/control is needed.
+Settings and management privacy copy disclose this use. Aggregate word counts are
+sensitive; no extra language/app history is serialized.
+
+The posterior weights both languages in next-word probabilities and existing
+bounded correction/completion **display** context gains. Automatic corrections,
+valid literals, pinned automatic/revert/contact slots, undo and touch learning are
+unchanged. A single enabled language always uses weight 1 for that pack; neither
+selected or a missing selected pack abstains. No new switch/network/microphone use.
+
+Deterministic work: at most eight evidence-fold steps per completed word in the
+bounded suffix, eight retained Doubles, two scalar priors and fixed scalars; Linux
+value-plus-element payload is 104 bytes (not heap/allocator overhead or RSS).
+Cached personal prior adds one Int and one Double plus optional/struct overhead.
+Prior refresh sorts ≤2,000 entries and classifies ≤32; it adds no checker calls.
+`KeyboardContextPosteriorTests` cover cues, switches, eviction, reset, normalization,
+active-token exclusion, recency/ties, persisted counts, deletion, learning off,
+Full Access denial and engine cache refresh. Historical D3b resource vectors still
+test the **old** filter explicitly; new posterior behavior has separate assertions.
+
+Same-fixture Linux evaluation: tiny abrupt mixed sample wrong-language slots
+36.11% → 33.33% (12 predictions / 36 slots); alternating held-out sample 3.12% →
+1.92% (417 predictions / 1,251 slots), first-three-after-switch 6.42% → 3.99%.
+Recall@3 stays 33.33% / 15.11% respectively. These development fixtures are not
+human code-switch accuracy; the posterior cannot anticipate an unseen switch.
+Public single-language held-out recall@3 remains DE 14.06%, EN 17.74%.
+Full quality/control counts and exact commands are recorded in the R2-4 research
+report. Device checks remain: Apple dictionary noun casing/contractions, DE/EN/
+mixed and limited-context hosts, language changes, completion/undo, actual Full
+Access revocation and deletion/reset refresh, main-thread latency and peak memory.
 
 ## Personal next-word pairs
 
