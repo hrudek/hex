@@ -1389,6 +1389,96 @@ lines and exact commands are in the P3/M3 research handovers. No UIKit/SwiftUI A
 SDK compile, simulator, real dictionaries, iPhone typing/Full Access or peak physical
 memory was verified; all owner checks below remain required.
 
+## Multi-part boundary suggestions and gate remeasurement (R2-6)
+
+Automatic split/join and Space reinterpretation remain **off**. Personal imports
+protect exact names/terms, but optional imports cannot establish that an unlisted
+name or productive compound is a typo. No new switch or automatic policy is added.
+
+`KeyboardMultipartSegmenter` translates iikb's `missedSpaces` endpoint cache and
+`Run.keep` beam into Typr's immutable TSW1 worker architecture. If existing exact
+or spatial boundary retrieval retains no candidate and the whole has no lexical
+prior, a 3–4-part fallback reads at most one edit per part. Levenshtein rows plus
+adjacent transposition permit substitution, insertion, deletion and swap readings.
+Changed letters require observed target-key density at least 10× literal density;
+two parts must have such positive tap support. Structural-only errors contribute
+only their edit penalty, never invented tap likelihoods. Thus purely structural
+multi-error runs and exact multi-part runs without that evidence abstain. This is
+a deliberate safety restriction, not full iikb parity. Existing exact two-part,
+Space-as-letter, letter-as-Space and extra-Space paths keep their ranking/policy.
+
+Per-part score is `0.35 * logPrior + edits * log(0.05)` plus observed relative tap
+support capped at `log(1000)`; each missing boundary pays `log(0.01)`. An unknown
+whole starts at `log(1e-24)` and available whole-word decoder competitors raise
+that baseline. These are suggestion-ranking constants, **not calibrated automatic
+odds**. Corpus membership, dictionary validity, learned keeps, imported terms,
+contacts/shortcuts, identifiers and rejected boundary pairs retain their vetoes.
+Case restoration is unchanged. No numbers/units, neural/context model port, or
+arbitrary earlier-text edits are added. Existing owned-suffix selection restores
+the entire literal in one undo, with no inferred word counts or touch labels.
+
+The expensive fallback runs **only in the existing suggestion worker**. A missing
+MainActor cache computes only legacy exact/spatial retrieval; a completeness bit
+prevents that partial cache from suppressing the later worker search. No new queue,
+actor, persistent cache or resource is introduced. Explicit limits per call:
+
+- 32 observed letters, 20 letters per part, at most four parts;
+- three readings per start/end bucket, three runs per endpoint/part count, three
+  final candidates, fixed DE-then-EN traversal and lexical tie breaks;
+- 131,072 visited trie records total, 8,192 per start shared across languages;
+  at most 20 Levenshtein cells per visit, 32×46 short-word supplement checks,
+  32×30 frozen density comparisons, and 4×32×20×3×3 run extensions;
+- at most 32×33×3 retained span readings and 5×33×3 runs; conservative temporary
+  element/string payload bound **388,728 bytes**, excluding allocator overhead,
+  borrowed trie mappings and process RSS. Exhaustion is deterministic and is
+  exposed in retrieval diagnostics; partial search remains suggestion-only.
+
+Comparable Linux synthetic evaluations (origin/main `87660de9` → this change):
+
+| Fixture | Before | After |
+| --- | --- | --- |
+| DE omitted-space strip@3, merge-noise premise | 47/48 | 47/48 |
+| EN omitted-space strip@3, merge-noise premise | 40/48 | 40/48 |
+| EN corpus-as-validity proxy strip@3 | 20/48 | 20/48 |
+| mixed omitted-space strip@3 | 25/32 | 25/32 |
+| Exact joins, rank@1/@3 | 6/6, 6/6 | 6/6, 6/6 |
+| New noisy 3–4-part DE rank@1/@3 | 0/6, 0/6 | 6/6, 6/6 |
+| New noisy 3–4-part EN rank@1/@3 | 0/6, 0/6 | 5/6, 6/6 |
+| New noisy 3–4-part mixed rank@1/@3 | 0/6, 0/6 | 6/6, 6/6 |
+| Actual false automatic boundaries, valid pair controls | 0/72 | 0/72, with and without imported names |
+
+Round-one DE 45/48 was lexical-only; current context-enabled DE is already 47/48
+before this task. These are not gains from R2-6. New fixtures place each changed
+letter tap 85% toward the intended adjacent key and change one letter in every
+part. They are small constructed tests, not human accuracy estimates.
+
+Re-running the original proposed split gate over 64 phrases and three language
+modes (1,920 trusted controls, 936 OOV compounds/terms, 108 product spellings,
+27 unlisted-name trials) yields this identical before/after curve:
+
+| Whole/runner odds threshold | True / false, no imports | True / false, tested names/products imported |
+| --- | --- | --- |
+| 100 / 10 | 28 / 14 (precision .6667, recall .4375) | 25 / 0 (recall .3906) |
+| 1,000 / 100 | 23 / 10 (.6970, .3594) | 20 / 0 (.3125) |
+| 10,000 / 1,000 | 6 / 0 (1.0, .0938) | 6 / 0 (.0938) |
+| Merge-noise only, 100 / 10 | 9 / 12 (.4286, .1406) | 8 / 0 (.1250) |
+
+The zero-false high-threshold variant still has <10% recall and no general safety
+proof; useful variants fail without imports. Imports also veto valid product
+spellings that collide with intended phrase fixtures (`athome`, `withyou`, `itis`).
+No gate is installed. On the 100 P6 spatial/noise fixtures, a simpler whole-margin
+trial at odds 1/100/1,000/10,000 gives 80/72/55/51 true readings, zero wrong
+readings, and 1/1/0/0 false proposals on the 72 valid-pair controls, unchanged by
+imported names. The ambiguous `a out`→`about` is not solved by importing names.
+These narrower zero-false samples do not justify widening automatic authority.
+
+Only an iPhone proves real dictionary acceptance, suggestion-ready latency and
+peak extension footprint. Check older/current devices, both orientations, DE/EN/
+mixed, real near-Space taps vs Typr/programmatic spaces, stale chips/cursor and
+field changes, one-step undo, punctuation/double-Space semantics, Full Access
+revocation, imported-term deletion/reset and lack of inferred learning. Linux
+work/memory bounds and timings do not prove iPhone performance.
+
 ## Required owner iPhone checks
 
 First compile app/keyboard/widgets and run the actual iOS test target in Apple
