@@ -7,9 +7,14 @@ final class AutocorrectOrthographyTests: XCTestCase {
     private final class Checker: TextChecking {
         let words: Set<String>
         var validityCalls = 0
+        var apostropheCalls = 0
         var alternatives: [String: [String]] = [:]
         init(_ words: Set<String> = []) { self.words = words }
-        func isWordValid(_ word: String) -> Bool { validityCalls += 1; return words.contains(word) }
+        func isWordValid(_ word: String) -> Bool {
+            validityCalls += 1
+            if word.contains("'") { apostropheCalls += 1 }
+            return words.contains(word)
+        }
         func guesses(for word: String) -> [String] { alternatives[word] ?? [] }
         func completions(for prefix: String) -> [String] { [] }
     }
@@ -72,6 +77,21 @@ final class AutocorrectOrthographyTests: XCTestCase {
             XCTAssertFalse(chips.contains { $0.kind == .primary(autoReplace: true) })
         }
         print("EVAL R2_5_ambiguous missing_dictionary=11 adversarial_guesses=11 false_automatic=0")
+    }
+
+    @MainActor
+    func testValidWordsDoNotOfferProductivePossessives() {
+        for (literal, possessive) in [("dogs", "dog's"), ("houses", "house's"), ("users", "user's"), ("Dogs", "Dog's")] {
+            // Title case is intentionally absent: lowercased validity must also veto search.
+            let checker = Checker([literal.lowercased(), possessive.lowercased()])
+            let engine = AutocorrectEngine(checker: checker, spatialDecoder: nil,
+                                          contextResources: .init(model: nil))
+            let chips = engine.suggestions(beforeInput: literal, field: .text, autocorrectionType: .default)
+            let hits = chips.filter { $0.replacement == possessive }.count
+            print("EVAL R2_5_valid_literal token=\(literal) possessive_chips=\(hits) checker_calls=\(checker.validityCalls) apostrophe_probes=\(checker.apostropheCalls)")
+            XCTAssertEqual(hits, 0)
+            XCTAssertEqual(checker.apostropheCalls, 0, "Valid literals must not enumerate apostrophe spellings")
+        }
     }
 
     @MainActor

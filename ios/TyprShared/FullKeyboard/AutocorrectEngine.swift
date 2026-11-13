@@ -1142,7 +1142,10 @@ final class AutocorrectEngine {
             candidate = Self.suggestOnlyContractions[lower]
             // Translate iikb Corrector.contraction's apostrophe-at-an-internal-boundary
             // candidate recognition, not its posterior-based automatic authority.
-            if candidate == nil, (3...32).contains(token.count), lower.utf8.allSatisfy({ (97...122).contains($0) }) {
+            // Valid literals (including plurals with valid possessives) need no search;
+            // valid contraction homographs are handled by the manual table above.
+            if candidate == nil, (3...32).contains(token.count), lower.utf8.allSatisfy({ (97...122).contains($0) }),
+               !checker.isWordValid(token), !checker.isWordValid(lower) {
                 let letters = Array(lower)
                 for index in 1..<letters.count {
                     let spelling = String(letters[..<index]) + "'" + String(letters[index...])
