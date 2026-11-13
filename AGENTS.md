@@ -3,7 +3,7 @@
 Typr is a standalone iPhone dictation keyboard, based on Hex (MIT). This file
 holds every agent rule. Read further only when the task needs it:
 
-- App architecture, switches, privacy rules, proof limits: [ios/README.md](ios/README.md)
+- App overview, build and proof limits: [README.md](README.md)
 - CI, review, auto-merge, signing, owner commands: [.github/typr/README.md](.github/typr/README.md)
 - Third-party licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
@@ -33,8 +33,7 @@ holds every agent rule. Read further only when the task needs it:
   decisions and reasons, changed files, what was tested and what was not (anything
   only a real iPhone proves). Carry outcomes from the conversation into it; update
   it when scope changes. List affected screenshot scenes in a `Screenshots:` line.
-- Update affected documentation in the same PR. Keep the switch list in
-  ios/README.md current when a switch is added or removed.
+- Update affected documentation in the same PR.
 - After pushing, read the latest **Typr review** comment, fix every numbered
   finding, push and wait for the next verdict. `⚠️ NO RESULT`: re-run the failed
   job once, then tell the owner. Merging is automatic once required checks pass.
@@ -84,9 +83,8 @@ git diff --check
 - Keep modules deep: callers do not coordinate audio formats, capture lifecycle or
   serialization. No hypothetical platform/plugin seams; generalize only for two real
   adapters or a current test requirement.
-- Runtime, storage or privacy changes must follow the privacy rules in
-  [ios/README.md](ios/README.md#privacy-and-storage). The keyboard never accesses the
-  microphone, speech model or network. Captured audio is not persisted.
+- The keyboard never accesses the microphone, speech model or network.
+  Captured audio is not persisted.
 - Keep transcripts, log exports and private tool stores out of Git and public issues.
   Offline tooling must not collect app/runtime data by itself.
 - UI copy: sentence case, product name “Typr”.

@@ -39,7 +39,7 @@ class FingerprintTests(unittest.TestCase):
         pipeline_before = self.fingerprint('pipeline')
         for path in ('.github/workflows/typr-ci.yml', '.github/typr/build.sh',
                      '.github/typr/auto-merge.py', '.github/typr/tests/test_ci.py',
-                     'TYPR.md', 'ios/README.md', 'ios/TyprShared/WordData/README.md',
+                     'README.md', 'AGENTS.md', 'ios/TyprShared/WordData/README.md',
                      'ios/tools/dictation_log/cli.py'):
             self.change(path, 'changed')
             self.commit()
