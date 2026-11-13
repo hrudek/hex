@@ -226,6 +226,14 @@ rapid typing latency/extension peak memory.
 
 ### Slow covariance and fast aim
 
+R2-8's [decoder-statistics evaluation](KEYBOARD_SPATIAL_DECODER.md#decoder-statistics-evaluation-r2-8)
+retains Gaussian production scoring: a test-only Student-t/alignment-sum reranker
+regresses noisy EN/mixed recall despite some outlier gains. It reads frozen
+synthetic calibration only, never teaches from hypothetical readings and adds
+no runtime data collection, persisted state, privacy-copy change or new reset
+obligation. Existing Full Access, deletion, reset and independent alignment
+rules below are unchanged; the keyboard still uses no microphone/model/network.
+
 Slow effective counts cap at **256**; update weight is `max(1/n, 1/64)`.
 The population update retains xx/xy/yy covariance. The shared physical spread pools
 within-key covariances in sorted key order, weighted by effective count, plus **20**
