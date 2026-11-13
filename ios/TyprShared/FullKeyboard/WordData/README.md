@@ -38,24 +38,9 @@ python3 ios/tools/keyboard_words/build.py en /path/to/en_50k.txt ios/TyprShared/
 python3 -m unittest discover -s ios/tools/keyboard_words -v
 ```
 
-## TSW1 format
-
-Little-endian header (24 bytes): magic `TSW1`, UInt32 node count, UInt32 word
-count, UInt32 reserved zero, UInt64 sum of retained word counts.
-Each node (12 bytes): UInt8 alphabet index, UInt8 child count, UInt16 reserved
-zero, UInt32 first child index, UInt32 word count (zero for a nonterminal).
-The alphabet is `abcdefghijklmnopqrstuvwxyzäöüß`; root label is 255. Children
-are contiguous, sorted and strictly forward; an empty child list has index zero.
-
-Runtime reads are bounds-checked, files are mapped if safe, at most 5 MB each,
-400,000 nodes and 50,000 words. Invalid headers/visited records, missing resources
-and exhausted searches fall back to the old correction path. Offline tests check
-every committed record, parent edge, count and digest. The folder, including
-attribution and license, is bundled in both app and keyboard, never the widgets.
-
-These counts are not a spelling dictionary: subtitles contain names, slang and
-errors and do not establish German noun casing. No accuracy claim follows from
-inclusion. In particular, missing technical terms and compounds are expected.
+The folder, including attribution and license, is bundled in both app and keyboard,
+never the widgets. These counts are not a spelling dictionary; no accuracy claim
+follows from inclusion.
 
 ## Corpus context sidecars (TBG1)
 
@@ -74,32 +59,7 @@ all input hashes and documents rebuilds; no acquisition or input files are bundl
 | keyboard-de.tbg | 8,000 | 15,340 | 382,140 | `5b19683277b453d6d93189d6a615f63ce012deba0f50e05880dedf1c8a9c5ed3` |
 | keyboard-en.tbg | 8,000 | 20,065 | 388,490 | `a270578241a627473dac054d2a340e763dab87af95fc57dc7bde95684cc7aee5` |
 
-Combined packs: **770,630 bytes**, up **107,837** from 662,793, still below the
-unchanged 1 MiB loader cap (and the R2-9 target of ~2 MiB). They contain no audio, raw sentences,
-neural weights, personal data or network URLs. Observed display casing is manual
-suggestion spelling, never authority for automatic German noun correction. Stock
-corpus names `tom`, `mary`, `maria`, `john` are suppressed in next-word predictions,
-but remain contexts/evidence; real contact/system/explicit suggestions are unaffected.
-
-TBG1 little-endian header is 64 bytes (`<4sHH2sHIIIIIIQfIHHII`): magic, version=1,
-header size, two-byte language, zero flags, record/edge counts, word/edge/string
-section offsets, total file size, UInt64 retained unigram count, Float32 discount=.5,
-configured N/K/min-count, payload CRC32, reserved zero. Each 20-byte word record is
-five UInt32 values: key/display NUL-terminated UTF-8 pool offsets, unigram count,
-first edge index, full context total (including OOV/pruned followers). Next record's
-first edge ends the row, or total edge count for the final row. Each 8-byte edge:
-UInt16 follower ID, UInt16 zero, UInt32 count. ID 0 is `<s>` with unigram zero;
-lexical keys are NFC lowercase and UTF-8 sorted, not ß-folded. Rows sort descending
-count then follower ID. Runtime validates the entire format/checksum/strings/counts,
-not just visited rows: ≤8,001 records, K≤16, ≤1 MiB combined, ≤128 UTF-8 bytes and
-32 characters per spelling. Unsupported or missing selected language abstains.
-
-`p0(w)=(u(w)+.5)/(U+.5*N)`, `boost=(count-.5)/C(h)`,
-`lambda=1-sum(retained boosts)`, `P(w|h)=lambda*p0(w)+boost(w)`;
-unknown/no-total contexts use lambda=1. Pruned/OOV continuation mass backs off,
-not renormalization of only stored edges. Unknown context is not `<s>`.
-The only resident index is sorted unigram IDs, **32,000 bytes combined**.
-Mapped file+index payload is 802,630 bytes, not an extension RSS measurement.
+The packs contain no audio, raw sentences, neural weights, personal data or URLs.
 
 `context-heldout-cc0.json` is a small **CC0 Common Voice** test fixture with source
 revision/selection recorded inside. `swift-reference-vectors.json` is Typr-generated

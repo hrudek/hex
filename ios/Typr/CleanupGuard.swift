@@ -4,7 +4,7 @@ import Foundation
 /// language (every style except Verbatim), so the guard no longer counts new words. It rejects only
 /// what a cleanup never does: an answer much longer than what was said (answering or inventing), a
 /// number, link or address nobody said, a transcript repeated twice (OpenWhispr's duplicated-transcript
-/// check, MIT, see PORTS.md), or changed Notes markers. Empty answers and Notes line breaks are checked
+/// check, MIT, see THIRD_PARTY_NOTICES.md), or changed Notes markers. Empty answers and Notes line breaks are checked
 /// by the coordinator. Not a semantic guarantee: a wrong word, a dropped clause or a short answer to
 /// a dictated question can pass.
 enum CleanupGuard {

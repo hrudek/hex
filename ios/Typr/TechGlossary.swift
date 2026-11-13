@@ -4,7 +4,7 @@ import Foundation
 /// terms, and what the speaker meant. It runs on the recognized text before AI cleanup, so the
 /// model sees "Pull Request" instead of guessing "Puzzle-Quest" from "Pulrigquest".
 ///
-/// How to extend it from a dictation log (see `ios/AI_CLEANUP.md`, "Built-in tech glossary"):
+/// How to extend it from a dictation log:
 /// 1. Take the misheard form from the entry's *Recognized* text, not from the AI answer.
 /// 2. If the form is not a real word in German or English ("Gitub", "Orcherator"), add it to
 ///    `heardAs` of the intended term: it is replaced everywhere.

@@ -44,8 +44,11 @@ No upstream code/executables, GPL/AGPL/LGPL code, audio or personal data enter.
 
 Hex+'s own code and the adopted Hex iOS base are covered by the repository's
 [MIT license](LICENSE), whose original © Christopher Langton notice is retained.
-Source adoption history, including the inherited MIT OpenCode iOS scope port,
-is recorded in [PORTS.md](PORTS.md).
+Base and adoption pins: Hex iOS base `anomalyco/hex` at
+`cae389a833178c5e104e6d00db894078afc29ea0` (MIT, [LICENSE](LICENSE)); iOS 26 full
+keyboard parity from unmerged anomalyco/hex PR #938 at
+`9029d2bcafb5504019d9ad979fa3883dd1659161` (MIT, same license). Adoption history is
+in Git and the adopting PRs.
 
 ## OpenCode iOS scope port
 
@@ -84,7 +87,7 @@ SOFTWARE.
 
 Host-app detection and return after a cold-start dictation (`ios/TyprKeyboard/KeyboardHost.swift`,
 `ios/TyprKeyboard/KeyboardArbiter.c`, `ios/TyprShared/HostReturnCatalog.swift`,
-`ios/Typr/HostReturner.swift`) are translated from three MIT projects; see [PORTS.md](PORTS.md).
+`ios/Typr/HostReturner.swift`) are translated from three MIT projects.
 Their notices are reproduced below.
 
 ### iikb
@@ -96,7 +99,7 @@ Shahidy). The existing MIT notice below applies; it is not duplicated. No
 upstream weights or new corpus data are distributed. The original tiny MLP and
 Swift test forward do not use upstream code files. Locally evaluated weight and
 corpus provenance/licenses/open questions are recorded in
-`ios/tools/keyboard_neural/SOURCE` and `ios/KEYBOARD_NEURAL_EVALUATION.md`;
+`ios/tools/keyboard_neural/SOURCE`;
 R2-9's existing data notices are unchanged. NumPy is an optional external offline
 training dependency, not vendored or linked into Typr.
 
@@ -106,14 +109,14 @@ R2-6 translates multi-part span caching and endpoint beam retention from
 `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`. Typr's bounded worker-only trie
 edit rows and observed-tap gates are original adaptations, not copied files.
 No new resources, weights, dependencies or automatic policy are included.
-The single MIT notice below (© 2026 Bassim Shahidy) applies; see PORTS.md.
+The single MIT notice below (© 2026 Bassim Shahidy) applies.
 
 R2-5 also translates internal-boundary missing-apostrophe candidate recognition
 from `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift`
 at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765` into bounded, dictionary-backed,
 manual-only Typr suggestions. No lexicon, network, weights or builder output is
 adopted. The existing MIT notice below (Copyright (c) 2026 Bassim Shahidy),
-checked against this pin's LICENSE, applies without duplication; see PORTS.md.
+checked against this pin's LICENSE, applies without duplication.
 
 Undo/literal confirmation and acceptance memory additionally translate
 `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift:16–114`
@@ -131,7 +134,7 @@ strict margins, TSW1/personal indexes and no-self-training policy. P8b's tighter
 novel-word/density gates, backspace recovery and original synthetic harm fixtures
 are Typr-specific hardening, not additional upstream code or data. No upstream files,
 resources, neural weights or dependencies are included. The single full MIT notice
-below (Copyright (c) 2026 Bassim Shahidy) covers this adaptation; see PORTS.md.
+below (Copyright (c) 2026 Bassim Shahidy) covers this adaptation.
 
 From [AVGVSTVS96/iikb](https://github.com/AVGVSTVS96/iikb/blob/f0f1e1f7a29ba915918729115d782ae494fc7244/LICENSE).
 
@@ -220,7 +223,7 @@ SOFTWARE.
 Typr adapts selected bounded trie/edit-search, spatial/prior scoring, pitch-normalized
 learning statistics, explicit pending feedback and snapshot-dashboard ideas from
 [AVGVSTVS96/iikb at `08df5aa1e698d8587b6dcaef53f5e555ba1fac2a`](https://github.com/AVGVSTVS96/iikb/tree/08df5aa1e698d8587b6dcaef53f5e555ba1fac2a).
-Exact source/destination paths and exclusions are recorded in [PORTS.md](PORTS.md).
+The earlier static decoder adoption used `9c74e51f0218a814e2e99756087d3f38ef003614`.
 These are rewritten, bounded Typr implementations, not a port of iikb's full
 learned/neural model or resources. The existing iikb MIT notice above
 (Copyright (c) 2026 Bassim Shahidy), verified against the
@@ -233,8 +236,7 @@ held-letter mapping and personal (kept or repeatedly typed) word completions fro
 at [iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765).
 The existing **MIT, Copyright (c) 2026 Bassim Shahidy** notice above was verified
 against that revision's LICENSE and also covers these rewritten adaptations.
-No additional iikb word data, neural weights or dependencies are included;
-[PORTS.md](PORTS.md) records the exact paths, pin and exclusions.
+No additional iikb word data, neural weights or dependencies are included.
 
 R2-1 additionally reviews/translates the independent name/protection-layer idea
 from `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift`
@@ -244,7 +246,7 @@ query ideas from adjacent `Lexicon.swift`, at
 2026 Bassim Shahidy** notice above applies without duplication. Typr's app-only
 Contacts/dictation importer, bounded sorted token format and reset controls are
 original implementations. No upstream data, code file, neural model, Contacts
-service or dependency is bundled; precise scope/exclusions are in PORTS.md.
+service or dependency is bundled.
 
 R2-2 extends that adaptation to the one/two-word context keys and all-endpoint
 cleanup in `Correction/TypingMemory.swift` at the same pinned
@@ -252,7 +254,7 @@ cleanup in `Correction/TypingMemory.swift` at the same pinned
 backoff from `Correction/LanguageModel.swift`. The existing **MIT, Copyright (c)
 2026 Bassim Shahidy** notice covers it without duplication. Typr supplies its own
 bounded longest-row selection, trusted chip settlement, migration and tests;
-no new third-party data, model, code file or dependency is bundled (see PORTS.md).
+no new third-party data, model, code file or dependency is bundled.
 
 The P4 personal next-word layer additionally translates follower counts and cleanup
 from `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift`
@@ -261,16 +263,15 @@ and discounted backoff from the adjacent `LanguageModel.swift` at
 2026 Bassim Shahidy** notice above applies and was checked against that pin's LICENSE;
 it is not duplicated. Typr supplies its own stricter trust protocol, event-count
 ageing, bounds, schema migration and deletion UI. No upstream resources, app
-histories, trigrams, neural weights or executable dependency are adopted; exact
-paths/exclusions are in `PORTS.md`.
+histories, trigrams, neural weights or executable dependency are adopted.
 
 The aggregate-aim extension additionally translates full covariance, pooled shrinkage,
 multiple-timescale aim, predictive fixed-share weighting and covariance-display/test
 ideas (rewritten with Typr's shared 40/8-label affine drift, not upstream per-key
 30/3 banks) from `TouchModel.swift`, `Aim.swift`, `Tap.swift` and `TypingModelTests.swift` at
 [iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765),
-MIT, Copyright (c) 2026 Bassim Shahidy. The same full MIT notice above applies;
-[PORTS.md](PORTS.md) lists exact paths and exclusions. No upstream recent-tap
+MIT, Copyright (c) 2026 Bassim Shahidy. The same full MIT notice above applies.
+No upstream recent-tap
 reservoir, executable dependency, neural weights, or language resource is adopted.
 
 The deferred suggestion pipeline additionally translates snapshot/job/revision-checked
@@ -278,8 +279,7 @@ finish and compatible-cache adoption from
 [AVGVSTVS96/iikb at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765),
 `TypingEngine+Words.swift` and `FullKeyboardViewController.swift`. The existing
 **MIT, Copyright (c) 2026 Bassim Shahidy** notice above also covers this rewritten
-adaptation; [PORTS.md](PORTS.md#deferred-keyboard-suggestions-iikb) records exact
-paths and exclusions. No upstream controller, resources or neural weights are bundled.
+adaptation. No upstream controller, resources or neural weights are bundled.
 
 Exact two-part omitted-space suggestions, whole-vs-split comparison and owned boundary
 revert additionally translate ideas from `Correction/Corrector.swift`,
@@ -287,8 +287,7 @@ revert additionally translate ideas from `Correction/Corrector.swift`,
 [iikb `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`](https://github.com/AVGVSTVS96/iikb/tree/09a2e9cdfbe851adff6c4646333c0a3f74ba8765).
 The same **MIT, Copyright (c) 2026 Bassim Shahidy** notice above, verified against
 that pin's LICENSE, applies without duplication. These are rewritten manual-only
-Typr algorithms, not copied files, upstream test data, language data or dependencies;
-[PORTS.md](PORTS.md#exact-omitted-space-splits-and-joins-iikb-p5) lists paths and exclusions.
+Typr algorithms, not copied files, upstream test data, language data or dependencies.
 The spatial boundary extension additionally translates whole-versus-separate tap
 likelihood comparison, geometric Space adjacency, retained actual boundary taps and
 owned suffix/revert from that pin's `Correction/Corrector.swift` (513–553, 625–707)
@@ -296,8 +295,7 @@ and `Typing/TypingEngine+Words.swift` (259–417). These are rewritten, bounded,
 suggestion-only Typr algorithms, with no upstream data/model/dependency, inferred
 Space training or wholesale file copy. The same **MIT, Copyright (c) 2026 Bassim
 Shahidy** notice above was checked against the pinned LICENSE and covers this
-adaptation without duplication; [PORTS.md](PORTS.md#spatial-boundary-taps-iikb-p6)
-records scope, source/destination paths and exclusions.
+adaptation without duplication.
 The small closed-class short-word supplement is Typr original hand-curated work.
 P5b additionally translates two-part conditional scoring and whole comparison from
 that pin's `Corrector.swift` / `LanguageModel.swift`, using Typr's existing separately
@@ -412,7 +410,7 @@ that notice and the full license text and must accompany redistribution.
 
 `ios/Typr/WhisperTokenizer.swift` follows the special-token table and language-token
 set of WhisperKit's `WhisperTokenizerWrapper` (`Sources/WhisperKit/Core/Models.swift`
-at v1.1.1); see [PORTS.md](PORTS.md).
+at v1.1.1).
 
 ```text
 MIT License
@@ -485,7 +483,7 @@ SOFTWARE.
 Typr's AI cleanup instructions (`ios/Typr/CleanupPrompt.swift`) follow the structure of
 OpenWhispr's cleanup prompt and transcript wrapper, and its duplicated-transcript check
 (`CleanupGuard.duplicatesTranscript` in `ios/Typr/CleanupGuard.swift`) is translated from
-OpenWhispr's cleanup output check; see [PORTS.md](PORTS.md). The notice below is from
+OpenWhispr's cleanup output check. The notice below is from
 [OpenWhispr/openwhispr](https://github.com/OpenWhispr/openwhispr/blob/2e4768a603ec368a0ff11fdd25eb10a31c65b89b/LICENSE).
 
 ```text

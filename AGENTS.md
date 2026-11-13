@@ -1,48 +1,71 @@
-<!-- tallow -->
 # Typr agent guide
 
-Typr is a standalone iPhone dictation keyboard. Read [TYPR.md](TYPR.md) first
-(process, switches and feature table), then [ios/README.md](ios/README.md)
-(architecture and proof limits), and [PORTS.md](PORTS.md) before adopting code.
+Typr is a standalone iPhone dictation keyboard, based on Hex (MIT). This file
+holds every agent rule. Read further only when the task needs it:
 
-## One worktree per development task
+- App architecture, switches, privacy rules, proof limits: [ios/README.md](ios/README.md)
+- CI, review, auto-merge, signing, owner commands: [.github/typr/README.md](.github/typr/README.md)
+- Third-party licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
-- Before a new feature, bug fix or refactor, run `git fetch --prune origin`
-  successfully, then create a task-specific branch and Git worktree from the
-  freshly fetched `origin/main`, never from local `main` or an old checkout.
-  If fetching fails, stop rather than use cached refs. Another base requires
-  an explicit owner request.
-- Keep worktrees as sibling directories under the canonical repository root
-  containing `.bare/`. Do not develop directly on `main`.
-- Run `git worktree list` and check the relevant worktree's status before
-  making changes. Never overwrite or move another task's uncommitted work.
-- Resume an existing task in its own worktree; a new session does not require
-  another worktree. Before continuing, fetch `origin` successfully and merge
-  `origin/main` if `git merge-base --is-ancestor origin/main HEAD` fails;
-  preserve uncommitted work and resolve conflicts before editing.
-  Run edits, builds and tests there.
+## Worktrees
 
-## Layout and checks
+- Before a new feature, fix or refactor, run `git fetch --prune origin`
+  successfully, then create `feature/<name>` or `fix/<name>` and a Git worktree
+  from the freshly fetched `origin/main`, never from local `main` or an old
+  checkout. If fetching fails, stop. Another base needs an explicit owner request.
+- Worktrees are sibling directories under the repository root containing `.bare/`.
+  Do not develop on `main`. Run `git worktree list` and check status first; never
+  overwrite or move another task's uncommitted work.
+- Resume a task in its own worktree. Fetch `origin` first and merge `origin/main`
+  if `git merge-base --is-ancestor origin/main HEAD` fails; preserve uncommitted
+  work and resolve conflicts before editing. Resolve PR merge conflicts the same way.
 
-- `ios/`: XcodeGen's `project.yml`; app `Typr`, keyboard `TyprKeyboard`,
-  widgets `TyprWidgets`, shared `TyprShared` / `TyprActivity`, tests `TyprTests`,
-  app icon and test fixtures.
-- `ios/tools/`: explicit, offline Python dictation-log tooling.
-- `.github/typr/`: build, test, archive, signing and CI helper scripts.
-- `.github/workflows/typr-*.yml`: CI, review, TestFlight/ad-hoc, retry,
-  infra-label recheck and weekly status.
+## Issues and PRs
 
-All repository paths belong to this project. Changes anywhere under `.github/`
-need the `infra` PR label. Keep PRs cohesive, update affected documentation and
-the feature table for feature changes, and follow the owner's merge instructions.
-Normal features and bug fixes need no switch; real experiments or owner-requested
-switches follow the complete rules in [TYPR.md](TYPR.md).
+- Work is PR-first: PR to `main`, label `feature` (fix PRs: `fix/<name>`), squash
+  merge. No issue is required. Use an existing relevant issue; create one only for
+  deferred/unresolved work, multi-PR coordination or on owner request. Issues are
+  notes: no agent starts from an issue or `@claude` comment. `Closes #N` only when
+  the PR fully resolves it. The pinned status issue is unaffected.
+- Keep each PR cohesive and independently reviewable; a large feature may span PRs.
+- Changes under `.github/` need the `infra` label (CI's scope check fails otherwise).
+- The PR description is the durable record: goal, agreed user-visible behavior,
+  decisions and reasons, changed files, what was tested and what was not (anything
+  only a real iPhone proves). Carry outcomes from the conversation into it; update
+  it when scope changes. List affected screenshot scenes in a `Screenshots:` line.
+- Update affected documentation in the same PR. Keep the switch list in
+  ios/README.md current when a switch is added or removed.
+- After pushing, read the latest **Typr review** comment, fix every numbered
+  finding, push and wait for the next verdict. `⚠️ NO RESULT`: re-run the failed
+  job once, then tell the owner. Merging is automatic once required checks pass.
+- Removing a feature: prefer GitHub's **Revert** of its PR(s) over rewriting code;
+  if the revert conflicts, remove it while preserving dependent behavior.
+
+## Switches
+
+- Bug fixes and normal features get no switch. Add one only for a genuine
+  experiment or on owner request. New switches are on by default; off preserves
+  the previous behavior exactly. Exceptions need an owner decision.
+- Switches live with related settings (**Keyboard**, **AI & vocabulary**,
+  **History & feedback**). Values are stored in `TyprShared/TyprSettings.swift`
+  (App Group); controls live in `Typr/SettingsPreferences.swift` and
+  `Typr/KeyboardSettingsCard.swift`. Never put Typr values in `FullKeyboardSettings.swift`.
+- Follow-ups use the feature's existing switch. Making a feature permanent removes
+  the switch and the old code path in a PR.
+
+## Tests and honesty
+
+- Every feature adds simulator tests in `ios/TyprTests`. A local simulator run is
+  not required before pushing; CI tests after merge to `main`. Run targeted tests
+  when debugging or when the owner asks.
+- Distinguish implemented behavior, available checks and observed verification.
+  An existing test is not a passing run; a simulator is not a real iPhone.
+  Report exact checks, failures and what remains unverified.
 
 On macOS:
 
 ```sh
-bash .github/typr/agent-test.sh
-bash .github/typr/agent-test.sh TyprTests/DictationControllerTests
+bash .github/typr/agent-test.sh [Target/Class,…]
 ```
 
 On Linux (no Xcode build or simulator proof):
@@ -58,21 +81,24 @@ git diff --check
 
 ## Implementation and privacy
 
-- Keep modules deep: callers should not coordinate audio formats, capture
-  lifecycle or serialization. Do not introduce hypothetical platform/plugin
-  seams; generalize only for two real adapters or a current test requirement.
-- Distinguish implemented behavior, available checks and observed verification.
-  An existing test is not a passing run; a simulator is not a real iPhone.
-  Report exact checks and failures, and what remains unverified.
-- Use sentence case and the product name “Typr” in UI copy.
-- The keyboard never accesses the microphone, speech model or network.
-- Do not persist captured audio by default. The owner-approved durable
-  Dictation log exception is documented in [ios/DICTATION_LOG.md](ios/DICTATION_LOG.md).
-  Keep transcripts, log exports and private tool stores out of Git and public
-  issues; explicit offline tooling must not collect app/runtime data by itself.
-- Keep Typr’s committed identity consistent with `.github/typr/app.json`.
-  `identity.py` validates it without rewriting source. Bundle IDs, App Group,
-  URL scheme, signing and secrets must not change incidentally.
-- Adopt third-party changes only through [PORTS.md](PORTS.md), with owner
-  approval, tests, provenance and license review. GPL, AGPL and LGPL code is
-  not permitted.
+- Keep modules deep: callers do not coordinate audio formats, capture lifecycle or
+  serialization. No hypothetical platform/plugin seams; generalize only for two real
+  adapters or a current test requirement.
+- Runtime, storage or privacy changes must follow the privacy rules in
+  [ios/README.md](ios/README.md#privacy-and-storage). The keyboard never accesses the
+  microphone, speech model or network. Captured audio is not persisted.
+- Keep transcripts, log exports and private tool stores out of Git and public issues.
+  Offline tooling must not collect app/runtime data by itself.
+- UI copy: sentence case, product name “Typr”.
+- Identity is committed in `ios/` and mirrored in `.github/typr/app.json`;
+  `identity.py` validates without rewriting. Bundle IDs, App Group, URL scheme,
+  signing and secrets must not change incidentally.
+
+## Third-party code
+
+Adopt external code only with owner approval. Check the license first: GPL, AGPL and
+LGPL are not permitted. Translate the needed behavior rather than copying files,
+inspect its dependencies and privacy impact, and add tests. In the same PR, add the
+license notice plus source URL and immutable revision (commit, or release/snapshot
+with hash) to [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and describe the
+provenance (upstream paths, what was taken) in the PR.
