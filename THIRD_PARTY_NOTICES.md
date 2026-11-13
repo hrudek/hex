@@ -89,6 +89,17 @@ Their notices are reproduced below.
 
 ### iikb
 
+R2-10 adds evaluation-only independent interpretation of HXN1 layout/LSTM math
+from `KeyboardCore/Correction/Network.swift` and reads the training/provenance
+notices at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765` (MIT © 2026 Bassim
+Shahidy). The existing MIT notice below applies; it is not duplicated. No
+upstream weights or new corpus data are distributed. The original tiny MLP and
+Swift test forward do not use upstream code files. Locally evaluated weight and
+corpus provenance/licenses/open questions are recorded in
+`ios/tools/keyboard_neural/SOURCE` and `ios/KEYBOARD_NEURAL_EVALUATION.md`;
+R2-9's existing data notices are unchanged. NumPy is an optional external offline
+training dependency, not vendored or linked into Typr.
+
 R2-6 translates multi-part span caching and endpoint beam retention from
 `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift`
 (`missedSpaces`, `Run.keep`, lines 513–707, 717–765) at
