@@ -47,6 +47,14 @@ Their notices are reproduced below.
 
 ### iikb
 
+R2-6 translates multi-part span caching and endpoint beam retention from
+`Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift`
+(`missedSpaces`, `Run.keep`, lines 513–707, 717–765) at
+`09a2e9cdfbe851adff6c4646333c0a3f74ba8765`. Typr's bounded worker-only trie
+edit rows and observed-tap gates are original adaptations, not copied files.
+No new resources, weights, dependencies or automatic policy are included.
+The single MIT notice below (© 2026 Bassim Shahidy) applies; see PORTS.md.
+
 R2-5 also translates internal-boundary missing-apostrophe candidate recognition
 from `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift`
 at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765` into bounded, dictionary-backed,

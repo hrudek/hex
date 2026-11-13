@@ -377,6 +377,17 @@ learning, inferred touch labels, neural weights, swipe, emoji, themes, layouts,
 clipboard, network and dictation changes. This is a bounded algorithm translation,
 not an assertion of accuracy parity or a claim upstream had rejected-pair decay.
 
+## Multi-part boundary suggestions (iikb, R2-6)
+
+Source: AVGVSTVS96/iikb, pinned `09a2e9cdfbe851adff6c4646333c0a3f74ba8765`,
+**MIT, © 2026 Bassim Shahidy**. Read-only source inspection; not built or run.
+The existing iikb MIT notice in `THIRD_PARTY_NOTICES.md` covers this translation.
+No new data/weights/resources or licensing questions are introduced.
+
+| Source paths at pin | Translation and exclusions | Typr destination |
+| --- | --- | --- |
+| `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift`, `joined` / `missedSpaces` / `Run.keep` (lines 513–707, 717–765) | Cache each span's one-edit readings once; deterministic endpoint/part-count beams and comparison against whole-word readings. Original Typr bounded trie edit rows, actual relative tap gates, existing short-word supplement, 3–4-part worker-only fallback, no automatic authority. Deliberate restriction: ≥2 parts need positive observed substitution/swap support; insertion/deletion parts pay penalties without invented taps, structural-only/exact multi-part runs abstain. Excludes upstream neural/context predictor, numbers/units, arbitrary previous-text rewrites, multi-Space joint search, training/persistence and automatic application; existing one-Space paths unchanged. | `ios/TyprShared/FullKeyboard/KeyboardMultipartSegmenter.swift`, `KeyboardBoundaryDecoder.swift`, `AutocorrectEngine.swift`; `ios/TyprTests/KeyboardBoundaryMultipartTests.swift`, `KeyboardBoundaryEvaluationTests.swift`, `KeyboardBoundaryTouchEvaluationTests.swift` |
+
 ## How to adopt changes
 
 1. Inspect the specific source revision in a separate checkout or on GitHub.

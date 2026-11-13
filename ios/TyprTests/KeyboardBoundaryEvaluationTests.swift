@@ -203,7 +203,16 @@ extension KeyboardBoundaryDecoderTests {
     /// evaluated on invalid lowercase literals only. Useful variants also split OOV
     /// product tokens; zero-false variants recover <10%, so no automatic gate is installed.
     func testEvaluationStrictAutomaticSplitGateIsUnsafeForOOVProducts() throws {
+        for imported in [false, true] { try evaluateAutomaticGate(imported: imported) }
+    }
+
+    private func evaluateAutomaticGate(imported: Bool) throws {
         let sources = try resources(), model = try contextModel()
+        // Same names/products that invalidated round one; imports are optional, never
+        // a premise that every valid OOV literal has been imported.
+        var builder = ProtectedPersonalLexicon.Builder()
+        builder.add("andi asa bea ina isa malin ami ora todo AtHome GoTo Itis WithYou GitHub YouTube iPhone ThinkPad OpenAI OneDrive WhatsApp FaceTime PowerPoint TypeScript WordPress getValue setValue isEmpty")
+        let protected = builder.build()
         struct Gate {
             let name: String
             let whole: Double
@@ -236,6 +245,7 @@ extension KeyboardBoundaryDecoderTests {
         for (languages, phrases) in modes {
             // Same merge-noise dictionary premise as the recall evaluation.
             let ac = engine(sources, languages: languages, rejected: Self.mergedLiterals(phrases), model: model)
+            if imported { ac.loadProtectedLexicon(protected) }
             for phrase in phrases {
                 let token = phrase.replacingOccurrences(of: " ", with: "").lowercased()
                 for (index, replacement) in proposed(ac, token).enumerated() {
@@ -262,6 +272,7 @@ extension KeyboardBoundaryDecoderTests {
         for (languages, _) in modes {
             let ac = engine(sources, languages: languages, model: model)
             let unlisted = engine(sources, languages: languages, rejected: Set(corpusNames), model: model)
+            if imported { ac.loadProtectedLexicon(protected); unlisted.loadProtectedLexicon(protected) }
             for name in corpusNames {
                 for (index, value) in proposed(unlisted, name).enumerated() where value != nil {
                     nameFalse[index] += 1; falseProducts[index].append(name)
@@ -273,6 +284,7 @@ extension KeyboardBoundaryDecoderTests {
             }
             let trusted = engine(sources, languages: languages,
                                  trusted: Set((Self.validControls + products).map { $0.lowercased() }), model: model)
+            if imported { trusted.loadProtectedLexicon(protected) }
             for token in Self.validControls + products {
                 for (index, value) in proposed(trusted, token).enumerated() where value != nil { validFalse[index] += 1 }
             }
@@ -296,13 +308,15 @@ extension KeyboardBoundaryDecoderTests {
             let falseAutos = wrong[index] + validFalse[index] + oovFalse[index] + productFalse[index] + nameFalse[index]
             // The installed policy depends on this: no evaluated variant has both zero false
             // automatic splits and meaningful (≥10%) omitted-space recall.
-            XCTAssertTrue(falseAutos > 0 || Double(correct[index]) < 0.10 * Double(phraseCount), gates[index].name)
+            if !imported {
+                XCTAssertTrue(falseAutos > 0 || Double(correct[index]) < 0.10 * Double(phraseCount), gates[index].name)
+            }
             let precision = correct[index] + falseAutos == 0 ? "NA"
                 : fmt(Double(correct[index]) / Double(correct[index] + falseAutos))
-            print("EVAL P5b_auto_gate_trial gate=\(gates[index].name) proposed_n=\(phraseCount) proposed_correct=\(correct[index]) proposed_wrong=\(wrong[index]) proposed_recall=\(fmt(Double(correct[index])/Double(phraseCount))) proposed_precision=\(precision) valid_false=\(validFalse[index]) oov_false=\(oovFalse[index]) product_oov_false=\(productFalse[index]) corpus_name_false=\(nameFalse[index]) false_tokens=\(falseProducts[index].isEmpty ? "none" : falseProducts[index].joined(separator: ",")) NOT-iPhone")
+            print("EVAL P5b_auto_gate_trial personal_lexicon=\(imported) gate=\(gates[index].name) proposed_n=\(phraseCount) proposed_correct=\(correct[index]) proposed_wrong=\(wrong[index]) proposed_recall=\(fmt(Double(correct[index])/Double(phraseCount))) proposed_precision=\(precision) valid_false=\(validFalse[index]) oov_false=\(oovFalse[index]) product_oov_false=\(productFalse[index]) corpus_name_false=\(nameFalse[index]) false_tokens=\(falseProducts[index].isEmpty ? "none" : falseProducts[index].joined(separator: ",")) NOT-iPhone")
         }
         XCTAssertEqual(actualFalse, 0)
-        print("EVAL P5b_auto_gate modes=3 variants=\(gates.count) valid_controls=\(3 * (Self.validControls.count + products.count)) oov_controls=\(3 * SpatialTypoEvaluationFixtures.absent.count) product_controls=\(3 * products.count) corpus_name_controls=\(3 * corpusNames.count) actual_false=\(actualFalse) actual_recall=0 actual_precision=NA_suggestion_only decision=rejected NOT-iPhone")
+        print("EVAL P5b_auto_gate personal_lexicon=\(imported) modes=3 variants=\(gates.count) valid_controls=\(3 * (Self.validControls.count + products.count)) oov_controls=\(3 * SpatialTypoEvaluationFixtures.absent.count) product_controls=\(3 * products.count) corpus_name_controls=\(3 * corpusNames.count) actual_false=\(actualFalse) actual_recall=0 actual_precision=NA_suggestion_only decision=rejected NOT-iPhone")
     }
 
     func testEvaluationBoundsAtMaximumPersonalCapacityAndAdversarialLengths() throws {

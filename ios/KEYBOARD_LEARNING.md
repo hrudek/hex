@@ -640,6 +640,26 @@ These are not natural typing benefit, Apple dictionary or extension memory proof
 Only a real iPhone can prove protected persistence/backup policy, Full Access
 callbacks, management refresh in a live keyboard, UIKit/host ordering and latency/RSS.
 
+## Multi-part boundary suggestions (R2-6)
+
+The bounded 3–4-part suggestion fallback reuses the current RAM-only observed
+word and frozen calibration in the existing worker. It requires two parts with
+positive observed letter likelihood and keeps all automatic split/join and Space
+reinterpretation disabled: optional imported names do not protect unlisted names.
+See [decoder bounds and gate curves](KEYBOARD_SPATIAL_DECODER.md#multi-part-boundary-suggestions-and-gate-remeasurement-r2-6).
+
+Privacy/storage copy is unchanged in scope: **the keyboard does not use the
+microphone, speech model or network**. This change collects no additional text,
+contacts, taps, transcripts or usage history; writes no new files or App Group
+fields; and adds no import source or permission. Existing app-written protected
+personal terms, Full Access gating, deletion and Reset learning retain their
+meaning. Temporary span/beam caches are per-call, not saved. Manual selection
+and undo neither train constituent words/pairs nor infer touch labels; the
+existing 64-pair RAM boundary rejection list remains separate from R2-3's durable
+automatic-correction undo/confirmation memory. No automatic boundary change is
+shipped, so no new automatic undo pair format or persistence migration is needed.
+The entire selected replacement is still one owned-suffix edit/undo transaction.
+
 ## Manual boundary choices
 
 The strip can offer exact omitted-space splits and conservative exact joins.

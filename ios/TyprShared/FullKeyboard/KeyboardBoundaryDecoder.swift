@@ -3,8 +3,8 @@ import Foundation
 /// Exact two-part run segmentation and whole-vs-split comparison translated from iikb's
 /// Correction/Corrector.swift and Typing/TypingEngine+Words.swift at
 /// 09a2e9cdfbe851adff6c4646333c0a3f74ba8765 (MIT, © 2026 Bassim Shahidy).
-/// One spatial boundary reinterpretation is allowed; no per-part decoding, multiword beam
-/// or automatic authority. Actual boundary points stay in bounded RAM snapshots.
+/// One spatial boundary reinterpretation is allowed. A separate bounded lexical
+/// multi-part fallback has no automatic authority or fabricated tap evidence.
 nonisolated enum KeyboardBoundaryDecoder {
     typealias Language = SpatialWordDecoder.Language
     static let maxLetters = 32
@@ -79,6 +79,12 @@ nonisolated enum KeyboardBoundaryDecoder {
         let lexicalQueries: Int
         var contextQueries = 0
         var languageEvidenceQueries = 0
+        var multipartVisits = 0
+        var multipartCells = 0
+        var multipartCachedReadings = 0
+        var multipartExhausted = false
+        /// Synchronous legacy fallback must not suppress a later worker search.
+        var includesMultipart = true
     }
 
     /// Hand-curated closed-class words (Typr original work, not third-party data).
@@ -93,6 +99,13 @@ nonisolated enum KeyboardBoundaryDecoder {
     ]
     private static let shortPrior = log(0.01)
 
+    static func shortWords(languages: Set<Language>) -> [String] {
+        var words: Set<String> = []
+        if languages.contains(.german) { words.formUnion(germanShort) }
+        if languages.contains(.english) { words.formUnion(englishShort) }
+        return words.sorted()
+    }
+
     static var shortWordPayloadBytes: Int {
         (germanShort.count + englishShort.count) * MemoryLayout<String>.stride
             + germanShort.reduce(0) { $0 + $1.utf8.count } + englishShort.reduce(0) { $0 + $1.utf8.count }
@@ -100,9 +113,9 @@ nonisolated enum KeyboardBoundaryDecoder {
 
     static var maximumCandidatePayloadBytes: Int {
         // Original join suffix keeps RAW Unicode: two ≤64-byte inputs plus a space.
-        // Replacement is NFC (≤32 two-byte letters plus space). Do not assume the raw
+        // Replacement is NFC (≤36 two-byte letters plus three spaces). Do not assume the raw
         // original was NFC. Excludes allocator/container overhead, not RSS.
-        (resultLimit + 1) * (MemoryLayout<Candidate>.stride + 129 + 65)
+        (resultLimit + 1) * (MemoryLayout<Candidate>.stride + 129 + 75)
     }
 
     static func isEligible(_ token: String) -> Bool {
@@ -116,12 +129,18 @@ nonisolated enum KeyboardBoundaryDecoder {
 
     static func retrieve(_ job: Job, lexicons: [Language: SpatialWordLexicon],
                          whole: SpatialWordDecoder.Outcome? = nil,
-                         model: KeyboardContextModel? = nil) -> Retrieval {
+                         model: KeyboardContextModel? = nil, includeMultipart: Bool = true) -> Retrieval {
         var queries = 0, contextQueries = 0, languageEvidenceQueries = 0
         var found: [Candidate] = []
+        var multipart: KeyboardMultipartSegmenter.Result?
+        var needsMultipart = false
         func result() -> Retrieval {
             Retrieval(job: job, candidates: found, lexicalQueries: queries, contextQueries: contextQueries,
-                      languageEvidenceQueries: languageEvidenceQueries)
+                      languageEvidenceQueries: languageEvidenceQueries,
+                      multipartVisits: multipart?.visits ?? 0, multipartCells: multipart?.cells ?? 0,
+                      multipartCachedReadings: multipart?.cachedReadings ?? 0,
+                      multipartExhausted: multipart?.exhausted ?? false,
+                      includesMultipart: includeMultipart || !needsMultipart || !found.isEmpty)
         }
         func retain(_ candidate: Candidate) {
             found.append(candidate)
@@ -178,6 +197,7 @@ nonisolated enum KeyboardBoundaryDecoder {
         let token = PersonalLexiconSnapshot.normalize(job.token)
         let wholePrior = prior(token)
         let protected = job.kept.contains(token) || (job.personal.counts[token] ?? 0) > 0
+        needsMultipart = !protected && wholePrior == nil && token.count >= 6 && job.touch?.isUsable == true
         if !protected, token.count >= 3 {
             // Corpus membership is not spelling validity (the packs contain e.g. "inthe").
             // A known whole must lose on score too; MainActor separately vetoes every literal
@@ -332,6 +352,28 @@ nonisolated enum KeyboardBoundaryDecoder {
                                                replacement: first + token, score: score, baseline: apart))
                     }
                 }
+            }
+        }
+        // Preserve the established exact/spatial ranking. Only unknown wholes with
+        // no retained boundary alternative enter the more permissive lexical beam.
+        // MainActor still applies dictionary/contact/personal/rejection protection.
+        if includeMultipart, found.isEmpty, !protected, wholePrior == nil, token.count >= 6,
+           let touch = job.touch, touch.isUsable, touch.current.text == job.token {
+            let packs: [SpatialWordLexicon] = sources.compactMap { lexicons[$0] }
+            let short = shortWords(languages: job.languages)
+            let segmented = KeyboardMultipartSegmenter.retrieve(token, sources: packs, shortWords: short,
+                                                                 touch: touch.current, calibration: job.calibration)
+            multipart = segmented
+            var baseline = KeyboardMultipartSegmenter.noveltyBaseline
+            if case .result(let reading) = whole {
+                for candidate in reading.candidates.prefix(8) where !candidate.isCompletion {
+                    baseline = max(baseline, candidate.score - reading.literalSpatialScore)
+                }
+            }
+            for run in segmented.runs where run.score > baseline {
+                retain(Candidate(kind: .split, original: job.token,
+                                 replacement: run.words.joined(separator: " "),
+                                 score: run.score, baseline: baseline))
             }
         }
         return result()

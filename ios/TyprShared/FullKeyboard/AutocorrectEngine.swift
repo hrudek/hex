@@ -270,7 +270,7 @@ final class AutocorrectEngine {
             request.completionReady = held
             request.boundary = boundaryJob(beforeInput: ownership.context)
             request.boundaryModel = contextResources.model
-            request.boundaryReady = request.boundary.flatMap { heldBoundary($0, evidence: rawEvidence) }
+            request.boundaryReady = heldWorkerBoundary(request.boundary, evidence: rawEvidence)
             return request
         }
         var request = KeyboardSuggestionWorker.Request(
@@ -282,11 +282,17 @@ final class AutocorrectEngine {
         request.completionReady = held
         request.boundary = boundaryJob(beforeInput: ownership.context)
         request.boundaryModel = contextResources.model
-        request.boundaryReady = request.boundary.flatMap { heldBoundary($0, evidence: rawEvidence) }
+        request.boundaryReady = heldWorkerBoundary(request.boundary, evidence: rawEvidence)
         return request
     }
 
     /// Checker-free snapshot of the current token and one adjacent prose token.
+    private func heldWorkerBoundary(_ job: KeyboardBoundaryDecoder.Job?,
+                                    evidence: KeyboardTouchWord?) -> KeyboardBoundaryDecoder.Retrieval? {
+        guard let job, let held = heldBoundary(job, evidence: evidence), held.includesMultipart else { return nil }
+        return held
+    }
+
     private func boundaryJob(beforeInput: String?) -> KeyboardBoundaryDecoder.Job? {
         guard isEnabled, let beforeInput, let token = Self.currentToken(in: beforeInput),
               KeyboardBoundaryDecoder.isEligible(token) else { return nil }
@@ -772,7 +778,7 @@ final class AutocorrectEngine {
                 ?? KeyboardBoundaryDecoder.retrieve(job, lexicons: spatialDecoder?.resourceSnapshot ?? [:],
                                                      whole: spatialOutcome(for: token, evidence: evidence,
                                                                            forSuggestions: true),
-                                                     model: contextResources.model)
+                                                     model: contextResources.model, includeMultipart: false)
             if spatialDecoder?.isResourceLoading != true {
                 boundaryCache = BoundaryCache(retrieval: retrieval, evidence: evidence,
                                               generation: learning.generation,

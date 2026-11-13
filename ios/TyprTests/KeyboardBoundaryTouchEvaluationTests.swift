@@ -38,6 +38,9 @@ extension KeyboardBoundaryTouchTests {
             for (kind, cases) in kinds {
                 var count = 0, recall1 = 0, recall3 = 0, chipRecall = 0, baseline3 = 0, automatic = 0
                 var maximumQueries = 0, maximumBytes = 0
+                let thresholds: [Double] = [0, log(100), log(1_000), log(10_000)]
+                var gateTrue = Array(repeating: 0, count: thresholds.count)
+                var gateWrong = gateTrue
                 var times: [Double] = []
                 for fixture in cases {
                     for jitter in noise {
@@ -64,6 +67,12 @@ extension KeyboardBoundaryTouchTests {
                                                          autocorrectionType: .default)
                         if suggestions.contains(where: { $0.replacement.lowercased() == fixture.expected }) { chipRecall += 1 }
                         automatic += suggestions.filter { $0.boundary != nil && $0.willAutoReplace }.count
+                        if let candidate = suggestions.compactMap(\.boundary).first {
+                            for index in thresholds.indices where candidate.score - candidate.baseline >= thresholds[index] {
+                                if candidate.replacement == fixture.expected { gateTrue[index] += 1 }
+                                else { gateWrong[index] += 1 }
+                            }
+                        }
                         maximumQueries = max(maximumQueries, result.lexicalQueries)
                         maximumBytes = max(maximumBytes, touch.payloadBytes)
                         XCTAssertEqual(result.candidates, Boundary.retrieve(request, lexicons: sources).candidates)
@@ -77,6 +86,9 @@ extension KeyboardBoundaryTouchTests {
                 let p50 = times[times.count / 2], p95 = times[min(times.count - 1, times.count * 95 / 100)]
                 let ratio1 = Double(recall1) / Double(count), ratio3 = Double(recall3) / Double(count)
                 print("EVAL P6_quality language=\(language) kind=\(kind) n=\(count) recall1=\(ratio1) recall3=\(ratio3) chip_recall3=\(Double(chipRecall) / Double(count)) baseline_recall3=\(Double(baseline3) / Double(count)) boundary_autos=\(automatic) p50_ms=\(p50) p95_ms=\(p95) max_ms=\(times.last!) lexical_queries_max=\(maximumQueries) touch_bytes_max=\(maximumBytes)")
+                for index in thresholds.indices {
+                    print("EVAL R2_6_boundary_gate language=\(language) kind=\(kind) log_threshold=\(thresholds[index]) n=\(count) true=\(gateTrue[index]) wrong=\(gateWrong[index]) policy=trial_only")
+                }
                 XCTAssertGreaterThanOrEqual(recall3, baseline3)
                 let minimum = kind == "letter_space" ? count / 2 : count
                 XCTAssertGreaterThanOrEqual(recall1, minimum, "\(language)/\(kind) rank-one regression")
@@ -97,10 +109,18 @@ extension KeyboardBoundaryTouchTests {
             ("mixed", [.german, .english], ["bitte wait", "great Tag", "mit you", "mein code", "der build", "we gehen",
                                             "Anna day", "Haus work", "im office", "das meeting", "a Haus", "in Berlin"])
         ]
+        for imported in [false, true] {
         for (language, languages, controls) in groups {
             let trusted = Set(controls.flatMap { $0.lowercased().split(separator: " ").map(String.init) })
             let ac = helper.engine(sources, languages: languages, trusted: trusted)
+            if imported {
+                var builder = ProtectedPersonalLexicon.Builder()
+                builder.add("Ann May Anna Mai Berlin")
+                ac.loadProtectedLexicon(builder.build())
+            }
             var falseChips = 0, autos = 0, calls = 0
+            let thresholds: [Double] = [0, log(100), log(1_000), log(10_000)]
+            var gateFalse = Array(repeating: 0, count: thresholds.count)
             for text in controls {
                 // Normal Space centre plus top-edge adversarial points, with both words valid.
                 // A geometry-only chip may be ambiguous; autos must remain zero regardless.
@@ -113,6 +133,11 @@ extension KeyboardBoundaryTouchTests {
                     install(touch, in: ac)
                     let chips = ac.suggestions(beforeInput: text, field: .text, autocorrectionType: .default)
                     falseChips += chips.filter { $0.boundary != nil }.count
+                    if let candidate = chips.compactMap(\.boundary).first {
+                        for index in thresholds.indices where candidate.score - candidate.baseline >= thresholds[index] {
+                            gateFalse[index] += 1
+                        }
+                    }
                     autos += chips.filter { $0.boundary != nil && $0.willAutoReplace }.count
                     XCTAssertNil(ac.replacementOnSpace(beforeInput: text, field: .text, autocorrectionType: .default), text)
                     calls += 1
@@ -121,9 +146,13 @@ extension KeyboardBoundaryTouchTests {
             // The deliberately ambiguous valid "a out" can offer "about" at the top edge;
             // this is exactly why there is no automatic boundary policy. State the bound.
             let chipBound = language == "EN" ? 1 : 0
-            print("EVAL P6_controls language=\(language) n=\(calls) false_boundary_chips=\(falseChips) false_boundary_chip_bound=\(chipBound) false_automatic_changes=\(autos) automatic_policy=suggestion_only")
+            print("EVAL P6_controls personal_lexicon=\(imported) language=\(language) n=\(calls) false_boundary_chips=\(falseChips) false_boundary_chip_bound=\(chipBound) false_automatic_changes=\(autos) automatic_policy=suggestion_only")
+            for index in thresholds.indices {
+                print("EVAL R2_6_boundary_controls personal_lexicon=\(imported) language=\(language) log_threshold=\(thresholds[index]) n=\(calls) false=\(gateFalse[index])")
+            }
             XCTAssertLessThanOrEqual(falseChips, chipBound)
             XCTAssertEqual(autos, 0)
+        }
         }
         print("EVAL P6_bounds combined_taps=\(KeyboardBoundaryTouch.maxSamples) touch_payload_cap=\(KeyboardBoundaryTouch.maximumPayloadBytes) candidates=\(Boundary.resultLimit) lexical_queries=\(Boundary.maximumLexicalQueries) trie_edge_checks=\(Boundary.maximumTrieEdgeChecks) candidate_payload=\(Boundary.maximumCandidatePayloadBytes) queued_jobs=1 running_jobs=1 inferred_boundary_training=0")
     }
