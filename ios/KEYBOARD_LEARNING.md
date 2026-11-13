@@ -7,6 +7,15 @@ history, raw tap archive or accuracy measurement. It now includes a small person
 next-word model: sensitive aggregate counts of which word followed which.
 The keyboard never accesses the microphone, speech model or network.
 
+R2-5 [orthography suggestions](KEYBOARD_SPATIAL_DECODER.md#germanenglish-orthography-r2-5)
+reuse the bounded RAM-only sentence posterior and local system dictionaries.
+They add no recording, Contacts/history/log reads, stored words, posterior
+history or persistent bytes. Existing imported-name protection, keeps and
+contextual undo/rejection memory veto the new candidates too; their existing
+deletion/reset and Full Access rules are unchanged. Choosing a chip follows
+ordinary explicit acceptance accounting; inserting an apostrophe or changing
+case invents no tap labels. Automatic noun capitalization is not enabled.
+
 The separate [offline corpus context layer](KEYBOARD_SPATIAL_DECODER.md#offline-corpus-context-suggestions)
 uses bundled public DE/EN statistics for after-space predictions and display-only
 reranking. It reads at most a 256-character/2,048-byte field suffix in RAM,

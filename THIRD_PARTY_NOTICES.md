@@ -47,6 +47,13 @@ Their notices are reproduced below.
 
 ### iikb
 
+R2-5 also translates internal-boundary missing-apostrophe candidate recognition
+from `Packages/KeyboardModules/Sources/KeyboardCore/Correction/Corrector.swift`
+at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765` into bounded, dictionary-backed,
+manual-only Typr suggestions. No lexicon, network, weights or builder output is
+adopted. The existing MIT notice below (Copyright (c) 2026 Bassim Shahidy),
+checked against this pin's LICENSE, applies without duplication; see PORTS.md.
+
 Undo/literal confirmation and acceptance memory additionally translate
 `Packages/KeyboardModules/Sources/KeyboardCore/Correction/TypingMemory.swift:16–114`
 and adjacent `Typing/TypingEngine+Words.swift` revert feedback at

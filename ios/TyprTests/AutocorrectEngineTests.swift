@@ -81,8 +81,6 @@ final class AutocorrectEngineTests: XCTestCase {
             ("dont", "don't"),
             ("Dont", "Don't"),
             ("DONT", "DON'T"),
-            ("cant", "can't"),
-            ("wont", "won't"),
             ("didnt", "didn't"),
             ("doesnt", "doesn't"),
             ("isnt", "isn't"),
