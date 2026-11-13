@@ -67,9 +67,16 @@ jobs:
         run: python3 -m unittest discover -s ios/tools/dictation_log/tests -v
       - name: Shell syntax
         run: for script in .github/typr/*.sh; do bash -n "$script"; done
+      - name: ShellCheck
+        run: shellcheck -x -P .github/typr .github/typr/*.sh
       - name: Lint Typr workflows
         # SC2016/SC2129: Markdown backticks in single quotes and one-line-per-fact outputs are intended.
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color -ignore SC2016 -ignore SC2129 .github/workflows/typr-*.yml
+      - name: Whitespace
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: git diff --check "$BASE" HEAD
       - name: Scope (what this change may touch)
         if: github.event_name == 'pull_request'
         env:
