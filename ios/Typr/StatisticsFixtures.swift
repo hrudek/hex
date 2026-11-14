@@ -4,6 +4,8 @@ import Foundation
 enum StatisticsFixture: String {
     case empty, sparse, populated, unavailable
 
+    static let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+
     static func launchFixture(arguments: [String]) -> Self? {
         guard let index = arguments.firstIndex(of: "--snap-state"), index + 1 < arguments.count else { return nil }
         let prefix = "settings-statistics-"
@@ -15,8 +17,33 @@ enum StatisticsFixture: String {
     @MainActor
     func snapshots() -> (UsageStatisticsSnapshot?, KeyboardLearningSnapshot?) {
         guard self != .unavailable else { return (nil, nil) }
-        let date = Date(timeIntervalSince1970: 1_800_000_000)
-        var usage = UsageStatisticsSnapshot(now: date, timeZone: TimeZone(secondsFromGMT: 0)!)
+        let date = Self.referenceDate
+        let zone = TimeZone(secondsFromGMT: 0)!
+        let start = Calendar(identifier: .gregorian).date(byAdding: .day, value: -89, to: date)!
+        var usage = UsageStatisticsSnapshot(now: self == .populated ? start : date, timeZone: zone)
+        if self == .populated {
+            for offset in 0..<90 where offset % 6 != 4 {
+                let day = usage.calendar.date(byAdding: .day, value: -offset, to: date)!
+                var totals = UsageTotals()
+                totals.directGraphemes = UInt64(400 + offset * 20)
+                totals.timedGraphemes = totals.directGraphemes - 10
+                totals.completedWords = UInt64(70 + offset * 3)
+                totals.typingSeconds = Double(120 + offset * 4)
+                totals.deletions = UInt64(5 + offset)
+                if offset % 3 != 1 {
+                    totals.dictations = UInt64(1 + offset % 4)
+                    totals.dictatedWords = UInt64(150 + offset * 5)
+                    totals.recordingSeconds = Double(65 + offset * 2)
+                }
+                usage.add(totals, day: usage.dayID(day))
+            }
+        } else if self == .sparse {
+            var totals = UsageTotals()
+            totals.directGraphemes = 10; totals.timedGraphemes = 8
+            totals.completedWords = 2; totals.typingSeconds = 3
+            totals.dictations = 1; totals.dictatedWords = 6; totals.recordingSeconds = 4
+            usage.add(totals, day: usage.dayID(date))
+        }
         var state = PersonalTypingModel.State()
         if self != .empty {
             let layout = KeyboardLayout(width: 392)

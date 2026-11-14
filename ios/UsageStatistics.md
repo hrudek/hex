@@ -2,8 +2,8 @@
 
 The data layer collects new, text-free measurements. It does not reconstruct history
 from the learning model, diagnostics or transcript archive. Statistics is reachable
-from the main page and currently contains Taps only; Overview, Typing and Dictation
-will be added separately. Learning and technical-counter resets do not reset usage data.
+from the main page with four complete sections: Overview, Typing, Dictation and Taps.
+Learning and technical-counter resets do not reset usage data.
 
 ## Populations
 
@@ -118,6 +118,48 @@ switch/reset/deferred model reload and usage reset. These are labels accepted by
 learning pipeline, not independent ground truth. Do not derive a trend by comparing
 them to the saved model or by hit-testing a key against its own assigned tap.
 
+## Overview, Typing and Dictation presentation
+
+`ActivityStatistics` builds 7/30/90 calendar-day windows including today using the
+snapshot's fixed Gregorian time zone, including DST. Days before the collection
+start day have nil totals; absent days within collection mean no recorded activity,
+not reconstructed measurements. Future and older days are ignored. A reset starts
+a new collection window. A backward clock before collection yields unavailable
+values, not invented earlier history.
+
+Overview shows today's typing completions and raw recognized dictation words
+separately, with their separate active/capture times. It does not add the different
+word populations or invent a combined WPM. Each section has range totals, overall
+speed, recorded time, active days and words per active day; Dictation also shows
+successful captures. An active typing day has direct input, deletion, suggestion,
+completion or active time; an active dictation day has a successful capture even
+when punctuation-only recognition yields zero words. Average words divide by that
+population's active-day count, never by all days or the other population's days.
+
+Words history uses grouped bars for separate populations, never stacked standard
+words and recognition words. Speed history uses independent daily points only
+when that day has 60 corresponding seconds. No interpolation or synthetic trend
+bridges absent points. The range headline can have a valid speed when several
+subthreshold days sum to 60 seconds. All speeds use the `UsageTotals` summed
+numerator/denominator, not daily WPM averages. Word counts remain visible even
+without sufficient speed time. No activity is a neutral dash for speed, not 0 WPM;
+a measured zero numerator with 60 seconds is legitimately zero.
+
+The section selector scrolls for large text; cards use adaptive figure columns.
+Charts include population legends, distinct speed symbols and an expandable exact
+daily-values alternative for VoiceOver and non-color interpretation. Period and
+Words/Speed choices survive section changes. `StatisticsModel` refreshes both
+stores on activation and notifications; read failures discard stale usage and show
+unavailable across all activity sections. A minute timeline advances calendar
+windows for an open screen; fixtures use a fixed reference clock. Shared confirmed
+Reset statistics clears all usage/heat periods but preserves saved aim, learning
+and technical counters. Learning reset remains separate in Keyboard settings.
+
+The existing in-memory empty/sparse/populated/unavailable launch fixtures now cover
+activity too. Populated contains 90 synthetic daily aggregates, gaps, independent
+populations and matching times; sparse has recorded words below the speed threshold.
+They never seed shared files. No new route or global navigation bar was introduced.
+
 ## Taps presentation
 
 `StatisticsView` has Heat / Aim / Accuracy, layout selection, letter selection,
@@ -176,10 +218,14 @@ or preferences. Ordinary `settings-statistics` reads the real stores.
 Simulator test sources: `UsageStatisticsTests`, `UsageStatisticsStoreTests`,
 `UsageStatisticsEngineTests`, plus usage integration cases in
 `DictationLogControllerTests`, and presentation/math/fixture cases in
-`TapStatisticsTests` and `SettingsPresentationTests`. Targeted macOS execution:
+`TapStatisticsTests`, `ActivityStatisticsTests` and `SettingsPresentationTests`.
+The 14 activity test methods cover calendar windows/DST, separate populations,
+summed speed, thresholds, active days, fixtures, resets, refresh/corruption and
+hosting all sections and history choices. They are written, not executed on Linux.
+Targeted macOS execution:
 
 ```sh
-bash .github/typr/agent-test.sh TyprTests/UsageStatisticsTests,TyprTests/UsageStatisticsStoreTests,TyprTests/UsageStatisticsEngineTests,TyprTests/DictationLogControllerTests,TyprTests/TapStatisticsTests,TyprTests/SettingsPresentationTests
+bash .github/typr/agent-test.sh TyprTests/UsageStatisticsTests,TyprTests/UsageStatisticsStoreTests,TyprTests/UsageStatisticsEngineTests,TyprTests/DictationLogControllerTests,TyprTests/TapStatisticsTests,TyprTests/ActivityStatisticsTests,TyprTests/SettingsPresentationTests
 ```
 
 Linux checks and a tree-sitter syntax pass do not compile Swift or execute these

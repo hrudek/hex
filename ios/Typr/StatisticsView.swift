@@ -4,9 +4,13 @@ struct StatisticsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: StatisticsModel
 
-    init(fixture: StatisticsFixture? = nil) {
+    init(fixture: StatisticsFixture? = nil, section: StatisticsSection = .overview) {
         _model = State(initialValue: StatisticsModel(fixture: fixture))
+        _section = State(initialValue: section)
     }
+    @State private var section: StatisticsSection
+    @State private var range: StatisticsRange = .week
+    @State private var metric: ActivityMetric = .words
     @State private var layoutID: String?
     @State private var mode: TapDisplayMode = .heat
     @State private var selected: String?
@@ -19,7 +23,8 @@ struct StatisticsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Taps").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                sectionPicker
+                Text(section.rawValue).font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
                 if let problem = model.problem {
                     card {
                         Label("Statistics unavailable", systemImage: "exclamationmark.triangle")
@@ -27,82 +32,89 @@ struct StatisticsView: View {
                         Button("Try again") { model.refresh() }.frame(minHeight: 44)
                     }
                 }
-                if model.learning == nil {
-                    Text("Saved touch model unavailable.").font(.subheadline).foregroundStyle(TyprTheme.textMuted)
-                }
-                if let signature {
-                    let taps = model.taps(for: signature)
-                    summary(taps)
-                    card {
-                        Picker("Keyboard layout", selection: Binding(get: { signature.id }, set: { layoutID = $0; selected = nil })) {
-                            ForEach(model.signatures, id: \.id) { item in
-                                Text(item.statisticsTitle).tag(item.id)
+                if section == .taps {
+                    if model.learning == nil {
+                        Text("Saved touch model unavailable.").font(.subheadline).foregroundStyle(TyprTheme.textMuted)
+                    }
+                    if let signature {
+                        let taps = model.taps(for: signature)
+                        summary(taps)
+                        card {
+                            Picker("Keyboard layout", selection: Binding(get: { signature.id }, set: { layoutID = $0; selected = nil })) {
+                                ForEach(model.signatures, id: \.id) { item in
+                                    Text(item.statisticsTitle).tag(item.id)
+                                }
                             }
+                            .pickerStyle(.menu)
+                            Picker("Display", selection: $mode) {
+                                ForEach(TapDisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            TapStatisticsBoard(taps: taps, mode: mode, selected: $selected)
+                            Text(legend).font(.caption).foregroundStyle(TyprTheme.textMuted)
+                            if mode == .heat {
+                                if model.usage == nil {
+                                    Text("Measured heat unavailable.").font(.subheadline)
+                                } else {
+                                    Text("\(taps.heatSamples) measured touches · relative density")
+                                        .font(.subheadline).monospacedDigit()
+                                    if taps.heatSamples == 0 { Text("No measured heat for this layout yet.").font(.subheadline) }
+                                }
+                            }
+                            Picker("Key details", selection: $selected) {
+                                Text("Choose a key").tag(String?.none)
+                                ForEach(taps.layout.keys.compactMap(\.character), id: \.self) { letter in
+                                    Text(letter.uppercased()).tag(Optional(letter))
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(minHeight: 44)
                         }
-                        .pickerStyle(.menu)
-                        Picker("Display", selection: $mode) {
-                            ForEach(TapDisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        if let selected { detail(selected, taps: taps) }
+                        card {
+                            Text("Keyboard halves").font(.headline)
+                            ViewThatFits(in: .horizontal) {
+                                HStack { half("Left", share: taps.half(left: true)); Spacer(); half("Right", share: taps.half(left: false)) }
+                                VStack(alignment: .leading, spacing: 12) { half("Left", share: taps.half(left: true)); half("Right", share: taps.half(left: false)) }
+                            }
+                            Text("Estimated on target · saved model").font(.caption).foregroundStyle(TyprTheme.textMuted)
                         }
-                        .pickerStyle(.segmented)
-                        TapStatisticsBoard(taps: taps, mode: mode, selected: $selected)
-                        Text(legend).font(.caption).foregroundStyle(TyprTheme.textMuted)
-                        if mode == .heat {
-                            if model.usage == nil {
-                                Text("Measured heat unavailable.").font(.subheadline)
+                        card {
+                            Text("Common deviations").font(.headline)
+                            if taps.commonDeviations.isEmpty {
+                                Text("Not enough model evidence for neighboring keys.").font(.subheadline).foregroundStyle(TyprTheme.textMuted)
                             } else {
-                                Text("\(taps.heatSamples) measured touches · relative density")
-                                    .font(.subheadline).monospacedDigit()
-                                if taps.heatSamples == 0 { Text("No measured heat for this layout yet.").font(.subheadline) }
+                                ForEach(taps.commonDeviations, id: \.from) { item in
+                                    HStack { Text("\(item.from.uppercased()) → \(item.to.uppercased())"); Spacer(); Text(TapStatistics.percent(item.share)) }
+                                }
+                                Text("Largest estimated neighboring share per key, not counted mistakes.")
+                                    .font(.caption).foregroundStyle(TyprTheme.textMuted)
                             }
                         }
-                        Picker("Key details", selection: $selected) {
-                            Text("Choose a key").tag(String?.none)
-                            ForEach(taps.layout.keys.compactMap(\.character), id: \.self) { letter in
-                                Text(letter.uppercased()).tag(Optional(letter))
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(minHeight: 44)
-                    }
-                    if let selected { detail(selected, taps: taps) }
-                    card {
-                        Text("Keyboard halves").font(.headline)
-                        ViewThatFits(in: .horizontal) {
-                            HStack { half("Left", share: taps.half(left: true)); Spacer(); half("Right", share: taps.half(left: false)) }
-                            VStack(alignment: .leading, spacing: 12) { half("Left", share: taps.half(left: true)); half("Right", share: taps.half(left: false)) }
-                        }
-                        Text("Estimated on target · saved model").font(.caption).foregroundStyle(TyprTheme.textMuted)
-                    }
-                    card {
-                        Text("Common deviations").font(.headline)
-                        if taps.commonDeviations.isEmpty {
-                            Text("Not enough model evidence for neighboring keys.").font(.subheadline).foregroundStyle(TyprTheme.textMuted)
-                        } else {
-                            ForEach(taps.commonDeviations, id: \.from) { item in
-                                HStack { Text("\(item.from.uppercased()) → \(item.to.uppercased())"); Spacer(); Text(TapStatistics.percent(item.share)) }
-                            }
-                            Text("Largest estimated neighboring share per key, not counted mistakes.")
-                                .font(.caption).foregroundStyle(TyprTheme.textMuted)
+                    } else if model.problem == nil {
+                        card {
+                            Label("No tap data yet", systemImage: "keyboard")
+                                .font(.headline)
+                            Text("Use the Typr letter keyboard to collect heat. Enable learning in Keyboard settings to build a saved aim model.")
+                                .font(.subheadline).foregroundStyle(TyprTheme.textMuted)
                         }
                     }
-                } else if model.problem == nil {
                     card {
-                        Label("No tap data yet", systemImage: "keyboard")
-                            .font(.headline)
-                        Text("Use the Typr letter keyboard to collect heat. Enable learning in Keyboard settings to build a saved aim model.")
-                            .font(.subheadline).foregroundStyle(TyprTheme.textMuted)
+                        Text("About this data").font(.headline)
+                        Text("Heat is measured separately from the saved learning model. Model counts are capped effective samples, not lifetime taps.")
+                        Text("Recent learning points stay in keyboard memory and are not available in this app. No recent trend is calculated.")
+                        Text("Layouts use 8-pt width buckets at zero inset; geometry is reconstructed at the bucket midpoint. Aim projects the saved pitch-normalized model onto that layout; older samples do not record inset.")
+                        if let usage = model.usage {
+                            Text("Usage collection since \(usage.startedAt.formatted(date: .abbreviated, time: .omitted)) · \(usage.timeZone)")
+                        }
+                    }
+                    .font(.caption).foregroundStyle(TyprTheme.textMuted)
+                } else if let usage = model.usage {
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        ActivityStatisticsView(snapshot: usage, section: section,
+                                               now: model.presentationDate(at: context.date), range: $range, metric: $metric)
                     }
                 }
-                card {
-                    Text("About this data").font(.headline)
-                    Text("Heat is measured separately from the saved learning model. Model counts are capped effective samples, not lifetime taps.")
-                    Text("Recent learning points stay in keyboard memory and are not available in this app. No recent trend is calculated.")
-                    Text("Layouts use 8-pt width buckets at zero inset; geometry is reconstructed at the bucket midpoint. Aim projects the saved pitch-normalized model onto that layout; older samples do not record inset.")
-                    if let usage = model.usage {
-                        Text("Usage collection since \(usage.startedAt.formatted(date: .abbreviated, time: .omitted)) · \(usage.timeZone)")
-                    }
-                }
-                .font(.caption).foregroundStyle(TyprTheme.textMuted)
                 Button("Reset statistics", role: .destructive) { confirmingReset = true }
                     .frame(minHeight: 44)
                 if let problem = model.resetProblem { Text(problem).foregroundStyle(TyprTheme.danger) }
@@ -124,6 +136,24 @@ struct StatisticsView: View {
         .onAppear { model.refresh() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { model.refresh() } }
         .onChange(of: signature?.id) { _, _ in selected = nil }
+    }
+
+    private var sectionPicker: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(StatisticsSection.allCases, id: \.self) { item in
+                    Button { section = item } label: {
+                        Text(item.rawValue).font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12).frame(minHeight: 44)
+                            .background(section == item ? TyprTheme.layer02 : TyprTheme.bgBase, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(section == item ? [.isSelected] : [])
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .accessibilityLabel("Statistics sections")
     }
 
     private var legend: String {

@@ -44,6 +44,10 @@ final class StatisticsModel {
         let snapshot = KeyboardLearningStore.readSnapshot(directory: directory, defaults: defaults, physicalTouch: true)
         learning = snapshot.isPersistent && snapshot.modelAvailable ? snapshot : nil
     }
+    func presentationDate(at date: Date) -> Date {
+        fixture == nil ? date : StatisticsFixture.referenceDate
+    }
+
     var signatures: [KeyboardLayoutSignature] {
         let heat = usage?.heat.map { ($0.layout, $0.updatedAt) } ?? []
         let saved = learning?.model.layouts.map { ($0.signature, $0.lastUpdated) } ?? []
@@ -64,7 +68,7 @@ final class StatisticsModel {
         tapCache.removeAll()
         if fixture != nil {
             fixtureUsageReset = true
-            usage = UsageStatisticsSnapshot(now: Date(timeIntervalSince1970: 1_800_000_000), timeZone: TimeZone(secondsFromGMT: 0)!)
+            usage = UsageStatisticsSnapshot(now: StatisticsFixture.referenceDate, timeZone: TimeZone(secondsFromGMT: 0)!)
             problem = nil; resetProblem = nil
             return
         }

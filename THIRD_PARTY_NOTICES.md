@@ -92,6 +92,17 @@ Their notices are reproduced below.
 
 ### iikb
 
+The Overview / Typing / Dictation statistics additionally adapt the large speed /
+small figures / daily history card structure and Words–Speed / 7D–30D–90D choices
+from `App/Stats/{Overview,StatsSections}.swift` at
+[`cf50492d150278e9b1184b4158515170ce485481`](https://github.com/AVGVSTVS96/iikb/tree/cf50492d150278e9b1184b4158515170ce485481).
+License re-verified at that revision: **MIT, Copyright (c) 2026 Bassim Shahidy**;
+the full iikb notice below applies. Typr's `ActivityStatistics.swift` and
+`ActivityStatisticsView.swift` use its own text-free daily populations, fixed-zone
+calendar, separate completion/standard/recognized word measures, summed speeds and
+60-second thresholds. No combined speed, reconstructed history, device sync,
+per-app tracking, resources or additional dependencies are adopted.
+
 The Taps statistics presentation additionally adapts the summary / Heat–Aim–Accuracy /
 key-detail / keyboard-halves structure of `App/Stats/TapsPage.swift` and the
 Gaussian Cholesky lattice integration in
