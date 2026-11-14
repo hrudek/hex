@@ -575,7 +575,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(loaded.diagnostics[.keepChip], 1)
     }
 
-    func testDashboardReadsSessionSavesAndIndependentResetsReachLiveKeyboard() throws {
+    func testSettingsReadSessionSavesAndIndependentResetsReachLiveKeyboard() throws {
         let name = "KeyboardLearning-dashboard-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
@@ -589,7 +589,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         session.recordRejection(.outlier, count: 2)
         session.flush()
 
-        let dashboard = KeyboardDiagnosticsModel(directory: directory, defaults: defaults)
+        let dashboard = KeyboardLearningSettingsModel(directory: directory, defaults: defaults)
         XCTAssertEqual(dashboard.snapshot.model.keptWords, 1)
         XCTAssertEqual(dashboard.snapshot.diagnostics.acceptedBySource["keep"], 5)
         XCTAssertEqual(dashboard.snapshot.diagnostics.rejectedByReason["outlier"], 2)
@@ -598,7 +598,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertNotNil(dashboard.snapshot.learningFile.bytes)
         XCTAssertNotNil(dashboard.snapshot.diagnosticsFile.bytes)
 
-        dashboard.resetStatistics()
+        dashboard.resetTechnicalCounters()
         XCTAssertNil(dashboard.resetProblem)
         engine.autocorrect.syncLearning()
         XCTAssertEqual(session.diagnostics[.keepChip], 0)

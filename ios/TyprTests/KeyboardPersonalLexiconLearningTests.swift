@@ -95,7 +95,7 @@ final class KeyboardPersonalLexiconLearningTests: XCTestCase {
         try lexicon("Ina Typr").write(directory: directory)
         defaults.set(true, forKey: ProtectedPersonalLexicon.contactsKey)
         defaults.set(true, forKey: ProtectedPersonalLexicon.vocabularyKey)
-        let model = KeyboardDiagnosticsModel(directory: directory, defaults: defaults)
+        let model = KeyboardLearningSettingsModel(directory: directory, defaults: defaults)
         model.resetLearning()
         XCTAssertEqual(ProtectedPersonalLexicon.load(directory: directory), .empty)
         XCTAssertFalse(defaults.bool(forKey: ProtectedPersonalLexicon.contactsKey))

@@ -1673,11 +1673,6 @@ final class DictationController {
 
     // MARK: - Launch Fixtures for Simulator Verification (`--snap-state <name>`)
 
-    /// Pure recognition used by the launch path; does not initialize a controller or speech engine.
-    nonisolated static func isDiagnosticsLaunchFixture(_ scene: String) -> Bool {
-        KeyboardDiagnosticsFixture.scene(named: scene) != nil
-    }
-
     private static func applyLaunchFixtureIfPresent(to controller: DictationController) -> Bool {
         let args = ProcessInfo.processInfo.arguments
         guard let flagIndex = args.firstIndex(of: "--snap-state"),
@@ -1690,13 +1685,6 @@ final class DictationController {
         controller.transcriptionLanguage = "English"
         controller.keyboardBridge.setModelInstalled(true)
         controller.isModelReady = true
-
-        if Self.isDiagnosticsLaunchFixture(scene) {
-            controller.phase = .ready
-            controller.warmDuration = .off
-            controller.keyboardSessionEnabled = false
-            return true
-        }
 
         switch scene {
         case "setup":

@@ -13,7 +13,7 @@ final class SettingsPresentationTests: XCTestCase {
             )
         }
         XCTAssertEqual(Set(SettingsDestination.allCases.map(\.title)),
-                       ["Keyboard", "Autocorrect languages", "Typing diagnostics", "Word checks", "Speed", "Learning",
+                       ["Keyboard", "Autocorrect languages",
                         "Manage learned words", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
     }
 
@@ -33,9 +33,9 @@ final class SettingsPresentationTests: XCTestCase {
     @MainActor
     func testLearnedWordsSearchFiltersEveryCategoryAndBothSidesOfCorrections() {
         var state = KeyboardLearnedWordsView.fixtureState()
-        state.kept["München"] = KeyboardDiagnosticsFixture.now
-        state.kept["hello"] = KeyboardDiagnosticsFixture.now
-        state.counts["other"] = .init(count: 3, lastUpdated: KeyboardDiagnosticsFixture.now)
+        state.kept["München"] = KeyboardLearnedWordsView.fixtureDate
+        state.kept["hello"] = KeyboardLearnedWordsView.fixtureDate
+        state.counts["other"] = .init(count: 3, lastUpdated: KeyboardLearnedWordsView.fixtureDate)
         typealias Results = KeyboardLearnedWordsView.SearchResults
 
         let all = Results(state: state, query: "  \n ")
@@ -66,8 +66,8 @@ final class SettingsPresentationTests: XCTestCase {
     @MainActor
     func testLearnedWordsFilteredDeletionTargetsVisibleEntriesOnly() {
         var state = KeyboardLearnedWordsView.fixtureState()
-        state.kept["zebra"] = KeyboardDiagnosticsFixture.now
-        state.counts["zebra"] = .init(count: 1, lastUpdated: KeyboardDiagnosticsFixture.now)
+        state.kept["zebra"] = KeyboardLearnedWordsView.fixtureDate
+        state.counts["zebra"] = .init(count: 1, lastUpdated: KeyboardLearnedWordsView.fixtureDate)
         state.rejected.append(.init(typed: "adn", replacement: "and"))
         let visible = KeyboardLearnedWordsView.SearchResults(state: state, query: "t")
         XCTAssertEqual(visible.kept, ["swift", "typr"])
@@ -90,60 +90,22 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertEqual(AutocorrectLanguageSettingsCard.summary(german: false, english: false), "None")
     }
 
-    func testTypingDiagnosticsRouteAndTitle() {
-        XCTAssertEqual(SettingsDestination.snapshotDestination(arguments: ["Typr", "--snap-state", "settings-keyboard-diagnostics"]), .keyboardDiagnostics)
-        XCTAssertEqual(SettingsDestination.keyboardDiagnostics.title, "Typing diagnostics")
-        XCTAssertEqual(SettingsDestination.keyboardDiagnostics.subtitle, "")
-    }
-
-    func testDiagnosticsDestinationsHaveExplicitTitlesRawValuesAndRoundTrips() {
-        let routes: [(KeyboardDiagnosticsPage, SettingsDestination, String, String)] = [
-            (.overview, .keyboardDiagnostics, "keyboard-diagnostics", "Typing diagnostics"),
-            (.wordChecks, .keyboardDiagnosticsWordChecks, "keyboard-diagnostics-word-checks", "Word checks"),
-            (.speed, .keyboardDiagnosticsSpeed, "keyboard-diagnostics-speed", "Speed"),
-            (.learning, .keyboardDiagnosticsLearning, "keyboard-diagnostics-learning", "Learning")
-        ]
-        XCTAssertEqual(Set(routes.map { $0.0 }), Set(KeyboardDiagnosticsPage.allCases))
-        for (page, destination, raw, title) in routes {
-            XCTAssertEqual(SettingsDestination(page: page), destination)
-            XCTAssertEqual(destination.diagnosticsPage, page)
-            XCTAssertEqual(destination.rawValue, raw)
-            XCTAssertEqual(SettingsDestination(rawValue: raw), destination)
-            XCTAssertEqual(destination.title, title)
-            XCTAssertEqual(destination.subtitle, "")
-        }
-        for destination in SettingsDestination.allCases where !routes.contains(where: { $0.1 == destination }) {
-            XCTAssertNil(destination.diagnosticsPage)
-        }
-    }
-
-    func testAllDiagnosticsScenesUseActualControllerAndLearnedWordsFixtureRoutes() {
-        for scene in KeyboardDiagnosticsFixture.scenes {
-            let arguments = ["Typr", "--snap-state", scene.name]
-            XCTAssertEqual(SettingsDestination.snapshotDestination(arguments: arguments), .init(page: scene.page), scene.name)
-            XCTAssertTrue(DictationController.isDiagnosticsLaunchFixture(scene.name), scene.name)
-            XCTAssertTrue(ContentView.learnedWordsUsesFixture(arguments: arguments), scene.name)
-            for invalid in [scene.name + "-", scene.name + "x", scene.name.uppercased(), String(scene.name.dropLast())] {
-                XCTAssertFalse(DictationController.isDiagnosticsLaunchFixture(invalid), invalid)
-                XCTAssertFalse(ContentView.learnedWordsUsesFixture(arguments: ["--snap-state", invalid]), invalid)
-                XCTAssertNil(SettingsDestination.snapshotDestination(arguments: ["--snap-state", invalid]), invalid)
+    func testRemovedDiagnosticsRoutesDoNotNavigateOrUseLearnedWordsFixtures() {
+        for page in ["", "-word-checks", "-speed", "-learning"] {
+            for state in ["", "-empty", "-populated", "-learning-off", "-unreadable"] {
+                let scene = "settings-keyboard-diagnostics" + page + state
+                let arguments = ["Typr", "--snap-state", scene]
+                XCTAssertNil(SettingsDestination.snapshotDestination(arguments: arguments), scene)
+                XCTAssertFalse(ContentView.learnedWordsUsesFixture(arguments: arguments), scene)
             }
         }
-        for invalid in ["settings-keyboard-diagnostics-populated", "settings-keyboard-diagnostics-unknown",
-                        "settings-keyboard-diagnostics-empty-speed", "settings-keyboard-diagnostics-speed-empty-empty",
-                        "settings-keyboard-diagnostics-learning-off-learning"] {
-            XCTAssertFalse(DictationController.isDiagnosticsLaunchFixture(invalid))
-            XCTAssertFalse(ContentView.learnedWordsUsesFixture(arguments: ["--snap-state", invalid]))
-            XCTAssertNil(SettingsDestination.snapshotDestination(arguments: ["--snap-state", invalid]))
-        }
-        for arguments in [[], ["Typr"], ["--snap-state"], ["settings-keyboard-diagnostics"],
-                          ["--other", "settings-keyboard-diagnostics"], ["--snap-state", "ready"],
-                          ["--snap-state", "settings-keyboard"]] {
+        XCTAssertFalse(SettingsDestination.allCases.contains { $0.rawValue.contains("diagnostics") })
+        XCTAssertFalse(SettingsDestination.allCases.contains { $0.rawValue.contains("statistics") })
+        XCTAssertTrue(ContentView.learnedWordsUsesFixture(
+            arguments: ["Typr", "--snap-state", "settings-keyboard-learned-words"]))
+        for arguments in [[], ["Typr"], ["--snap-state"], ["settings-keyboard-learned-words"],
+                          ["--other", "settings-keyboard-learned-words"], ["--snap-state", "settings-keyboard"]] {
             XCTAssertFalse(ContentView.learnedWordsUsesFixture(arguments: arguments))
-        }
-        XCTAssertTrue(ContentView.learnedWordsUsesFixture(arguments: ["--snap-state", "settings-keyboard-learned-words"]))
-        for name in ["ready", "settings-keyboard", "settings-keyboard-learned-words", "settings-keyboard-typing"] {
-            XCTAssertFalse(DictationController.isDiagnosticsLaunchFixture(name))
         }
     }
 
@@ -188,6 +150,31 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertGreaterThan(accessible.height, regular.height)
         XCTAssertLessThanOrEqual(accessible.width, 320.5)
         XCTAssertLessThan(accessible.height, 10_000)
+    }
+
+    @MainActor
+    func testLearningResetControlsGrowAtCompactAccessibilitySizes() {
+        func size(_ type: DynamicTypeSize) -> CGSize {
+            let host = UIHostingController(rootView:
+                KeyboardLearningResetControls().dynamicTypeSize(type)
+            )
+            return host.sizeThatFits(in: CGSize(width: 280, height: 10_000))
+        }
+        let regular = size(.large)
+        let accessible = size(.accessibility3)
+        XCTAssertGreaterThanOrEqual(regular.height, 88)
+        XCTAssertGreaterThan(accessible.height, regular.height)
+        XCTAssertLessThanOrEqual(accessible.width, 280.5)
+        XCTAssertLessThan(accessible.height, 10_000)
+    }
+
+    @MainActor
+    func testLearningResetControlsReportUnavailableStorage() {
+        let model = KeyboardLearningSettingsModel(directory: nil, defaults: nil)
+        model.resetTechnicalCounters()
+        XCTAssertNotNil(model.resetProblem)
+        model.resetLearning()
+        XCTAssertNotNil(model.resetProblem)
     }
 
     @MainActor
