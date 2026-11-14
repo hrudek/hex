@@ -317,14 +317,15 @@ struct DiagnosticsTableRow: Identifiable {
 /// at accessibility sizes each row stacks and names the second column inline.
 struct DiagnosticsTable: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    let title: String
+    /// Heading above the table; nil when a disclosure or section heading already names it.
+    let title: String?
     let firstColumn: String
     let secondColumn: String
     let rows: [DiagnosticsTableRow]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            DiagnosticsSubheading(title)
+            if let title { DiagnosticsSubheading(title) }
             if !dynamicTypeSize.isAccessibilitySize {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(firstColumn)
@@ -368,12 +369,11 @@ struct DiagnosticsTable: View {
 /// Latency class table: seven rows in stored order, the class behind the half-of-measurements
 /// summary carries an extra spoken note.
 struct DiagnosticsLatencyTable: View {
-    let title: String
     let latency: KeyboardDiagnosticsPresentation.Latency
 
     var body: some View {
         DiagnosticsTable(
-            title: title, firstColumn: "Duration class", secondColumn: "Measurements",
+            title: nil, firstColumn: "Duration class", secondColumn: "Measurements",
             rows: latency.buckets.map { bucket in
                 let count = Presentation.integer(bucket.count)
                 let marked = bucket.id == latency.halfBucket?.id
@@ -402,5 +402,18 @@ struct DiagnosticsLatencySummary: View {
                 DiagnosticsNote("Based on \(Presentation.integer(latency.n)) measurements.")
             }
         }
+    }
+}
+
+/// Link row to a settings destination. The visible title is the accessibility label.
+struct DiagnosticsDestinationLink: View {
+    let title: String
+    let destination: SettingsDestination
+
+    var body: some View {
+        NavigationLink(value: destination) {
+            DiagnosticsLinkRow(title: title)
+        }
+        .buttonStyle(.plain)
     }
 }

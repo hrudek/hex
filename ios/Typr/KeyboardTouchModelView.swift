@@ -159,7 +159,7 @@ struct KeyboardTouchModelView: View {
 
     private var examplesTable: some View {
         DiagnosticsTable(
-            title: "Tap examples by key", firstColumn: "Letter", secondColumn: "Tap examples (counted up to 256)",
+            title: nil, firstColumn: "Letter", secondColumn: "Tap examples (counted up to 256)",
             rows: model.keys.map { key in
                 DiagnosticsTableRow(
                     id: key.id, first: key.id, second: KeyboardDiagnosticsPresentation.integer(key.n),
