@@ -8,6 +8,7 @@ nonisolated struct KeyboardLearningSnapshot: Sendable {
     let learningFile: FileInfo
     let diagnosticsFile: FileInfo
     let isPersistent: Bool
+    var modelAvailable = true
 
     nonisolated struct FileInfo: Sendable {
         let bytes: Int?
@@ -42,6 +43,7 @@ final class KeyboardLearningStore {
     private var loadedEpochs: Epochs
     private var ramModel: PersonalTypingModel.State?
     private var ramDiagnostics = KeyboardDiagnostics()
+    private var learningReadFailed = false
     private(set) var isPersistent: Bool
     /// A false save with this flag means reload/clear RAM, not a storage error.
     private(set) var resetObserved = false
@@ -70,6 +72,7 @@ final class KeyboardLearningStore {
 
     func load() -> (PersonalTypingModel.State?, KeyboardDiagnostics) {
         resetObserved = false
+        learningReadFailed = false
         guard directory != nil else {
             let epochs = currentEpochs
             if epochs.learning != loadedEpochs.learning { ramModel = nil }
@@ -85,6 +88,7 @@ final class KeyboardLearningStore {
                     limit: Self.maximumLearningBytes, epoch: loadedEpochs.learning, corrupt: &corrupt)
                 let validModel = model?.validated()
                 if model != nil && validModel == nil { corrupt += 1 }
+                learningReadFailed = corrupt > 0
                 var diagnostics: KeyboardDiagnostics = read(root.appendingPathComponent(Self.diagnosticsName),
                     limit: Self.maximumDiagnosticsBytes, epoch: loadedEpochs.diagnostics, corrupt: &corrupt) ?? KeyboardDiagnostics()
                 diagnostics.increment(.storeCorruptDiscarded, by: corrupt)
@@ -147,12 +151,13 @@ final class KeyboardLearningStore {
     }
 
     static func readSnapshot(directory: URL? = KeyboardLearningStore.sharedDirectory,
-                             defaults: UserDefaults? = UserDefaults(suiteName: KeyboardBridge.appGroup)) -> KeyboardLearningSnapshot {
+                             defaults: UserDefaults? = UserDefaults(suiteName: KeyboardBridge.appGroup),
+                             physicalTouch: Bool = false) -> KeyboardLearningSnapshot {
         let store = KeyboardLearningStore(directory: directory, defaults: defaults)
         let (model, diagnostics) = store.load()
-        return KeyboardLearningSnapshot(model: PersonalTypingModel.summarize(model ?? .init()), diagnostics: diagnostics,
+        return KeyboardLearningSnapshot(model: PersonalTypingModel.summarize(model ?? .init(), physicalTouch: physicalTouch), diagnostics: diagnostics,
             learningFile: store.fileInfo(Self.learningName), diagnosticsFile: store.fileInfo(Self.diagnosticsName),
-            isPersistent: store.isPersistent)
+            isPersistent: store.isPersistent, modelAvailable: !store.learningReadFailed)
     }
 
     /// Explicit app-only inspection; never included in dashboard summaries or exports.
@@ -301,14 +306,17 @@ final class KeyboardLearningStore {
     }
 }
 
+typealias KeyboardLearningObserver = StoreChangeObserver
+
 /// Snapshot refresh lifecycle adapted from AVGVSTVS96/iikb
 /// Packages/KeyboardModules/Sources/KeyboardStore/MemoryStore.swift (MIT).
 @MainActor
-final class KeyboardLearningObserver {
+final class StoreChangeObserver {
     private let registration: Registration
 
-    init(_ changed: @escaping @MainActor @Sendable () -> Void) {
-        registration = Registration(changed)
+    init(notificationName: String = KeyboardLearningStore.changedNotification,
+         _ changed: @escaping @MainActor @Sendable () -> Void) {
+        registration = Registration(notificationName: notificationName, changed)
     }
 
     func invalidate() { registration.invalidate() }
@@ -320,7 +328,7 @@ final class KeyboardLearningObserver {
         private let lock = NSLock()
         private var active = true
 
-        init(_ changed: @escaping @MainActor @Sendable () -> Void) {
+        init(notificationName: String, _ changed: @escaping @MainActor @Sendable () -> Void) {
             self.changed = changed
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                 Unmanaged.passUnretained(self).toOpaque(), { _, observer, _, _, _ in
@@ -330,7 +338,7 @@ final class KeyboardLearningObserver {
                         guard let registration, registration.isActive else { return }
                         registration.changed()
                     }
-                }, KeyboardLearningStore.changedNotification as CFString, nil, .deliverImmediately)
+                }, notificationName as CFString, nil, .deliverImmediately)
         }
 
         private var isActive: Bool { lock.lock(); defer { lock.unlock() }; return active }

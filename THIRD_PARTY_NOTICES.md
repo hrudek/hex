@@ -92,6 +92,29 @@ Their notices are reproduced below.
 
 ### iikb
 
+The Overview / Typing / Dictation statistics additionally adapt the large speed /
+small figures / daily history card structure and Words–Speed / 7D–30D–90D choices
+from `App/Stats/{Overview,StatsSections}.swift` at
+[`cf50492d150278e9b1184b4158515170ce485481`](https://github.com/AVGVSTVS96/iikb/tree/cf50492d150278e9b1184b4158515170ce485481).
+License re-verified at that revision: **MIT, Copyright (c) 2026 Bassim Shahidy**;
+the full iikb notice below applies. Typr's `ActivityStatistics.swift` and
+`ActivityStatisticsView.swift` use its own text-free daily populations, fixed-zone
+calendar, separate completion/standard/recognized word measures, summed speeds and
+60-second thresholds. No combined speed, reconstructed history, device sync,
+per-app tracking, resources or additional dependencies are adopted.
+
+The Taps statistics presentation additionally adapts the summary / Heat–Aim–Accuracy /
+key-detail / keyboard-halves structure of `App/Stats/TapsPage.swift` and the
+Gaussian Cholesky lattice integration in
+`Packages/KeyboardModules/Sources/KeyboardCore/Correction/Aim.swift` from
+[AVGVSTVS96/iikb at `cf50492d150278e9b1184b4158515170ce485481`](https://github.com/AVGVSTVS96/iikb/tree/cf50492d150278e9b1184b4158515170ce485481).
+License verified at that revision: **MIT, Copyright (c) 2026 Bassim Shahidy**;
+the full iikb MIT notice below applies. Typr uses its own shared keyboard geometry,
+physical saved-model summary and measured raster, includes off-board/modifier mass
+in the probability denominator, suppresses sparse estimates, and does not adopt
+upstream model memories, raw points, resources, sync or navigation. New/adapted
+files: `ios/Typr/{TapStatistics,TapStatisticsBoard,StatisticsView}.swift`.
+
 R2-10 adds evaluation-only independent interpretation of HXN1 layout/LSTM math
 from `KeyboardCore/Correction/Network.swift` and reads the training/provenance
 notices at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765` (MIT © 2026 Bassim
@@ -229,6 +252,15 @@ learned/neural model or resources. The existing iikb MIT notice above
 (Copyright (c) 2026 Bassim Shahidy), verified against the
 [pinned LICENSE](https://github.com/AVGVSTVS96/iikb/blob/08df5aa1e698d8587b6dcaef53f5e555ba1fac2a/LICENSE),
 also covers these adaptations; it is not duplicated here.
+
+The local usage-statistics store reuses Typr's existing Darwin snapshot-observer
+adaptation, now shared as `StoreChangeObserver`. Its upstream reference is
+`Packages/KeyboardModules/Sources/KeyboardStore/MemoryStore.swift` at
+[iikb `cf50492d150278e9b1184b4158515170ce485481`](https://github.com/AVGVSTVS96/iikb/blob/cf50492d150278e9b1184b4158515170ce485481/Packages/KeyboardModules/Sources/KeyboardStore/MemoryStore.swift).
+The **MIT, Copyright (c) 2026 Bassim Shahidy** license was verified against that
+revision's LICENSE; the full notice above covers this reuse. The new text-free tally,
+raster aggregates, reset generations and additive store are Typr implementations;
+no additional iikb code, resources or accuracy formula were copied for this change.
 
 Typr additionally translates bounded best-first prefix enumeration, physical
 held-letter mapping and personal (kept or repeatedly typed) word completions from

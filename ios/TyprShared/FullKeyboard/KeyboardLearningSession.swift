@@ -112,6 +112,8 @@ final class KeyboardLearningSession {
 
     /// Keyboard appearance and settings sync: switch value and app reset epochs.
     func refresh() {
+        let oldFeedbackEpoch = feedbackEpoch
+        defer { if feedbackEpoch != oldFeedbackEpoch { onLabelsInvalidated?() } }
         if isPersistent && !allowsPersistence() { stopPersistence() }
         let enabled = TyprSettings(defaults: defaults).personalLearning
         if model.isLearningEnabled != enabled {
@@ -245,9 +247,14 @@ final class KeyboardLearningSession {
         modelChanged()
     }
 
+    var onValidatedLabel: ((TouchLabel, KeyboardLayout) -> Void)?
+    var onLabelsInvalidated: (() -> Void)?
+
     func learn(_ labels: [TouchLabel], layout: KeyboardLayout, source: TouchLabelSource) {
         guard !labels.isEmpty else { return }
-        let outcome = model.learn(labels, layout: layout, source: source)
+        let outcome = model.learn(labels, layout: layout, source: source, accepted: { [weak self] label in
+            self?.onValidatedLabel?(label, layout)
+        })
         diagnostics.recordLabels(outcome, source: source)
         if outcome.accepted > 0 { modelChanged() } else { markChanged() }
     }

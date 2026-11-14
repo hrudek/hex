@@ -218,7 +218,11 @@ final class KeyboardViewController: UIInputViewController {
             let keyboard = FullKeyboardView(
                 model: viewModel,
                 target: DocumentProxyTextTarget { [unowned self] in self.textDocumentProxy },
-                autocorrect: AutocorrectEngine(learning: learning)
+                autocorrect: AutocorrectEngine(learning: learning),
+                statistics: UsageStatisticsSession(
+                    store: UsageStatisticsStore(directory: store == nil ? nil : KeyboardLearningStore.sharedDirectory),
+                    allowsPersistence: { [weak self] in self?.hasFullAccess == true }
+                )
             )
             keyboard.hostController = self
             keyboard.allowsHaptics = { [weak self] in self?.hasFullAccess ?? false }

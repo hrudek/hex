@@ -324,7 +324,8 @@ final class PersonalTypingModel {
     }
 
     @discardableResult
-    func learn(_ labels: [TouchLabel], layout: KeyboardLayout, source: TouchLabelSource) -> LearnOutcome {
+    func learn(_ labels: [TouchLabel], layout: KeyboardLayout, source: TouchLabelSource,
+               accepted: ((TouchLabel) -> Void)? = nil) -> LearnOutcome {
         guard isLearningEnabled else {
             return LearnOutcome(rejected: labels.isEmpty ? [:] : [.learningOff: labels.count])
         }
@@ -367,6 +368,7 @@ final class PersonalTypingModel {
                     stats.lastUpdated = now()
                     state.layouts[signature.id] = stats
                     outcome.accepted += 1
+                    accepted?(label)
                 }
             } else { rejection = .unknownKey }
             if let rejection { outcome.rejected[rejection, default: 0] += 1 }
@@ -503,11 +505,13 @@ final class PersonalTypingModel {
 
     var summary: Summary { Self.summarize(state) }
 
-    static func summarize(_ state: State) -> Summary {
+    /// Statistics use the bounded physical saved density, not the decoder's tempered likelihood.
+    static func summarize(_ state: State, physicalTouch: Bool = false) -> Summary {
         let layouts = state.layouts.values.sorted { $0.signature.id < $1.signature.id }.map { layout in
             LayoutSummary(signature: layout.signature, lastUpdated: layout.lastUpdated,
                 keys: layout.keys.sorted { $0.key < $1.key }.map { letter, stats in
-                    let key = tempered(slowKey(letter, in: layout))
+                    let slow = slowKey(letter, in: layout)
+                    let key = physicalTouch ? slow : tempered(slow)
                     return KeySummary(letter: letter, n: stats.n, offsetX: key.offsetX, offsetY: key.offsetY,
                                       sigmaX: key.sigmaX, sigmaY: key.sigmaY, covarianceXY: key.covarianceXY)
                 })

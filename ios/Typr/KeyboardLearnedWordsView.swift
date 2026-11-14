@@ -20,11 +20,13 @@ struct KeyboardLearnedWordsView: View {
         return args[index + 1] == "settings-keyboard-learned-words"
     }
 
+    nonisolated static let fixtureDate = Date(timeIntervalSince1970: 1_800_000_000)
+
     static func fixtureState() -> PersonalTypingModel.State {
         var state = PersonalTypingModel.State()
-        state.kept = ["typr": KeyboardDiagnosticsFixture.now, "swift": KeyboardDiagnosticsFixture.now]
+        state.kept = ["typr": fixtureDate, "swift": fixtureDate]
         state.rejected = [.init(typed: "teh", replacement: "the")]
-        state.counts = ["hello": .init(count: 12, lastUpdated: KeyboardDiagnosticsFixture.now)]
+        state.counts = ["hello": .init(count: 12, lastUpdated: fixtureDate)]
         for _ in 0..<3 { state.bigrams?.record("world", after: "hello") }
         return state
     }

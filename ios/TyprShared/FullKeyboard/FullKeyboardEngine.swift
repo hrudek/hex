@@ -138,6 +138,25 @@ final class FullKeyboardEngine {
 
     let target: KeyboardTextTarget
     let autocorrect: AutocorrectEngine
+    let statistics: UsageStatisticsSession?
+    // Bounded RAM-only ownership, discarded with the engine; never sent to the store.
+    private var statisticsContext: String?
+    private var statisticsSessionRevision: UInt64?
+    private func prepareStatisticsEdit() {
+        guard statistics != nil else { return }
+        let context = target.documentContextBeforeInput.flatMap(Self.boundedSuggestionContext)
+        if context == nil || context != statisticsContext || statisticsSessionRevision != statistics?.sessionRevision {
+            endStatisticsSession()
+            if let last = context?.last,
+               last.isLetter || last.isNumber || ["'", "’", "-"].contains(last) {
+                statistics?.ignoreOpenWord()
+            }
+        }
+    }
+    func endStatisticsSession() {
+        statisticsContext = nil
+        statistics?.endSession()
+    }
     var width: CGFloat = 375 { didSet { if width != oldValue { rebuildLayout() } } }
     var orientation: KeyboardOrientation = .portrait { didSet { if orientation != oldValue { rebuildLayout() } } }
     var showsGlobe = false { didSet { if showsGlobe != oldValue { rebuildLayout() } } }
@@ -161,7 +180,9 @@ final class FullKeyboardEngine {
     var onSelectionStep: (() -> Void)?
 
     init(target: KeyboardTextTarget, autocorrect: AutocorrectEngine? = nil,
-         suggestionWorker: KeyboardSuggestionWorker? = nil) {
+         suggestionWorker: KeyboardSuggestionWorker? = nil,
+         statistics: UsageStatisticsSession? = nil) {
+        self.statistics = statistics
         self.target = target
         self.autocorrect = autocorrect ?? AutocorrectEngine()
         self.suggestionWorker = suggestionWorker ?? KeyboardSuggestionWorker()
@@ -198,6 +219,8 @@ final class FullKeyboardEngine {
 
     /// Call when the keyboard appears or the field changes.
     func configureForField() {
+        statistics?.refreshGeneration()
+        endStatisticsSession()
         suggestionsAreActive = true
         autocorrect.contextResources.prepare { [weak self] in self?.refreshSuggestions() }
         switch KeyboardFieldRouting.route(for: target.keyboardType) {
@@ -220,6 +243,7 @@ final class FullKeyboardEngine {
 
     /// Call after the text or the cursor changed outside these keys.
     func textDidChange() {
+        endStatisticsSession()
         invalidateTouchEvidence()
         lastSpaceAt = nil
         autocorrect.clearPendingUndo()
@@ -379,6 +403,8 @@ final class FullKeyboardEngine {
         // Idempotent with the published chip: a prediction at a sentence start is capitalized.
         let replacement = token == nil && suggestion.boundary == nil
             ? casedPrediction(suggestion, before: before).replacement : suggestion.replacement
+        prepareStatisticsEdit()
+        statistics?.suggestion(replacement, boundaryOriginal: suggestion.boundary?.original)
         invalidateTouchEvidence(resetFastAim: false)
         if let original {
             for _ in 0..<original.count {
@@ -438,7 +464,7 @@ final class FullKeyboardEngine {
                 activeAccentMenu = nil
                 activeAccentTouchID = nil
             } else {
-                commitCharacter(touch)
+                commitCharacter(touch, recordsHeat: false)
             }
             touch.committed = true
             touches[other] = touch
@@ -516,6 +542,7 @@ final class FullKeyboardEngine {
                 discardTouchEvidence()
                 touch.isTrackpad = true
                 touch.trackpadAnchorX = point.x
+                endStatisticsSession()
                 lastSpaceAt = nil
                 autocorrect.clearPendingUndo()
                 touches[id] = touch
@@ -591,6 +618,8 @@ final class FullKeyboardEngine {
             autocorrect.clearPendingUndo()
             // Return never autocorrects or settles learning.
             autocorrect.discardFeedback()
+            prepareStatisticsEdit()
+            statistics?.direct("\n")
             insert("\n")
         case .layerSwitch:
             // Hold 123, slide to a key, let go: type it and go back.
@@ -645,24 +674,28 @@ final class FullKeyboardEngine {
     static let wordDeleteAfter: TimeInterval = 1.4
 
     func repeatDelete(heldFor: TimeInterval) {
+        prepareStatisticsEdit()
         autocorrect.clearPendingUndo()
         if heldFor >= Self.wordDeleteAfter {
             deleteWordBackward()
         } else if heldFor >= Self.fastRepeatAfter {
-            deleteBackward(allowAutocorrectUndo: false)
-            deleteBackward(allowAutocorrectUndo: false)
+            statistics?.deletion(removedGraphemes: 2)
+            deleteBackward(allowAutocorrectUndo: false, recordsStatistics: false)
+            deleteBackward(allowAutocorrectUndo: false, recordsStatistics: false)
         } else {
             deleteBackward(allowAutocorrectUndo: false)
         }
     }
 
-    func deleteBackward(allowAutocorrectUndo: Bool = true) {
+    func deleteBackward(allowAutocorrectUndo: Bool = true, recordsStatistics: Bool = true) {
+        prepareStatisticsEdit()
         autocorrect.syncLearning()
         let beforeDeletion = target.documentContextBeforeInput
         if allowAutocorrectUndo,
            let undo = autocorrect.consumePendingUndo(),
            let before = target.documentContextBeforeInput,
            before.hasSuffix(undo.insertedText) {
+            if recordsStatistics { statistics?.deletion(undo: true) }
             for _ in 0..<undo.insertedText.count {
                 target.deleteBackward()
             }
@@ -676,6 +709,7 @@ final class FullKeyboardEngine {
         }
         autocorrect.clearPendingUndo()
         autocorrect.discardFeedback()
+        if recordsStatistics { statistics?.deletion() }
         target.deleteBackward()
         autocorrect.touchInput.deletedBackward(before: beforeDeletion, after: target.documentContextBeforeInput)
         lastSpaceAt = nil
@@ -683,6 +717,7 @@ final class FullKeyboardEngine {
     }
 
     func deleteWordBackward() {
+        prepareStatisticsEdit()
         autocorrect.discardFeedback()
         autocorrect.touchInput.clear()
         autocorrect.clearPendingUndo()
@@ -690,6 +725,7 @@ final class FullKeyboardEngine {
             deleteBackward(allowAutocorrectUndo: false)
             return
         }
+        statistics?.deletion(wholeWord: true)
         var count = 0
         var index = before.endIndex
         while index > before.startIndex, before[before.index(before: index)].isWhitespace {
@@ -710,7 +746,7 @@ final class FullKeyboardEngine {
 
     // MARK: - Typing
 
-    private func commitCharacter(_ touch: ActiveTouch) {
+    private func commitCharacter(_ touch: ActiveTouch, recordsHeat: Bool = true) {
         let key = touch.key
         guard let character = key.character else { return }
         var attributed = key
@@ -729,6 +765,9 @@ final class FullKeyboardEngine {
         }
         let inserted = attributed.character ?? character
         let text = layerState.layer == .letters && shift.isUppercase ? inserted.uppercased() : inserted
+        if recordsHeat, attributed == key, touch.hasUnambiguousPoint, touch.evidenceLayout == layout {
+            statistics?.recordHeat(point: touch.point, layout: layout)
+        }
         if attributed != key { autocorrect.learning.increment(.reattributedTaps) }
         if layerState.layer == .letters {
             shift.didType()
@@ -744,7 +783,9 @@ final class FullKeyboardEngine {
 
     /// Sentence punctuation is a word boundary too, including hold-123/slide input.
     private func typeCharacter(_ text: String, sample: KeyboardTouchWord.Sample? = nil) {
+        prepareStatisticsEdit()
         guard [".", ",", "?", "!"].contains(text), field == .text else {
+            statistics?.direct(text)
             insert(text, sample: sample)
             return
         }
@@ -754,6 +795,7 @@ final class FullKeyboardEngine {
            let previous = before.dropLast().last, previous.isLetter || previous.isNumber {
             target.deleteBackward()
             // This word was already committed; do not reconsider an explicit choice.
+            statistics?.direct(text)
             insert(text)
             return
         }
@@ -762,6 +804,7 @@ final class FullKeyboardEngine {
             field: field,
             autocorrectionType: target.autocorrectionType
         ) {
+            statistics?.direct(text, boundaryReplacement: replacement)
             for _ in 0..<original.count { target.deleteBackward() }
             target.insertText(replacement + text)
             autocorrect.recordAppliedCorrection(original: original, insertedText: replacement + text)
@@ -772,6 +815,7 @@ final class FullKeyboardEngine {
             rebuildLayoutIfNeeded()
             didEdit()
         } else {
+            statistics?.direct(text)
             insert(text)
         }
     }
@@ -792,6 +836,7 @@ final class FullKeyboardEngine {
     }
 
     private func typeSpace(sample: KeyboardTouchWord.Sample? = nil) {
+        prepareStatisticsEdit()
         // Only an actual, unambiguous Space release can retain boundary geometry.
         // Typr/programmatic spaces deliberately call with nil.
         _ = autocorrect.touchInput.evidence(beforeInput: target.documentContextBeforeInput)
@@ -803,6 +848,7 @@ final class FullKeyboardEngine {
         autocorrect.discardFeedback(preservingTrustedContext: hasCurrentWord)
         let now = clock()
         if DoubleSpacePeriod.shouldReplace(before: target.documentContextBeforeInput, lastSpaceAt: lastSpaceAt, now: now) {
+            statistics?.direct(" ")
             autocorrect.touchInput.clear()
             autocorrect.clearPendingUndo()
             target.deleteBackward()
@@ -818,6 +864,7 @@ final class FullKeyboardEngine {
             field: field,
             autocorrectionType: target.autocorrectionType
         ) {
+            statistics?.direct(" ", boundaryReplacement: replacement)
             for _ in 0..<original.count {
                 target.deleteBackward()
             }
@@ -843,6 +890,7 @@ final class FullKeyboardEngine {
             // actual boundary tap is more consistent with a bottom-row letter.
             if ambiguous { autocorrect.discardFeedback() }
         }
+        statistics?.direct(" ")
         insert(" ", sample: sample, keepsFeedback: true)
         lastSpaceAt = now
     }
@@ -872,6 +920,8 @@ final class FullKeyboardEngine {
     }
 
     private func didEdit() {
+        statisticsContext = statistics == nil ? nil : target.documentContextBeforeInput.flatMap(Self.boundedSuggestionContext)
+        statisticsSessionRevision = statistics?.sessionRevision
         refreshAutoCapitalization()
         // Keyboard-originated edits (including the Typr key) also lift a stale suspension.
         suggestionsAreActive = true
@@ -898,6 +948,9 @@ final class FullKeyboardEngine {
             horizontalInset: horizontalInset,
             showsStrip: showsStrip
         )
-        if layout != previous { discardTouchEvidence() }
+        if layout != previous {
+            endStatisticsSession()
+            discardTouchEvidence()
+        }
     }
 }

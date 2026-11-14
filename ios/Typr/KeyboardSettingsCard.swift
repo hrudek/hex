@@ -53,17 +53,13 @@ struct KeyboardSettingsCard: View {
                             TyprSettings().personalLearning = enabled
                         }
                     SettingsDivider()
-                    NavigationLink(value: SettingsDestination.keyboardDiagnostics) {
-                        SettingsLink(title: "Typing diagnostics", detail: "Saved statistics, touch learning and reset controls")
-                    }
-                    .buttonStyle(.plain)
-                    SettingsDivider()
                     NavigationLink(value: SettingsDestination.keyboardLearnedWords) {
                         SettingsLink(title: "Manage learned words", detail: "Find and delete saved words and corrections")
                     }
                     .buttonStyle(.plain)
                 }
             }
+            KeyboardLearningResetControls()
             PersonalLexiconSettingsCard()
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSection(title: "iPhone setup") {
