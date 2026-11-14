@@ -64,7 +64,7 @@ struct KeyboardDiagnosticsSpeedView: View {
             return DiagnosticsBar(
                 id: String(bucket.id), tick: bucket.tick, category: bucket.label, value: bucket.count,
                 accessibilityLabel: "\(bucket.label), \(count) measurements"
-                    + (marked ? ", Class used for the half-of-measurements summary." : ""),
+                    + (marked ? ". Class used for the half-of-measurements summary." : ""),
                 isMarked: marked)
         }
     }

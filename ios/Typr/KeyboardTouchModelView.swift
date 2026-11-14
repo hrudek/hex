@@ -111,7 +111,10 @@ struct KeyboardTouchModelView: View {
     }
 
     private var scaleLabels: some View {
-        Text("1 key spacing across, 1 key spacing down")
+        VStack(alignment: .leading, spacing: 2) {
+            Text("1 key spacing across")
+            Text("1 key spacing down")
+        }
             .font(.footnote)
             .foregroundStyle(TyprTheme.textMuted)
             .fixedSize(horizontal: false, vertical: true)

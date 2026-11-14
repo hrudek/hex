@@ -246,12 +246,14 @@ struct DiagnosticsUndoSummary: View {
 struct DiagnosticsUnavailable: View {
     let area: DiagnosticsCopy.Area
     let scope: KeyboardDiagnosticsPresentation.Scope
+    /// The overview states the requirement once in its header; detail pages state it here.
+    var showsRequirement = true
 
     var body: some View {
         if let text = DiagnosticsCopy.unavailableText(area, scope: scope) {
             VStack(alignment: .leading, spacing: 8) {
                 DiagnosticsNote(text)
-                if !scope.statisticsAvailable && !scope.learningAvailable {
+                if showsRequirement && !scope.statisticsAvailable && !scope.learningAvailable {
                     DiagnosticsNote(DiagnosticsCopy.requirement)
                 }
             }
@@ -380,7 +382,7 @@ struct DiagnosticsLatencyTable: View {
                 return DiagnosticsTableRow(
                     id: String(bucket.id), first: bucket.label, second: count,
                     accessibilityLabel: "\(bucket.label), \(count) measurements"
-                        + (marked ? ", Class used for the half-of-measurements summary." : ""))
+                        + (marked ? ". Class used for the half-of-measurements summary." : ""))
             })
     }
 }

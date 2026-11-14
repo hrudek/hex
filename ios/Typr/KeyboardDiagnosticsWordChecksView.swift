@@ -39,7 +39,13 @@ struct KeyboardDiagnosticsWordChecksView: View {
         }
     }
 
-    private func decisions(_ statistics: Presentation.Statistics) -> some View {
+    @ViewBuilder private func decisions(_ statistics: Presentation.Statistics) -> some View {
+        if statistics.decisions.population > 0 || statistics.decisions.sum > 0 {
+            decisionsSection(statistics)
+        }
+    }
+
+    private func decisionsSection(_ statistics: Presentation.Statistics) -> some View {
         let population = Presentation.integer(statistics.decisions.population)
         return DiagnosticsSection {
             DiagnosticsDecisions(

@@ -5,6 +5,9 @@ enum SettingsDestination: String, CaseIterable, Hashable {
     case keyboard
     case autocorrectLanguages = "autocorrect-languages"
     case keyboardDiagnostics = "keyboard-diagnostics"
+    case keyboardDiagnosticsWordChecks = "keyboard-diagnostics-word-checks"
+    case keyboardDiagnosticsSpeed = "keyboard-diagnostics-speed"
+    case keyboardDiagnosticsLearning = "keyboard-diagnostics-learning"
     case keyboardLearnedWords = "keyboard-learned-words"
     // Keep the existing simulator scene name; this is not a persisted user setting.
     case textProcessing = "writing"
@@ -19,6 +22,9 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         case .keyboard: "Keyboard"
         case .autocorrectLanguages: "Autocorrect languages"
         case .keyboardDiagnostics: "Typing diagnostics"
+        case .keyboardDiagnosticsWordChecks: "Word checks"
+        case .keyboardDiagnosticsSpeed: "Speed"
+        case .keyboardDiagnosticsLearning: "Learning"
         case .keyboardLearnedWords: "Manage learned words"
         case .textProcessing: "AI & vocabulary"
         case .history: "History & feedback"
@@ -31,7 +37,8 @@ enum SettingsDestination: String, CaseIterable, Hashable {
 
     var subtitle: String {
         switch self {
-        case .keyboard, .keyboardDiagnostics, .keyboardLearnedWords, .textProcessing, .history, .cleanupPrompt: ""
+        case .keyboard, .keyboardDiagnostics, .keyboardDiagnosticsWordChecks, .keyboardDiagnosticsSpeed,
+             .keyboardDiagnosticsLearning, .keyboardLearnedWords, .textProcessing, .history, .cleanupPrompt: ""
         case .speechEngine: "Automatic chooses an engine until you select one. Audio stays on this iPhone."
         case .style: "Choose how Typr formats your dictations. You can also change style from the keyboard."
         case .autocorrectLanguages: "Choose one or more languages for autocorrect. These choices do not change your dictation language."
@@ -39,9 +46,33 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         }
     }
 
+    init(page: KeyboardDiagnosticsPage) {
+        switch page {
+        case .overview: self = .keyboardDiagnostics
+        case .wordChecks: self = .keyboardDiagnosticsWordChecks
+        case .speed: self = .keyboardDiagnosticsSpeed
+        case .learning: self = .keyboardDiagnosticsLearning
+        }
+    }
+
+    /// Diagnostics page shown by this destination, if it is one.
+    var diagnosticsPage: KeyboardDiagnosticsPage? {
+        switch self {
+        case .keyboardDiagnostics: .overview
+        case .keyboardDiagnosticsWordChecks: .wordChecks
+        case .keyboardDiagnosticsSpeed: .speed
+        case .keyboardDiagnosticsLearning: .learning
+        default: nil
+        }
+    }
+
     static func snapshotDestination(arguments: [String]) -> Self? {
         guard let index = arguments.firstIndex(of: "--snap-state"), index + 1 < arguments.count else { return nil }
         let scene = arguments[index + 1]
+        // Diagnostics scenes are exact names from the fixture grammar, including their state suffix.
+        if let diagnostics = KeyboardDiagnosticsFixture.scene(named: scene) {
+            return Self(page: diagnostics.page)
+        }
         if scene == "settings-keyboard-typing" { return .keyboard }
         guard scene.hasPrefix("settings-") else { return nil }
         return Self(rawValue: String(scene.dropFirst("settings-".count)))

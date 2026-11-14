@@ -147,17 +147,25 @@ struct ContentView: View {
             settingsOverview
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: SettingsDestination.self) { destination in
-                    if destination == .keyboardDiagnostics {
+                    if let page = destination.diagnosticsPage {
                         // Owns its SettingsPage so pull-to-refresh reaches the scroll view.
-                        KeyboardDiagnosticsView()
+                        // A snapshot process gives every pushed diagnostics page the same synthetic state.
+                        KeyboardDiagnosticsView(
+                            page: page,
+                            context: KeyboardDiagnosticsFixture.context(arguments: ProcessInfo.processInfo.arguments)?
+                                .navigating(to: page))
                     } else if destination == .keyboardLearnedWords {
-                        KeyboardLearnedWordsView()
+                        KeyboardLearnedWordsView(
+                            fixture: KeyboardLearnedWordsView.isFixtureRequested
+                                || KeyboardDiagnosticsFixture.scene(arguments: ProcessInfo.processInfo.arguments) != nil)
                     } else {
                         SettingsPage(title: destination.title, subtitle: destination.subtitle) {
                             switch destination {
                             case .keyboard: KeyboardSettingsCard()
                             case .autocorrectLanguages: AutocorrectLanguageSettingsCard()
-                            case .keyboardDiagnostics, .keyboardLearnedWords: EmptyView() // Handled above.
+                            case .keyboardDiagnostics, .keyboardDiagnosticsWordChecks, .keyboardDiagnosticsSpeed,
+                                 .keyboardDiagnosticsLearning, .keyboardLearnedWords:
+                                EmptyView() // Handled above.
                             case .textProcessing: TextProcessingSettingsCard()
                             case .cleanupPrompt: CleanupPromptEditor()
                             case .history: HistorySettingsCard { showingLog = true }
