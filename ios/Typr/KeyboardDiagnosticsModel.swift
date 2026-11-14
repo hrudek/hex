@@ -22,12 +22,12 @@ final class KeyboardDiagnosticsModel {
     }
 
     /// Snapshot scenes stay entirely in memory, including refresh and reset actions.
-    init(fixture: KeyboardLearningSnapshot) {
+    init(fixture: KeyboardLearningSnapshot, learningEnabled: Bool = true) {
         directory = nil
         defaults = nil
         self.fixture = true
         snapshot = fixture
-        learningEnabled = true
+        self.learningEnabled = learningEnabled
     }
 
     func startObserving() {

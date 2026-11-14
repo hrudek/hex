@@ -41,6 +41,30 @@ nonisolated enum KeyboardTouchGeometry {
         }
     }
 
+    struct Oval: Equatable, Sendable {
+        let major: Double
+        let minor: Double
+        /// Positive clockwise, in normalized key-spacing coordinates (not screen points).
+        let angleDegrees: Double
+    }
+
+    static func pitch(for key: KeyboardKey, layout: KeyboardLayout) -> CGSize {
+        CGSize(width: key.frame.width + layout.metrics.gap,
+               height: key.frame.height + layout.metrics.rowGap)
+    }
+
+    /// Eigenaxes of the already tempered summary covariance. Does not modify the model.
+    static func oval(for summary: PersonalTypingModel.KeySummary) -> Oval {
+        let a = summary.sigmaX * summary.sigmaX
+        let b = summary.sigmaY * summary.sigmaY
+        let c = summary.covarianceXY
+        let separation = hypot(a - b, 2 * c)
+        return Oval(major: sqrt(max(0, (a + b + separation) / 2)),
+                    minor: sqrt(max(0, (a + b - separation) / 2)),
+                    angleDegrees: atan2(2 * c, a - b) * 90 / .pi)
+    }
+
+    // Compatibility title for the pre-redesign canvas; new pages use layoutTitle(_:locale:).
     static func title(_ signature: KeyboardLayoutSignature) -> String {
         let orientation = signature.orientation == "landscape" ? "Landscape" : "Portrait"
         return "\(orientation), \(signature.widthBucket) pt, \(signature.showsStrip ? "suggestions" : "no suggestions"), \(signature.showsGlobe ? "globe" : "no globe")"

@@ -417,6 +417,7 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
         XCTAssertTrue(session.model.lexicon.isKept("teh"))
         XCTAssertEqual(session.diagnostics[.keepChip], 2)
+        XCTAssertEqual(session.diagnostics[.wordsKept], 2)
         XCTAssertEqual(session.diagnostics[.boundaries], 1)
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertNil(engine.autocorrect.replacementOnSpace(beforeInput: "teh", field: .text,
@@ -434,12 +435,44 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         tap(.delete, engine)
         XCTAssertTrue(session.protections.isRejected(typed: "teh", replacement: "the"))
         XCTAssertFalse(session.protections.isKept("teh"))
+        XCTAssertEqual(session.diagnostics[.correctionsRejected], 1)
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertTrue(session.model.lexicon.counts.isEmpty)
         engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
         XCTAssertTrue(session.protections.isKept("teh"), "Keep chip remains permanent while learning is off")
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertTrue(session.model.lexicon.counts.isEmpty)
+    }
+
+    func testAutomaticUndoMethodMappingAndManualUndosDoNotCountAsAutomatic() {
+        let ac = AutocorrectEngine(checker: Checker(), spatialDecoder: nil)
+        ac.recordUndo(.init(original: "teh", insertedText: "the ", kind: .autoSpatial))
+        ac.recordUndo(.init(original: "helo", insertedText: "hello ", kind: .autoSpelling))
+        ac.recordUndo(.init(original: "dont", insertedText: "don't ", kind: .autoRule))
+        XCTAssertEqual(ac.learning.diagnostics[.undoSpatial], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.undoSpelling], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.undoRule], 1)
+        let before = ac.learning.diagnostics
+        for wasNew in [false, true] {
+            ac.recordUndo(.init(original: "helo", insertedText: "helo ", keptWordWasNew: wasNew))
+        }
+        let boundary = KeyboardBoundaryDecoder.Candidate(kind: .split, original: "helloworld",
+            replacement: "hello world", score: 1, baseline: 0)
+        ac.recordUndo(.init(original: "helloworld", insertedText: "hello world ", boundary: boundary))
+        for counter in [KeyboardDiagnostics.Counter.undoSpatial, .undoSpelling, .undoRule] {
+            XCTAssertEqual(ac.learning.diagnostics[counter], before[counter])
+        }
+        XCTAssertEqual(ac.learning.diagnostics.acceptedLabels, before.acceptedLabels)
+    }
+
+    func testSpellingCompletionRefusesBelowMarginWithoutTapEvidence() {
+        let ac = AutocorrectEngine(checker: Checker(answers: ["hell": ["hello"]]), spatialDecoder: nil)
+        XCTAssertNil(ac.replacementOnSpace(beforeInput: "hell", field: .text, autocorrectionType: .default))
+        XCTAssertEqual(ac.learning.diagnostics[.boundaries], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.evidenceMissing], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.refusedBelowMargin], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.unchanged], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.autoSpellingFallback], 0)
     }
 
     func testEvidenceLengthGatePrecedesTrackerPresence() {
