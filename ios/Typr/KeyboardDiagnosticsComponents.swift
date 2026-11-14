@@ -271,9 +271,13 @@ struct DiagnosticsDisclosure<Content: View>: View {
     var startsOpen = false
     @ViewBuilder var content: Content
 
+    func isExpanded(userChoice: Bool? = nil, at size: DynamicTypeSize) -> Bool {
+        userChoice ?? (startsOpen || (openAtAccessibilitySizes && size.isAccessibilitySize))
+    }
+
     private var expanded: Binding<Bool> {
         Binding(
-            get: { userExpanded ?? (startsOpen || (openAtAccessibilitySizes && dynamicTypeSize.isAccessibilitySize)) },
+            get: { isExpanded(userChoice: userExpanded, at: dynamicTypeSize) },
             set: { userExpanded = $0 })
     }
 
@@ -373,7 +377,9 @@ struct DiagnosticsTable: View {
 struct DiagnosticsLatencyTable: View {
     let latency: KeyboardDiagnosticsPresentation.Latency
 
-    var body: some View {
+    var body: some View { table }
+
+    var table: DiagnosticsTable {
         DiagnosticsTable(
             title: nil, firstColumn: "Duration class", secondColumn: "Measurements",
             rows: latency.buckets.map { bucket in

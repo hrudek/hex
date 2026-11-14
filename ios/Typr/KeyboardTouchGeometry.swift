@@ -63,10 +63,4 @@ nonisolated enum KeyboardTouchGeometry {
                     minor: sqrt(max(0, (a + b - separation) / 2)),
                     angleDegrees: atan2(2 * c, a - b) * 90 / .pi)
     }
-
-    // Compatibility title for the pre-redesign canvas; new pages use layoutTitle(_:locale:).
-    static func title(_ signature: KeyboardLayoutSignature) -> String {
-        let orientation = signature.orientation == "landscape" ? "Landscape" : "Portrait"
-        return "\(orientation), \(signature.widthBucket) pt, \(signature.showsStrip ? "suggestions" : "no suggestions"), \(signature.showsGlobe ? "globe" : "no globe")"
-    }
 }

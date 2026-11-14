@@ -39,25 +39,34 @@ struct KeyboardDiagnosticsSpeedView: View {
                 DiagnosticsValueRow(label: counterLabel, value: Presentation.integer(latency.referenceCount))
                 DiagnosticsNote(text)
             }
-            if latency.n > 0 && !dynamicTypeSize.isAccessibilitySize {
-                DiagnosticsBarChart(
-                    title: title,
-                    summary: Self.chartHelp,
-                    xTitle: "Duration class (ms)",
-                    yTitle: "Measurements",
-                    bars: bars(latency),
-                    yTicks: [max(1, latency.buckets.map(\.count).max() ?? 1), 0])
+            if Self.showsChart(latency: latency, at: dynamicTypeSize) {
+                Self.chart(title: title, latency: latency)
                 DiagnosticsNote(Self.chartHelp)
             }
-            DiagnosticsDisclosure(title: tableTitle, openAtAccessibilitySizes: true) {
-                DiagnosticsLatencyTable(latency: latency)
-            }
+            Self.measurementsTable(title: tableTitle, latency: latency)
         }
     }
 
     private static let chartHelp = "Outlined bar: the class used for the half-of-measurements summary. Bars count measurements, not time spent. Each chart has its own count scale."
 
-    private func bars(_ latency: Presentation.Latency) -> [DiagnosticsBar] {
+    static func showsChart(latency: KeyboardDiagnosticsPresentation.Latency, at size: DynamicTypeSize) -> Bool {
+        latency.n > 0 && !size.isAccessibilitySize
+    }
+
+    static func measurementsTable(title: String, latency: KeyboardDiagnosticsPresentation.Latency)
+        -> DiagnosticsDisclosure<DiagnosticsLatencyTable> {
+        DiagnosticsDisclosure(title: title, openAtAccessibilitySizes: true) {
+            DiagnosticsLatencyTable(latency: latency)
+        }
+    }
+
+    static func chart(title: String, latency: KeyboardDiagnosticsPresentation.Latency) -> DiagnosticsBarChart {
+        DiagnosticsBarChart(
+            title: title, summary: chartHelp, xTitle: "Duration class (ms)", yTitle: "Measurements",
+            bars: bars(latency), yTicks: [max(1, latency.buckets.map(\.count).max() ?? 1), 0])
+    }
+
+    private static func bars(_ latency: Presentation.Latency) -> [DiagnosticsBar] {
         latency.buckets.map { bucket in
             let count = Presentation.integer(bucket.count)
             let marked = bucket.id == latency.halfBucket?.id

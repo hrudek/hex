@@ -63,14 +63,10 @@ nonisolated enum KeyboardDiagnosticsFixture {
         return scene(named: arguments[index + 1])
     }
 
-    // Compatibility for the existing view; B0 migrates all call sites to Context.
-    static var isRequested: Bool { requested(arguments: ProcessInfo.processInfo.arguments) }
-    static func requested(arguments: [String]) -> Bool { scene(arguments: arguments) != nil }
-
     @MainActor
     static func context(for scene: Scene) -> Context {
         let removedID = scene.state == .removedLayout
-            ? snapshot().model.layouts.first { $0.signature.orientation == "landscape" }?.signature.id : nil
+            ? snapshot(state: .populated).model.layouts.first { $0.signature.orientation == "landscape" }?.signature.id : nil
         return Context(page: scene.page, state: scene.state, snapshot: snapshot(state: scene.state), now: now,
                        learningEnabled: scene.state != .learningOff, removedLayoutID: removedID)
     }
@@ -82,7 +78,7 @@ nonisolated enum KeyboardDiagnosticsFixture {
 
     /// Synthetic aggregates only; never seeds shared storage or preferences.
     @MainActor
-    static func snapshot(state variant: State = .populated) -> KeyboardLearningSnapshot {
+    static func snapshot(state variant: State) -> KeyboardLearningSnapshot {
         var state = PersonalTypingModel.State()
         let portrait = KeyboardLayout(width: 392, showsGlobe: true, showsStrip: false)
         let landscape = KeyboardLayout(width: 848, orientation: .landscape, showsGlobe: true)

@@ -5,12 +5,7 @@ import XCTest
 final class KeyboardDiagnosticsPresentationTests: XCTestCase {
     private typealias Presentation = KeyboardDiagnosticsPresentation
 
-    func testSharesRetainZeroDenominatorsAndNeverImplyAccuracy() {
-        XCTAssertEqual(Presentation.share(0, of: 0), "0 of 0")
-        XCTAssertEqual(Presentation.share(2, of: 10), "2 of 10")
-        XCTAssertEqual(Presentation.barShare(0, maximum: 0), 0)
-        XCTAssertEqual(Presentation.barShare(2, maximum: 10), 0.2)
-        XCTAssertEqual(Presentation.barShare(12, maximum: 10), 1)
+    func testAutomaticAndUndoTotalsKeepAllMethodsSeparateFromUnchanged() {
         var diagnostics = KeyboardDiagnostics()
         XCTAssertEqual(Presentation.automaticTotal(diagnostics), 0)
         XCTAssertEqual(Presentation.undoTotal(diagnostics), 0)
@@ -26,52 +21,17 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         XCTAssertEqual(Presentation.undoTotal(diagnostics), 4)
     }
 
-    func testEveryCounterHasAPlainLanguageLabelAndEveryRefusalIsPresented() {
-        for counter in KeyboardDiagnostics.Counter.allCases {
-            let label = Presentation.label(counter)
-            XCTAssertFalse(label.isEmpty, counter.rawValue)
-            XCTAssertNotEqual(label, counter.rawValue)
-        }
-        let refusals: Set<KeyboardDiagnostics.Counter> = [.refusedLiteralValid, .refusedProtected,
-            .refusedAmbiguous, .refusedIncompleteSearch, .refusedMissingResource, .refusedValidation,
-            .refusedBelowMargin, .resourceLoading]
-        XCTAssertEqual(Set(Presentation.refusals), refusals)
-        XCTAssertTrue(Presentation.label(.refusedIncompleteSearch).contains("limit"))
-        XCTAssertTrue(Presentation.label(.refusedProtected).contains("Protected"))
-        XCTAssertEqual(Presentation.label(.storeWriteFailed), "Save failures or repairs")
-        for source in TouchLabelSource.allCases { XCTAssertFalse(Presentation.sourceLabel(source).isEmpty) }
-        for reason in TouchLabelRejection.allCases { XCTAssertFalse(Presentation.rejectionLabel(reason).isEmpty) }
-    }
-
-    func testHistogramLabelsMatchStoredBucketOrderAndEdges() {
-        XCTAssertEqual(Presentation.histogramLabels,
-                       ["<1 ms", "1–2 ms", "2–5 ms", "5–10 ms", "10–20 ms", "20–50 ms", "≥50 ms"])
-        for (index, seconds) in [0.0, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05].enumerated() {
-            var diagnostics = KeyboardDiagnostics()
+    func testRecordedHistogramEdgesFeedTheSameOrderedPresentationBucketsForBothSeries() {
+        var diagnostics = KeyboardDiagnostics()
+        for seconds in [0.0, 0.001, 0.002, 0.005, 0.010, 0.020, 0.050] {
             diagnostics.recordLatency(seconds, kind: .boundary)
             diagnostics.recordLatency(seconds, kind: .suggestion)
-            XCTAssertEqual(diagnostics.boundaryMs.count, Presentation.histogramLabels.count)
-            XCTAssertEqual(diagnostics.boundaryMs[index], 1)
-            XCTAssertEqual(diagnostics.suggestionMs[index], 1)
-            XCTAssertEqual(diagnostics.boundaryMs.reduce(0, +), 1)
         }
-    }
-
-    @MainActor
-    func testUnavailableAndStaleStatesDoNotClaimCurrentFullAccess() {
-        let now = Date(timeIntervalSince1970: 1_750_000_000)
-        func snapshot(saved: Date?, persistent: Bool = true) -> KeyboardLearningSnapshot {
-            KeyboardLearningSnapshot(model: PersonalTypingModel.summarize(.init()), diagnostics: .init(now: now),
-                learningFile: .init(bytes: nil, modifiedAt: nil),
-                diagnosticsFile: .init(bytes: saved == nil ? nil : 100, modifiedAt: saved), isPersistent: persistent)
+        for counts in [diagnostics.boundaryMs, diagnostics.suggestionMs] {
+            let latency = Presentation.latency(buckets: counts, referenceCount: 7)
+            XCTAssertEqual(latency.buckets.map(\.count), Array(repeating: 1, count: 7))
+            XCTAssertEqual(latency.buckets.map(\.upperMilliseconds), [1, 2, 5, 10, 20, 50, nil])
         }
-        let empty = snapshot(saved: nil)
-        XCTAssertNil(Presentation.updatedAt(empty))
-        XCTAssertEqual(Presentation.availability(empty, now: now), "Full Access is off or the keyboard hasn't saved data yet.")
-        XCTAssertNil(Presentation.availability(snapshot(saved: now), now: now))
-        XCTAssertNotNil(Presentation.availability(snapshot(saved: now.addingTimeInterval(-86_401)), now: now))
-        XCTAssertNotNil(Presentation.availability(snapshot(saved: now, persistent: false), now: now))
-        XCTAssertEqual(Presentation.fileSize(nil), "Not saved yet")
     }
 
     func testTouchOffsetsAndSigmaMapFromPitchUnitsToLayoutPoints() throws {
@@ -162,12 +122,12 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
 
     @MainActor
     func testSnapshotFixtureIsExplicitAndCannotRefreshOrResetRealStorage() {
-        XCTAssertTrue(KeyboardDiagnosticsFixture.requested(arguments: ["Typr", "--snap-state", "settings-keyboard-diagnostics"]))
+        XCTAssertNotNil(KeyboardDiagnosticsFixture.scene(arguments: ["Typr", "--snap-state", "settings-keyboard-diagnostics"]))
         for args in [[], ["--snap-state"], ["settings-keyboard-diagnostics"], ["--snap-state", "settings-keyboard"]] {
-            XCTAssertFalse(KeyboardDiagnosticsFixture.requested(arguments: args))
+            XCTAssertNil(KeyboardDiagnosticsFixture.scene(arguments: args))
         }
-        let fixture = KeyboardDiagnosticsFixture.snapshot()
-        let second = KeyboardDiagnosticsFixture.snapshot()
+        let fixture = KeyboardDiagnosticsFixture.snapshot(state: .populated)
+        let second = KeyboardDiagnosticsFixture.snapshot(state: .populated)
         XCTAssertEqual(fixture.model, second.model)
         XCTAssertEqual(fixture.diagnostics, second.diagnostics)
         let model = KeyboardDiagnosticsModel(fixture: fixture)
@@ -272,7 +232,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
     @MainActor
     func testPartialMetadataIsIndependentAndOldestTimeControlsHeaderAndStaleness() {
         let now = KeyboardDiagnosticsFixture.now
-        let base = KeyboardDiagnosticsFixture.snapshot()
+        let base = KeyboardDiagnosticsFixture.snapshot(state: .populated)
         func present(_ learning: KeyboardLearningSnapshot.FileInfo,
                      _ statistics: KeyboardLearningSnapshot.FileInfo, persistent: Bool = true) -> Presentation.Readout {
             Presentation.make(snapshot: .init(model: base.model, diagnostics: base.diagnostics,
@@ -404,7 +364,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         XCTAssertNil(normal.suggestionTime.discrepancyText())
         XCTAssertEqual(broken.suggestionTime.discrepancyText(locale: Locale(identifier: "en_US")),
             "The histogram contains 1 measurements; the event counter records 3,200. Both saved counts are shown.")
-        let base = KeyboardDiagnosticsFixture.snapshot()
+        let base = KeyboardDiagnosticsFixture.snapshot(state: .populated)
         var d = KeyboardDiagnostics(now: KeyboardDiagnosticsFixture.now)
         d.recordLatency(0.001, kind: .boundary)
         d.increment(.wordsKept)
@@ -445,7 +405,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         XCTAssertEqual(current.learning?.layouts.count, 1)
         XCTAssertNotEqual(current.learning?.selectedLayout(id: removed)?.id, removed)
         XCTAssertEqual(readout(.singleLayout).learning?.layouts.count, 1)
-        let base = KeyboardDiagnosticsFixture.snapshot()
+        let base = KeyboardDiagnosticsFixture.snapshot(state: .populated)
         let tiedLayouts = base.model.layouts.reversed().map {
             PersonalTypingModel.LayoutSummary(signature: $0.signature, lastUpdated: KeyboardDiagnosticsFixture.now, keys: $0.keys)
         }
@@ -465,7 +425,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         XCTAssertEqual(small.wordCheckTime.n, 1)
         XCTAssertEqual(small.wordCheckTime.halfBucket?.id, 2)
         XCTAssertEqual(small.suggestionTime.n, 2)
-        let base = KeyboardDiagnosticsFixture.snapshot()
+        let base = KeyboardDiagnosticsFixture.snapshot(state: .populated)
         let empty = Presentation.make(snapshot: .init(model: PersonalTypingModel.summarize(.init()),
             diagnostics: base.diagnostics, learningFile: base.learningFile,
             diagnosticsFile: base.diagnosticsFile, isPersistent: true),

@@ -33,6 +33,17 @@ struct DiagnosticsBarChart: View {
         let label: String
     }
 
+    init(title: String, summary: String, xTitle: String, yTitle: String,
+         bars: [DiagnosticsBar], yTicks: [Int], reference: Reference? = nil) {
+        self.title = title
+        self.summary = summary
+        self.xTitle = xTitle
+        self.yTitle = yTitle
+        self.bars = bars
+        self.yTicks = yTicks
+        self.reference = reference
+    }
+
     private let plotHeight: CGFloat = 140
     private var yMax: Int { max(1, yTicks.first ?? 1) }
 
@@ -57,9 +68,12 @@ struct DiagnosticsBarChart: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityChartDescriptor(
-            DiagnosticsChartDescriptor(title: title, summary: summary, xTitle: xTitle, yTitle: yTitle,
-                                       bars: bars, yMax: Double(yMax)))
+        .accessibilityChartDescriptor(chartDescriptor)
+    }
+
+    var chartDescriptor: DiagnosticsChartDescriptor {
+        DiagnosticsChartDescriptor(title: title, summary: summary, xTitle: xTitle, yTitle: yTitle,
+                                   bars: bars, yMax: Double(yMax))
     }
 
     private var yLabels: some View {
@@ -160,10 +174,19 @@ struct DiagnosticsChartDescriptor: AXChartDescriptorRepresentable {
     let bars: [DiagnosticsBar]
     let yMax: Double
 
+    func updateChartDescriptor(_ descriptor: AXChartDescriptor) {
+        let updated = makeChartDescriptor()
+        descriptor.title = updated.title
+        descriptor.summary = updated.summary
+        descriptor.xAxis = updated.xAxis
+        descriptor.yAxis = updated.yAxis
+        descriptor.series = updated.series
+    }
+
     func makeChartDescriptor() -> AXChartDescriptor {
         let xAxis = AXCategoricalDataAxisDescriptor(title: xTitle, categoryOrder: bars.map { $0.category })
         let yAxis = AXNumericDataAxisDescriptor(
-            title: yTitle, range: 0...yMax, gridlinesOccurAtValues: [],
+            title: yTitle, range: 0...yMax, gridlinePositions: [],
             valueDescriptionProvider: { KeyboardDiagnosticsPresentation.integer(Int($0)) })
         let points = bars.map { AXDataPoint(x: $0.category, y: Double($0.value), additionalValues: [], label: $0.accessibilityLabel) }
         let series = AXDataSeriesDescriptor(name: title, isContinuous: false, dataPoints: points)

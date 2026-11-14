@@ -20,13 +20,6 @@ struct KeyboardTouchModelView: View {
     }
     private var footerHeight: CGFloat { pitch.height + 12 }
 
-    // Compatibility for the pre-redesign view; removed together with the old wrappers.
-    init(summary: PersonalTypingModel.LayoutSummary) {
-        model = KeyboardDiagnosticsPresentation.Layout(
-            summary: summary, title: KeyboardDiagnosticsPresentation.layoutTitle(summary.signature),
-            keys: KeyboardDiagnosticsPresentation.keyRows(summary))
-    }
-
     init(model: KeyboardDiagnosticsPresentation.Layout) {
         self.model = model
     }
@@ -44,17 +37,21 @@ struct KeyboardTouchModelView: View {
                 DiagnosticsNote("Tap examples are counted without weights, up to 256 per key. Model estimates keep adapting; after 64 examples, means use a moving average.")
             }
             examplesByKey
-            DiagnosticsDisclosure(title: "Per-key model estimates", openAtAccessibilitySizes: true) {
-                ForEach(model.keys) { key in
-                    estimateBlock(key)
-                }
-            }
-            DiagnosticsDisclosure(title: "Model shape details") {
-                DiagnosticsNote("These are approximate dimensions of the model oval in key spacings, not a confidence interval. Screen scaling can change the visible angle.")
-                ForEach(model.keys) { key in
-                    shapeBlock(key)
-                }
-            }
+            perKeyEstimates
+            modelShapeDetails
+        }
+    }
+
+    var perKeyEstimates: DiagnosticsDisclosure<some View> {
+        DiagnosticsDisclosure(title: "Per-key model estimates", openAtAccessibilitySizes: true) {
+            ForEach(model.keys) { key in estimateBlock(key) }
+        }
+    }
+
+    var modelShapeDetails: DiagnosticsDisclosure<some View> {
+        DiagnosticsDisclosure(title: "Model shape details") {
+            DiagnosticsNote("These are approximate dimensions of the model oval in key spacings, not a confidence interval. Screen scaling can change the visible angle.")
+            ForEach(model.keys) { key in shapeBlock(key) }
         }
     }
 
@@ -134,33 +131,40 @@ struct KeyboardTouchModelView: View {
     @ViewBuilder private var examplesByKey: some View {
         VStack(alignment: .leading, spacing: 12) {
             DiagnosticsSubheading("Tap examples by key")
-            if dynamicTypeSize.isAccessibilitySize {
+            if Self.usesExamplesTable(at: dynamicTypeSize) {
                 examplesTable
             } else {
                 // Geometric rule: 26 labels need at least 320 pt; otherwise the open table replaces the chart.
                 ViewThatFits(in: .horizontal) {
                     VStack(alignment: .leading, spacing: 12) {
-                        DiagnosticsBarChart(
-                            title: "Tap examples by key",
-                            summary: Self.chartHelp,
-                            xTitle: "Letter",
-                            yTitle: "Tap examples (counted up to 256)",
-                            bars: bars,
-                            yTicks: [256, 192, 128, 64, 0],
-                            reference: .init(value: 20, label: "20 examples"))
+                        examplesChart
                         DiagnosticsNote(Self.chartHelp)
                         DiagnosticsDisclosure(title: "Tap examples by key") { examplesTable }
                     }
-                    .frame(minWidth: 320)
+                    .frame(minWidth: Self.minimumExamplesChartWidth)
                     examplesTable
                 }
             }
         }
     }
 
+    static let minimumExamplesChartWidth: CGFloat = 320
+
+    /// Width is the proposed chart-content width, not the full screen width.
+    static func usesExamplesTable(at size: DynamicTypeSize, width: CGFloat = .infinity) -> Bool {
+        size.isAccessibilitySize || width < minimumExamplesChartWidth
+    }
+
+    var examplesChart: DiagnosticsBarChart {
+        DiagnosticsBarChart(
+            title: "Tap examples by key", summary: Self.chartHelp, xTitle: "Letter",
+            yTitle: "Tap examples (counted up to 256)", bars: bars, yTicks: [256, 192, 128, 64, 0],
+            reference: .init(value: 20, label: "20 examples"))
+    }
+
     private static let chartHelp = "Counts stop increasing at 256 per key; they are not lifetime tap totals. The line marks 20 examples, where a key's own taps and the default count equally."
 
-    private var examplesTable: some View {
+    var examplesTable: DiagnosticsTable {
         DiagnosticsTable(
             title: nil, firstColumn: "Letter", secondColumn: "Tap examples (counted up to 256)",
             rows: model.keys.map { key in

@@ -24,6 +24,13 @@ private struct AppWarmRemainingLabel: View {
 }
 
 struct ContentView: View {
+    /// Shared by the actual navigation path and tests; ordinary launches keep the existing store-backed page.
+    nonisolated static func learnedWordsUsesFixture(arguments: [String]) -> Bool {
+        if KeyboardDiagnosticsFixture.scene(arguments: arguments) != nil { return true }
+        guard let index = arguments.firstIndex(of: "--snap-state"), index + 1 < arguments.count else { return false }
+        return arguments[index + 1] == "settings-keyboard-learned-words"
+    }
+
     private enum AppStageMode: Equatable {
         case idle
         case recording
@@ -156,8 +163,7 @@ struct ContentView: View {
                                 .navigating(to: page))
                     } else if destination == .keyboardLearnedWords {
                         KeyboardLearnedWordsView(
-                            fixture: KeyboardLearnedWordsView.isFixtureRequested
-                                || KeyboardDiagnosticsFixture.scene(arguments: ProcessInfo.processInfo.arguments) != nil)
+                            fixture: Self.learnedWordsUsesFixture(arguments: ProcessInfo.processInfo.arguments))
                     } else {
                         SettingsPage(title: destination.title, subtitle: destination.subtitle) {
                             switch destination {

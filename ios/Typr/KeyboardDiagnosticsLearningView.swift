@@ -90,7 +90,7 @@ struct KeyboardDiagnosticsLearningView: View {
         DiagnosticsSection(title: "Tap map") {
             if let layout = learning.selectedLayout(id: selectedLayoutID) {
                 if learning.layouts.count > 1 {
-                    Picker("Layout", selection: Binding(
+                    Picker("Layout", selection: Binding<String>(
                         get: { layout.id },
                         set: { selectedLayoutID = $0 })
                     ) {
