@@ -409,10 +409,11 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         defaults.set(false, forKey: "keyboard.personalLearning")
         let session = KeyboardLearningSession(defaults: defaults)
         let (engine, _) = keyboard(session: session)
-        type("hello w", engine)
+        type("hello world", engine)
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertTrue(session.model.lexicon.counts.isEmpty)
-        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "w", replacement: "w", kind: .keepLiteral))
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "world", replacement: "world", kind: .keepLiteral))
+        XCTAssertTrue(session.model.lexicon.isKept("world"))
         type("teh", engine)
         engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "teh", replacement: "teh", kind: .keepLiteral))
         XCTAssertTrue(session.model.lexicon.isKept("teh"))
@@ -422,6 +423,23 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
         XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
         XCTAssertNil(engine.autocorrect.replacementOnSpace(beforeInput: "teh", field: .text,
                                                           autocorrectionType: .default))
+    }
+
+    func testLearningOffSingleLetterKeepCountsChipButDoesNotStoreWord() throws {
+        let name = "KeyboardLearning-off-single-letter-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(false, forKey: "keyboard.personalLearning")
+        let session = KeyboardLearningSession(defaults: defaults)
+        let (engine, target) = keyboard(session: session)
+        type("w", engine)
+        engine.acceptOwnedFixtureSuggestion(KeyboardSuggestion(displayText: "w", replacement: "w", kind: .keepLiteral))
+        XCTAssertEqual(target.text, "w ")
+        XCTAssertEqual(session.diagnostics[.keepChip], 1)
+        XCTAssertEqual(session.diagnostics[.wordsKept], 0)
+        XCTAssertFalse(session.model.lexicon.isKept("w"))
+        XCTAssertTrue(session.model.lexicon.counts.isEmpty)
+        XCTAssertEqual(session.diagnostics.acceptedLabels, 0)
     }
 
     func testLearningOffUndoStillRejectsWithoutPermanentKeep() throws {
@@ -466,11 +484,22 @@ final class KeyboardLearningIntegrationTests: XCTestCase {
     }
 
     func testSpellingCompletionRefusesBelowMarginWithoutTapEvidence() {
-        let ac = AutocorrectEngine(checker: Checker(answers: ["hell": ["hello"]]), spatialDecoder: nil)
-        XCTAssertNil(ac.replacementOnSpace(beforeInput: "hell", field: .text, autocorrectionType: .default))
+        // `hell` is a contraction homograph and is refused before spelling search.
+        // Use an unprotected prefix so this exercises automatic's suffix refusal.
+        let ac = AutocorrectEngine(checker: Checker(answers: ["worl": ["world"]]), spatialDecoder: nil)
+        XCTAssertNil(ac.replacementOnSpace(beforeInput: "worl", field: .text, autocorrectionType: .default))
         XCTAssertEqual(ac.learning.diagnostics[.boundaries], 1)
         XCTAssertEqual(ac.learning.diagnostics[.evidenceMissing], 1)
         XCTAssertEqual(ac.learning.diagnostics[.refusedBelowMargin], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.unchanged], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.autoSpellingFallback], 0)
+    }
+
+    func testContractionHomographRefusesBeforeSpellingCompletion() {
+        let ac = AutocorrectEngine(checker: Checker(answers: ["hell": ["hello"]]), spatialDecoder: nil)
+        XCTAssertNil(ac.replacementOnSpace(beforeInput: "hell", field: .text, autocorrectionType: .default))
+        XCTAssertEqual(ac.learning.diagnostics[.refusedLiteralValid], 1)
+        XCTAssertEqual(ac.learning.diagnostics[.refusedBelowMargin], 0)
         XCTAssertEqual(ac.learning.diagnostics[.unchanged], 1)
         XCTAssertEqual(ac.learning.diagnostics[.autoSpellingFallback], 0)
     }
