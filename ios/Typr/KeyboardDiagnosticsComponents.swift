@@ -161,28 +161,35 @@ struct DiagnosticsTrackRow: View {
 }
 
 /// The five recorded decisions with the tap-position group. Used on the overview and in detail.
+/// Tracks appear only when the parts add up to the population (`canShowParts`).
 struct DiagnosticsDecisions: View {
     let partition: KeyboardDiagnosticsPresentation.Partition
+    let heading: String
     /// Scale sentence shown only when the parts add up to the population.
     let scale: String
 
     var body: some View {
-        let population: Int? = partition.canShowParts ? partition.population : nil
-        let spatial = partition.rows.filter { $0.id == .autoSpatialSameLength || $0.id == .autoSpatialEdit }
-        let others = partition.rows.filter { $0.id != .autoSpatialSameLength && $0.id != .autoSpatialEdit }
-        VStack(alignment: .leading, spacing: 12) {
-            DiagnosticsSubheading("Replaced using tap positions")
-            DiagnosticsNote("Typr compares where you tapped with the key positions to find a likely word.")
-            ForEach(spatial) { row in
-                DiagnosticsTrackRow(label: row.label, count: row.count, population: population, indent: true)
-            }
-            ForEach(others) { row in
-                DiagnosticsTrackRow(label: row.label, count: row.count, population: population)
-            }
-            if partition.canShowParts {
-                DiagnosticsNote(scale)
-            } else if let text = partition.inconsistencyText() {
-                DiagnosticsNote(text)
+        if partition.population == 0 && partition.sum == 0 {
+            DiagnosticsNote(DiagnosticsCopy.noWordChecks)
+        } else {
+            let population: Int? = partition.canShowParts ? partition.population : nil
+            let spatial = partition.rows.filter { $0.id == .autoSpatialSameLength || $0.id == .autoSpatialEdit }
+            let others = partition.rows.filter { $0.id != .autoSpatialSameLength && $0.id != .autoSpatialEdit }
+            VStack(alignment: .leading, spacing: 12) {
+                DiagnosticsSubheading(heading)
+                DiagnosticsSubheading("Replaced using tap positions")
+                DiagnosticsNote("Typr compares where you tapped with the key positions to find a likely word.")
+                ForEach(spatial) { row in
+                    DiagnosticsTrackRow(label: row.label, count: row.count, population: population, indent: true)
+                }
+                ForEach(others) { row in
+                    DiagnosticsTrackRow(label: row.label, count: row.count, population: population)
+                }
+                if partition.canShowParts {
+                    DiagnosticsNote(scale)
+                } else if let text = partition.inconsistencyText() {
+                    DiagnosticsNote(text)
+                }
             }
         }
     }
