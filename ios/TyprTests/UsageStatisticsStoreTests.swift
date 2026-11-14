@@ -75,10 +75,42 @@ final class UsageStatisticsStoreTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: json).write(to: file)
         XCTAssertThrowsError(try store.snapshot())
     }
-    func testWriterAndCaptureCapacityRejectsRatherThanEvictsLiveReceipts() throws {
+    func testSequentialKeyboardSessionsKeepCollectingBeyondWriterCapacity() throws {
+        let layout = KeyboardLayout(width: 393)
+        for index in 0..<40 {
+            let session = UsageStatisticsSession(store: store,
+                now: { [unowned self] in self.clock }, automaticallyFlush: false)
+            session.direct("a ")
+            session.recordHeat(point: CGPoint(x: 20, y: 20), layout: layout)
+            session.flush()
+            XCTAssertNil(session.lastError, "Session \(index) must persist")
+            session.flush() // A repeated flush must not double count.
+            let snapshot = try store.snapshot()
+            XCTAssertEqual(snapshot.totals(lastDays: 90, at: clock).directGraphemes, UInt64((index + 1) * 2))
+            XCTAssertEqual(snapshot.totals(lastDays: 90, at: clock).completedWords, UInt64(index + 1))
+            XCTAssertEqual(snapshot.heat.flatMap(\.cells).reduce(0, +), UInt64(index + 1))
+            XCTAssertLessThanOrEqual(snapshot.writers.count, 16)
+            clock += 1
+        }
+    }
+    func testWriterCapacityEvictsOldestStartAndRetainsOtherRetryWatermarks() throws {
         let initial = try store.snapshot()
-        for _ in 0..<16 { try store.apply(batch(initial)) }
-        XCTAssertThrowsError(try store.apply(batch(initial))) { XCTAssertEqual($0 as? UsageStatisticsStore.Failure, .capacity) }
+        let oldest = batch(initial)
+        clock += 1
+        let newer = (0..<15).map { _ in batch(initial) }
+        // Insertion order deliberately differs from start order.
+        try store.apply(newer[0]); try store.apply(oldest)
+        for value in newer.dropFirst() { try store.apply(value) }
+        let incoming = batch(initial)
+        try store.apply(incoming)
+        for value in newer { try store.apply(value) }
+        try store.apply(incoming)
+        let snapshot = try store.snapshot()
+        XCTAssertEqual(snapshot.writers.count, 16)
+        XCTAssertFalse(snapshot.writers.contains { $0.id == oldest.writer.id })
+        XCTAssertEqual(snapshot.totals(lastDays: 90, at: clock).directGraphemes, 17)
+    }
+    func testCaptureCapacityRejectsRatherThanEvictsLiveReceipts() throws {
         var snapshot = try store.snapshot()
         snapshot.captures = (0..<2048).map { _ in .init(id: UUID(), beganAt: clock) }
         try JSONEncoder().encode(snapshot).write(to: file)
@@ -161,6 +193,24 @@ final class UsageStatisticsStoreTests: XCTestCase {
         tick += 1; session.direct("b"); session.flush()
         XCTAssertNil(session.lastError)
         XCTAssertEqual(try store.snapshot().totals(lastDays: 90, at: clock).directGraphemes, 2)
+    }
+    func testCapacityFailureAbandonsFrozenBatchButKeepsNewerEvents() throws {
+        var failure: UsageStatisticsStore.Failure? = .unavailable
+        let failing = UsageStatisticsStore(directory: root, now: { [unowned self] in self.clock }, afterCommit: {
+            if let failure { throw failure }
+        })
+        let session = UsageStatisticsSession(store: failing,
+            now: { [unowned self] in self.clock }, automaticallyFlush: false)
+        session.direct("a"); session.flush()
+        XCTAssertNotNil(session.lastError)
+        session.direct("b")
+        failure = .capacity
+        session.flush() // The old frozen batch fails; b remains pending.
+        XCTAssertEqual(session.lastError as? UsageStatisticsStore.Failure, .capacity)
+        failure = nil
+        session.direct("c"); session.flush()
+        XCTAssertNil(session.lastError)
+        XCTAssertEqual(try store.snapshot().totals(lastDays: 90, at: clock).directGraphemes, 3)
     }
     func testCaptureReceiptSurvivesLostAcknowledgement() throws {
         var failOnce = true

@@ -64,16 +64,21 @@ A snapshot contains:
   to its success day. Future/out-of-retention days are omitted on read and pruned on
   mutation; a backward wall-clock jump cannot create unlimited days or negative time.
 - At most four measured Heat layouts, each a fixed 64 × 24 grid of saturating counters.
-- At most 16 live writer watermarks and 2,048 capture receipts. Receipt validity is
-  at most 24 hours **from writer/capture start**, not last retry. Expired/future-started
-  operations and full live receipt tables are explicitly rejected, never accepted
-  by forgetting deduplication state. Long-lived writers rotate after 23 hours once
-  all batches have been acknowledged. Counter/duration ceilings are 10¹².
+- At most 16 writer watermarks and 2,048 capture receipts. A new writer evicts the
+  watermark with the oldest start time when full, so repeated keyboard mounts do
+  not block collection. Retry deduplication is guaranteed only while that writer's
+  watermark is retained; a delayed retry after eviction can count twice. Receipt
+  validity is at most 24 hours **from writer/capture start**, not last retry.
+  Expired/future-started operations and full capture receipt tables are rejected.
+  Long-lived writers rotate after 23 hours once all batches have been acknowledged.
+  Counter/duration ceilings are 10¹².
 
 The keyboard batches for about one second and flushes at its existing learning
 lifecycle hooks. RAM-only pending counts can be lost on process death; this is not
 crash-proof accounting. A frozen batch keeps exactly the same writer/sequence and
-contents on retry, while newer events accumulate separately. Capture retries retain
+contents on retry, while newer events accumulate separately. A capacity failure
+abandons the frozen batch and rotates the writer without discarding newer pending
+events, so an oversized batch cannot permanently stall collection. Capture retries retain
 only token/count/duration in RAM, and retry at the next success or capture start.
 Storage errors remain available on the session/recorder. Collection without usable
 App Group access is unavailable, not silently reported as zero. Production keyboard

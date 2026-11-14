@@ -202,9 +202,15 @@ final class UsageStatisticsSession {
             }
         } catch {
             lastError = error
-            if let failure = error as? UsageStatisticsStore.Failure,
-               [.staleGeneration, .expired].contains(failure) {
-                discardPending()
+            if let failure = error as? UsageStatisticsStore.Failure {
+                if [.staleGeneration, .expired].contains(failure) {
+                    discardPending()
+                } else if failure == .capacity {
+                    // A permanently oversized batch must not block newer events.
+                    // Do not retry it under another identity: it may have committed.
+                    frozen = nil
+                    writer = .init(id: UUID(), beganAt: now(), sequence: 1)
+                }
             }
         }
     }

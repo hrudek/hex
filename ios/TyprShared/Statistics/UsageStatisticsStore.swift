@@ -76,7 +76,14 @@ final class UsageStatisticsStore {
                 if batch.writer.sequence <= snapshot.writers[index].sequence { return }
                 snapshot.writers[index] = batch.writer
             } else {
-                guard snapshot.writers.count < 16 else { throw Failure.capacity }
+                // Mounting a keyboard creates a new writer. Keep bounded retry state
+                // without imposing a daily limit on keyboard sessions.
+                if snapshot.writers.count == 16,
+                   let oldest = snapshot.writers.indices.min(by: {
+                       snapshot.writers[$0].beganAt < snapshot.writers[$1].beganAt
+                   }) {
+                    snapshot.writers.remove(at: oldest)
+                }
                 snapshot.writers.append(batch.writer)
             }
             let retained = snapshot.retainedDayIDs(at: date)
