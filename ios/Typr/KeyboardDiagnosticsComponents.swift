@@ -8,7 +8,7 @@ private typealias Presentation = KeyboardDiagnosticsPresentation
 
 /// Approved wording used on more than one page (plan section 5).
 enum DiagnosticsCopy {
-    static let requirement = "Typr saves these counts only when you use the full keyboard with Full Access on. This page can't check whether that's the case."
+    static let requirement = "Typr saves these counts only when the full keyboard is used with Full Access. This page can't tell which applies."
     static let noData = "No saved typing data available."
     static let noStatistics = "No saved statistics available."
     static let noLearning = "No saved learning data available."
@@ -16,7 +16,8 @@ enum DiagnosticsCopy {
     static let noAutomatic = "No automatic replacements recorded in the available statistics."
     static let noMeasurements = "No measurements recorded in the available statistics."
     static let notComparable = "These saved counts can't be compared as parts of one total."
-    static let undoHelp = "This counts immediate undos after automatic replacements, not accuracy. Fixing a word by hand isn't counted, and a replacement that wasn't undone wasn't necessarily wanted."
+    static let undoHelp = "This counts immediate undos after automatic replacements, not accuracy. Fixing a word by hand isn't counted, and no undo doesn't show that a replacement was wanted."
+    static let savedNowHelp = "What the saved model holds. It can cover a different period than the learning events. Older entries can be dropped."
     static let manageWords = "Manage learned words"
 
     enum Area { case statistics, learning }
@@ -206,6 +207,19 @@ struct DiagnosticsComparisonRow: View {
     var denominatorLabel: String? = nil
     let emptyText: String
 
+    /// These are the actual rows rendered by the incomparable branch, not just saved inputs.
+    var absoluteRows: [DiagnosticsValueRow] {
+        guard comparison.status == .incomparable else { return [] }
+        var rows: [DiagnosticsValueRow] = []
+        if let denominatorLabel {
+            rows.append(DiagnosticsValueRow(label: denominatorLabel,
+                                            value: Presentation.integer(comparison.denominator)))
+        }
+        rows.append(DiagnosticsValueRow(label: numeratorLabel,
+                                        value: Presentation.integer(comparison.numerator)))
+        return rows
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             switch comparison.status {
@@ -217,12 +231,30 @@ struct DiagnosticsComparisonRow: View {
                 DiagnosticsValueRow(label: label, value: Presentation.integer(comparison.numerator))
                 DiagnosticsNote(emptyText)
             case .incomparable:
-                if let denominatorLabel {
-                    DiagnosticsValueRow(label: denominatorLabel, value: Presentation.integer(comparison.denominator))
+                ForEach(absoluteRows.indices, id: \.self) { index in
+                    absoluteRows[index]
                 }
-                DiagnosticsValueRow(label: numeratorLabel, value: Presentation.integer(comparison.numerator))
                 DiagnosticsNote(DiagnosticsCopy.notComparable)
             }
+        }
+    }
+}
+
+/// Method context stays visible when the comparison must fall back to two absolute counts.
+struct DiagnosticsMethodFeedback: View {
+    let method: KeyboardDiagnosticsPresentation.MethodFeedback
+
+    var comparisonRow: DiagnosticsComparisonRow {
+        DiagnosticsComparisonRow(
+            label: "Undone", comparison: method.comparison, unit: "replacements",
+            numeratorLabel: "Recorded undos", denominatorLabel: "Automatic replacements",
+            emptyText: DiagnosticsCopy.noAutomatic)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DiagnosticsSubheading(Presentation.counterLabel(method.id))
+            comparisonRow
         }
     }
 }

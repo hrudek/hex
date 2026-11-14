@@ -41,7 +41,7 @@ struct KeyboardDiagnosticsLearningView: View {
 
     private func savedNow(_ learning: Presentation.Learning) -> some View {
         DiagnosticsSection(title: "Saved now") {
-            DiagnosticsNote("What the saved model holds. It can cover a different period than the events above. Older entries can be dropped.")
+            DiagnosticsNote(DiagnosticsCopy.savedNowHelp)
             DiagnosticsValueRow(label: "Words with a saved count", value: Presentation.integer(learning.countedWords))
             DiagnosticsValueRow(label: "Kept words", value: Presentation.integer(learning.keptWords))
             DiagnosticsValueRow(label: "Next-word links", value: Presentation.integer(learning.storedPairs))

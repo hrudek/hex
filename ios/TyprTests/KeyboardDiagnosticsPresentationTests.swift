@@ -157,7 +157,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         XCTAssertEqual(stats.refusalGroups[1].rows.map(\.id),
                        [.refusedAmbiguous, .refusedIncompleteSearch, .refusedBelowMargin, .refusedValidation])
         XCTAssertEqual(stats.refusalGroups[2].rows.map(\.id), [.refusedMissingResource, .resourceLoading])
-        XCTAssertEqual(Presentation.counterLabel(.evidenceLengthOutOfRange), "Word length outside 3–32 characters")
+        XCTAssertEqual(Presentation.counterLabel(.evidenceLengthOutOfRange), "Word length outside 3–32 letters")
         XCTAssertEqual(Presentation.belowMarginHelp,
                        "No candidate was clearly better, or the candidate would only have completed the word. Can come from tap positions or the spelling check.")
         XCTAssertEqual(stats.choices.map(\.count), [16, 28, 42, 11])
@@ -177,7 +177,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         let expected: [KeyboardDiagnostics.Counter: String] = [
             .boundaries: "Words checked", .evidenceComplete: "Tap data available",
             .evidenceMissing: "No tap data, or taps discarded",
-            .evidenceLengthOutOfRange: "Word length outside 3–32 characters",
+            .evidenceLengthOutOfRange: "Word length outside 3–32 letters",
             .evidenceUnsupported: "Characters not supported (a–z only)",
             .autoSpatialSameLength: "Same length", .autoSpatialEdit: "Letter missing, extra or swapped",
             .autoSpellingFallback: "Replaced by spelling check", .autoRule: "Replaced by a rule or text replacement",
@@ -377,6 +377,16 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testSharedHelpMatchesFinalCopyWithoutDependingOnSectionOrder() {
+        XCTAssertEqual(DiagnosticsCopy.requirement,
+            "Typr saves these counts only when the full keyboard is used with Full Access. This page can't tell which applies.")
+        XCTAssertEqual(DiagnosticsCopy.undoHelp,
+            "This counts immediate undos after automatic replacements, not accuracy. Fixing a word by hand isn't counted, and no undo doesn't show that a replacement was wanted.")
+        XCTAssertEqual(DiagnosticsCopy.savedNowHelp,
+            "What the saved model holds. It can cover a different period than the learning events. Older entries can be dropped.")
+    }
+
+    @MainActor
     func testLearningOffPreservesProtectionEventsAndUsesApprovedExplanation() throws {
         let off = readout(.learningOff)
         XCTAssertFalse(off.learningEnabled)
@@ -385,7 +395,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         XCTAssertEqual(readout().learningExplanation,
             "Typr adapts to your taps, word counts and word contexts. Without Full Access, learning lasts only for the keyboard session and can't be shown here.")
         XCTAssertEqual(Presentation.learningEventsHelp,
-            "Counts of learning events in the available statistics. Repeating the same word counts again. These are events, not the number of different words. Words you kept and corrections rejected can increase while learning is off.")
+            "Counts of learning events in the available statistics. Repeating the same word counts again. These are events, not the number of different words. Kept words and rejected corrections can increase while learning is off.")
         let events = try XCTUnwrap(off.statistics).learningEvents
         XCTAssertEqual(events.map(\.count), [750, 16, 9])
         XCTAssertEqual(off.learning?.keptWords, 2)
@@ -453,9 +463,15 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
         }
         let sampled = layout.keys[1]
         XCTAssertEqual(sampled.accessibilityLabel(locale: Locale(identifier: "en_US")),
-                       "B, 19 tap examples, model offset 0.12 key spacings right, 0.06 up")
-        XCTAssertFalse(sampled.accessibilityLabel().contains("degrees"))
-        XCTAssertFalse(sampled.accessibilityLabel().contains("Fewer"))
+                       "B, 19 tap examples, Fewer than 20 tap examples, model offset 0.12 key spacings right, 0.06 up")
+        for (index, status) in [(1, "Fewer than 20 tap examples"), (2, "20 or more tap examples"),
+                                (3, "20 or more tap examples")] {
+            let key = layout.keys[index]
+            XCTAssertEqual(key.accessibilityLabel(locale: Locale(identifier: "en_US")),
+                           "\(key.id), \(key.n) tap examples, \(status), model offset \(try XCTUnwrap(key.offset))")
+            XCTAssertFalse(key.accessibilityLabel().contains("degrees"))
+            XCTAssertFalse(key.accessibilityLabel().contains("half-lengths"))
+        }
         XCTAssertTrue(sampled.shapeAccessibilityLabel.contains("About"))
         XCTAssertEqual(layout.keys[0].accessibilityLabel(), "A, no tap examples, model offset not available")
         XCTAssertEqual(layout.keys[0].shapeAccessibilityLabel, "A, model shape not available")
@@ -514,7 +530,7 @@ final class KeyboardDiagnosticsPresentationTests: XCTestCase {
                     let signature = KeyboardLayoutSignature(KeyboardLayout(width: 392, orientation: orientation,
                         showsGlobe: globe, showsStrip: strip))
                     XCTAssertEqual(Presentation.layoutTitle(signature, locale: Locale(identifier: "en_US")),
-                        "\(orientation == .portrait ? "Portrait" : "Landscape"), 392 pt, \(strip ? "suggestion bar" : "no suggestion bar"), \(globe ? "globe key" : "no globe key")")
+                        "\(orientation == .portrait ? "Portrait" : "Landscape"), 392 pt, \(strip ? "suggestions" : "no suggestions"), \(globe ? "globe" : "no globe")")
                 }
             }
         }

@@ -7,8 +7,8 @@ struct KeyboardDiagnosticsWordChecksView: View {
     private typealias Presentation = KeyboardDiagnosticsPresentation
 
     var body: some View {
+        scope
         if let statistics = readout.statistics {
-            scope(statistics)
             decisions(statistics)
             afterReplacement(statistics)
             tapData(statistics)
@@ -16,24 +16,24 @@ struct KeyboardDiagnosticsWordChecksView: View {
             byMethod(statistics)
             otherChoices(statistics)
             letterTaps(statistics)
-        } else {
-            DiagnosticsSection {
-                DiagnosticsUnavailable(area: .statistics, scope: readout.scope)
-            }
         }
     }
 
-    private func scope(_ statistics: Presentation.Statistics) -> some View {
+    private var scope: some View {
         DiagnosticsSection {
             if let since = readout.scope.statisticsSince {
                 DiagnosticsNote(DiagnosticsCopy.period(since))
             }
-            let population = statistics.decisions.population
-            if population > 0 {
-                DiagnosticsValueRow(label: "Words checked", value: Presentation.integer(population))
-                DiagnosticsNote("Based on \(Presentation.integer(population)) words checked.")
+            if let statistics = readout.statistics {
+                let population = statistics.decisions.population
+                if population > 0 {
+                    DiagnosticsValueRow(label: "Words checked", value: Presentation.integer(population))
+                    DiagnosticsNote("Based on \(Presentation.integer(population)) words checked.")
+                } else {
+                    DiagnosticsNote(DiagnosticsCopy.noWordChecks)
+                }
             } else {
-                DiagnosticsNote(DiagnosticsCopy.noWordChecks)
+                DiagnosticsUnavailable(area: .statistics, scope: readout.scope)
             }
             DiagnosticsNote("A word is counted only when autocorrection is on, the text field allows it and a word is present.")
         }
@@ -50,7 +50,8 @@ struct KeyboardDiagnosticsWordChecksView: View {
         return DiagnosticsSection {
             DiagnosticsDecisions(
                 partition: statistics.decisions,
-                heading: "What Typr did with each of \(population) words",
+                heading: statistics.decisions.population > 0
+                    ? "What Typr did with each of \(population) words" : "Recorded decisions",
                 scale: "Full bar = all \(population) words checked.")
             DiagnosticsComparisonRow(
                 label: "Replaced automatically", comparison: statistics.automatic, unit: "words",
@@ -107,10 +108,7 @@ struct KeyboardDiagnosticsWordChecksView: View {
         DiagnosticsSection(title: "By method") {
             DiagnosticsNote("Tap-position undos combine same-length and letter-edit replacements.")
             ForEach(statistics.methods) { method in
-                DiagnosticsComparisonRow(
-                    label: Presentation.counterLabel(method.id), comparison: method.comparison,
-                    unit: "replacements", numeratorLabel: Presentation.counterLabel(method.id),
-                    emptyText: DiagnosticsCopy.noAutomatic)
+                DiagnosticsMethodFeedback(method: method)
             }
         }
     }

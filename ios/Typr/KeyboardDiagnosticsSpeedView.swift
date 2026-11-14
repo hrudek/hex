@@ -9,14 +9,14 @@ struct KeyboardDiagnosticsSpeedView: View {
     private typealias Presentation = KeyboardDiagnosticsPresentation
 
     var body: some View {
-        if let statistics = readout.statistics {
-            DiagnosticsSection {
-                DiagnosticsNote("Measured inside the keyboard on this iPhone. This is not typing speed and not the time until text appears on screen. Duration classes get wider to the right.")
-                DiagnosticsDisclosure(title: "What is measured") {
-                    DiagnosticsNote("Word check time covers the decision and its bookkeeping at a word boundary. It doesn't include inserting the result into the text field or drawing it on screen.")
-                    DiagnosticsNote("Suggestion search time covers counted searches. Depending on the search path, it can include finding completions and building rankings. Searches that reuse an earlier result aren't counted. The two timings don't cover identical work.")
-                }
+        DiagnosticsSection {
+            DiagnosticsNote("Measured inside the keyboard on this iPhone. This is not typing speed and not the time until text appears on screen. Duration classes get wider to the right.")
+            DiagnosticsDisclosure(title: "What is measured") {
+                DiagnosticsNote("Word check time covers the decision and its bookkeeping at a word boundary. It doesn't include inserting the result into the text field or drawing it on screen.")
+                DiagnosticsNote("Suggestion search time covers counted searches. Depending on the search path, it can include finding completions and building rankings. Searches that reuse an earlier result aren't counted. The two timings don't cover identical work.")
             }
+        }
+        if let statistics = readout.statistics {
             group(title: "Word check time", tableTitle: "Word check measurements",
                   latency: statistics.wordCheckTime, counterLabel: "Recorded word checks")
             group(title: "Suggestion search time", tableTitle: "Suggestion search measurements",

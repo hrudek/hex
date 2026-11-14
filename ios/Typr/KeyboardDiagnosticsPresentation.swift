@@ -179,7 +179,7 @@ extension KeyboardDiagnosticsPresentation {
         var directionText: String { direction ?? "Not available" }
         func accessibilityLabel(locale: Locale = .current) -> String {
             guard let offset else { return "\(id), no tap examples, model offset not available" }
-            return "\(id), \(KeyboardDiagnosticsPresentation.integer(n, locale: locale)) tap examples, model offset \(offset)"
+            return "\(id), \(KeyboardDiagnosticsPresentation.integer(n, locale: locale)) tap examples, \(status.text), model offset \(offset)"
         }
         var shapeAccessibilityLabel: String {
             guard let halfLengths, let direction else { return "\(id), model shape not available" }
@@ -236,7 +236,7 @@ extension KeyboardDiagnosticsPresentation {
 
     static let learningOnText = "Typr adapts to your taps, word counts and word contexts. Without Full Access, learning lasts only for the keyboard session and can't be shown here."
     static let learningOffText = "Typr doesn't learn new taps, word counts or word contexts, and doesn't use them for suggestions or tap positions. Saved data stays. Kept words and rejected corrections still prevent unwanted replacements, and undoing a replacement still saves a rejected correction."
-    static let learningEventsHelp = "Counts of learning events in the available statistics. Repeating the same word counts again. These are events, not the number of different words. Words you kept and corrections rejected can increase while learning is off."
+    static let learningEventsHelp = "Counts of learning events in the available statistics. Repeating the same word counts again. These are events, not the number of different words. Kept words and rejected corrections can increase while learning is off."
     static let belowMarginHelp = "No candidate was clearly better, or the candidate would only have completed the word. Can come from tap positions or the spelling check."
 
     static func make(snapshot: KeyboardLearningSnapshot, learningEnabled: Bool, now: Date,
@@ -321,7 +321,7 @@ extension KeyboardDiagnosticsPresentation {
     }
 
     static func layoutTitle(_ signature: KeyboardLayoutSignature, locale: Locale = .current) -> String {
-        "\(signature.orientation == "landscape" ? "Landscape" : "Portrait"), \(integer(signature.widthBucket, locale: locale)) pt, \(signature.showsStrip ? "suggestion bar" : "no suggestion bar"), \(signature.showsGlobe ? "globe key" : "no globe key")"
+        "\(signature.orientation == "landscape" ? "Landscape" : "Portrait"), \(integer(signature.widthBucket, locale: locale)) pt, \(signature.showsStrip ? "suggestions" : "no suggestions"), \(signature.showsGlobe ? "globe" : "no globe")"
     }
 
     static func keyRows(_ layout: PersonalTypingModel.LayoutSummary, locale: Locale = .current) -> [KeyRow] {
@@ -350,7 +350,7 @@ extension KeyboardDiagnosticsPresentation {
         switch counter {
         case .evidenceComplete: "Tap data available"
         case .evidenceMissing: "No tap data, or taps discarded"
-        case .evidenceLengthOutOfRange: "Word length outside 3–32 characters"
+        case .evidenceLengthOutOfRange: "Word length outside 3–32 letters"
         case .evidenceUnsupported: "Characters not supported (a–z only)"
         case .autoSpatialSameLength: "Same length"
         case .autoSpatialEdit: "Letter missing, extra or swapped"

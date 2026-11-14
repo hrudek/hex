@@ -145,7 +145,7 @@ struct KeyboardDiagnosticsView: View {
 
     @ViewBuilder private var howToRead: some View {
         DiagnosticsNote("A count shows how often something was recorded. 0 means none was recorded, not that everything works or that nothing happened.")
-        DiagnosticsNote("Counts cover the available statistics period shown here. Saved learning data can cover a different period. A 0 can also mean the counter didn't exist yet when the statistics period began. Counters added in a later Typr version count only from that update, so they can cover a shorter period than shown here. Small counts can change a lot with a few more events.")
+        DiagnosticsNote("Counts cover the available statistics period shown here. Saved learning data can cover a different period. A 0 can also mean the counter didn't exist yet when the statistics period began. Small counts can change a lot with a few more events.")
         DiagnosticsNote("Typr can't tell whether an automatic replacement was right. It only sees some actions afterwards, such as an immediate undo.")
         DiagnosticsNote("This page shows only what the keyboard has saved. It can't show anything the keyboard hasn't saved yet, and it can't tell whether Full Access is on right now.")
         DiagnosticsNote("File information and a successful read do not confirm that every saved file was usable. The available statistics period may come from an empty replacement for missing or unusable data, not from a reset.")
@@ -158,14 +158,8 @@ struct KeyboardDiagnosticsView: View {
                 let population = statistics.decisions.population
                 DiagnosticsValueRow(label: "Words checked", value: Presentation.integer(population))
                 DiagnosticsNote("Words Typr checked for autocorrection at a word boundary. Not every word you typed.")
-                if population == 0 {
-                    DiagnosticsNote(DiagnosticsCopy.noWordChecks)
-                } else {
-                    DiagnosticsComparisonRow(
-                        label: "Replaced automatically", comparison: statistics.automatic, unit: "words",
-                        numeratorLabel: "Automatic replacements", emptyText: DiagnosticsCopy.noWordChecks)
-                    DiagnosticsNote("Words Typr changed by itself, by any method.")
-                }
+                Self.automaticComparison(statistics)
+                DiagnosticsNote("Words Typr changed by itself, by any method.")
             } else {
                 DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
             }
@@ -175,15 +169,24 @@ struct KeyboardDiagnosticsView: View {
     private func wordChecks(_ readout: Presentation.Readout) -> some View {
         DiagnosticsSection(title: "Word checks") {
             if let statistics = readout.statistics {
-                if statistics.decisions.population > 0 {
-                    DiagnosticsDecisions(partition: statistics.decisions, heading: "Recorded decisions",
-                                         scale: "Full bar = all words checked.")
-                }
-                DiagnosticsDestinationLink(title: "Word checks in detail", destination: .keyboardDiagnosticsWordChecks)
+                Self.recordedDecisions(statistics)
             } else {
                 DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
             }
+            DiagnosticsDestinationLink(title: "Word checks in detail", destination: .keyboardDiagnosticsWordChecks)
         }
+    }
+
+    // Keep these actual overview components testable, including N = 0 with nonzero decisions.
+    static func automaticComparison(_ statistics: KeyboardDiagnosticsPresentation.Statistics) -> DiagnosticsComparisonRow {
+        DiagnosticsComparisonRow(
+            label: "Replaced automatically", comparison: statistics.automatic, unit: "words",
+            numeratorLabel: "Automatic replacements", emptyText: DiagnosticsCopy.noWordChecks)
+    }
+
+    static func recordedDecisions(_ statistics: KeyboardDiagnosticsPresentation.Statistics) -> DiagnosticsDecisions {
+        DiagnosticsDecisions(partition: statistics.decisions, heading: "Recorded decisions",
+                             scale: "Full bar = all words checked.")
     }
 
     private func afterReplacement(_ readout: Presentation.Readout) -> some View {
@@ -225,10 +228,10 @@ struct KeyboardDiagnosticsView: View {
                 DiagnosticsNote("Measured inside the keyboard on this iPhone. This is not typing speed.")
                 DiagnosticsLatencySummary(title: "Word check time", latency: statistics.wordCheckTime)
                 DiagnosticsLatencySummary(title: "Suggestion search time", latency: statistics.suggestionTime)
-                DiagnosticsDestinationLink(title: "Speed in detail", destination: .keyboardDiagnosticsSpeed)
             } else {
                 DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
             }
+            DiagnosticsDestinationLink(title: "Speed in detail", destination: .keyboardDiagnosticsSpeed)
         }
     }
 

@@ -119,6 +119,81 @@ final class KeyboardDiagnosticsLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testMethodComponentsRenderBothAbsoluteCountsWithExplicitLabels() throws {
+        for scenario in 0..<3 {
+            var diagnostics = KeyboardDiagnostics(now: KeyboardDiagnosticsFixture.now)
+            // 0: u > x; 1: u > 0, x = 0; 2: u <= x but the total partition is invalid.
+            let hasReplacements = scenario != 1
+            diagnostics.increment(.boundaries, by: scenario == 2 ? 20 : hasReplacements ? 6 : 0)
+            diagnostics.increment(.autoSpatialSameLength, by: hasReplacements ? 1 : 0)
+            diagnostics.increment(.autoSpatialEdit, by: hasReplacements ? 1 : 0)
+            diagnostics.increment(.autoSpellingFallback, by: hasReplacements ? 2 : 0)
+            diagnostics.increment(.autoRule, by: hasReplacements ? 2 : 0)
+            let undos = scenario == 0 ? 3 : 1
+            for counter in [Presentation.Counter.undoSpatial, .undoSpelling, .undoRule] {
+                diagnostics.increment(counter, by: undos)
+            }
+            let statistics = try self.statistics(diagnostics)
+            XCTAssertEqual(statistics.methods.map(\.id), [.undoSpatial, .undoSpelling, .undoRule])
+            for method in statistics.methods {
+                let component = DiagnosticsMethodFeedback(method: method)
+                let row = component.comparisonRow
+                XCTAssertEqual(row.comparison.status, .incomparable)
+                XCTAssertEqual(row.absoluteRows.map(\.label), ["Automatic replacements", "Recorded undos"])
+                XCTAssertEqual(row.absoluteRows.map(\.value),
+                               [Presentation.integer(hasReplacements ? 2 : 0), Presentation.integer(undos)])
+                XCTAssertEqual(row.label, "Undone")
+                XCTAssertEqual(row.emptyText, DiagnosticsCopy.noAutomatic)
+            }
+        }
+    }
+
+    @MainActor
+    func testOverviewComponentsKeepNonzeroDecisionsAtZeroPopulationWithoutRatiosOrTracks() throws {
+        var diagnostics = KeyboardDiagnostics(now: KeyboardDiagnosticsFixture.now)
+        diagnostics.increment(.autoRule, by: 2)
+        diagnostics.increment(.unchanged, by: 3)
+        let statistics = try self.statistics(diagnostics)
+        let decisions = KeyboardDiagnosticsView.recordedDecisions(statistics)
+        XCTAssertEqual(decisions.heading, "Recorded decisions")
+        XCTAssertEqual(decisions.partition.population, 0)
+        XCTAssertEqual(decisions.partition.rows.map(\.count), [0, 0, 0, 2, 3])
+        XCTAssertFalse(decisions.partition.canShowParts)
+        XCTAssertEqual(decisions.partition.inconsistencyText(locale: Locale(identifier: "en_US")),
+                       "These counts add up to 5, not 0. Some counters may be incomplete.")
+        let automatic = KeyboardDiagnosticsView.automaticComparison(statistics)
+        XCTAssertEqual(automatic.comparison.status, .incomparable)
+        XCTAssertEqual(automatic.absoluteRows.map(\.label), ["Automatic replacements"])
+        XCTAssertEqual(automatic.absoluteRows.map(\.value), ["2"])
+        let empty = try self.statistics(KeyboardDiagnostics(now: KeyboardDiagnosticsFixture.now))
+        XCTAssertEqual(KeyboardDiagnosticsView.automaticComparison(empty).comparison.status, .empty)
+        XCTAssertTrue(KeyboardDiagnosticsView.automaticComparison(empty).absoluteRows.isEmpty)
+        let emptyDecisions = KeyboardDiagnosticsView.recordedDecisions(empty).partition
+        XCTAssertEqual(emptyDecisions.sum, 0)
+        XCTAssertFalse(emptyDecisions.canShowParts)
+        XCTAssertNil(emptyDecisions.inconsistencyText())
+    }
+
+    @MainActor
+    func testChartHeightsRemainProportionalForVeryUnequalCounts() throws {
+        let latency = Presentation.latency(buckets: [1, 0, 0, 0, 0, 0, Int(Int32.max)], referenceCount: 0)
+        let chart = KeyboardDiagnosticsSpeedView.chart(title: "Word check time", latency: latency)
+        XCTAssertEqual(chart.barHeight(for: 0), 0)
+        XCTAssertEqual(chart.barHeight(for: Int(Int32.max)), 140)
+        XCTAssertEqual(chart.barHeight(for: 1), 140 / CGFloat(Int32.max), accuracy: 0.000000000001)
+        XCTAssertLessThan(chart.barHeight(for: 1), 1)
+        try assertDescriptor(chart)
+        // Hosting is a sizing check, not visual evidence for axes, contour or dashed line.
+        for width in [280, 320] {
+            let host = UIHostingController(rootView: chart)
+            let size = host.sizeThatFits(in: CGSize(width: CGFloat(width), height: 10_000))
+            XCTAssertTrue(size.height.isFinite)
+            XCTAssertGreaterThan(size.height, 0)
+            XCTAssertLessThanOrEqual(size.width, CGFloat(width) + 0.5)
+        }
+    }
+
+    @MainActor
     func testDescriptorUpdateReplacesStaleCategoriesAndCounts() throws {
         let statistics = try XCTUnwrap(readout(.populated).statistics)
         let original = KeyboardDiagnosticsSpeedView.chart(title: "Word check time", latency: statistics.wordCheckTime)
@@ -134,7 +209,7 @@ final class KeyboardDiagnosticsLayoutTests: XCTestCase {
         XCTAssertEqual(descriptor.series.first?.dataPoints.count, 26)
         for (point, bar) in zip(try XCTUnwrap(descriptor.series.first).dataPoints, updated.bars) {
             XCTAssertEqual(point.label, bar.accessibilityLabel)
-            XCTAssertEqual(try XCTUnwrap(point.yValue).number, Double(bar.value))
+            XCTAssertEqual(try XCTUnwrap(point.yValue).__number, Double(bar.value))
         }
     }
 
@@ -174,10 +249,19 @@ final class KeyboardDiagnosticsLayoutTests: XCTestCase {
         XCTAssertFalse(series.isContinuous, file: file, line: line)
         XCTAssertEqual(series.dataPoints.count, chart.bars.count, file: file, line: line)
         for (point, bar) in zip(series.dataPoints, chart.bars) {
-            XCTAssertEqual(point.xValue.category, bar.category, file: file, line: line)
-            XCTAssertEqual(try XCTUnwrap(point.yValue, file: file, line: line).number, Double(bar.value), file: file, line: line)
+            XCTAssertEqual(point.xValue.__category, bar.category, file: file, line: line)
+            XCTAssertEqual(try XCTUnwrap(point.yValue, file: file, line: line).__number, Double(bar.value), file: file, line: line)
             XCTAssertEqual(point.label, bar.accessibilityLabel, file: file, line: line)
         }
+    }
+
+    @MainActor
+    private func statistics(_ diagnostics: KeyboardDiagnostics) throws -> Presentation.Statistics {
+        let base = KeyboardDiagnosticsFixture.snapshot(state: .populated)
+        let readout = Presentation.make(snapshot: .init(model: base.model, diagnostics: diagnostics,
+            learningFile: base.learningFile, diagnosticsFile: base.diagnosticsFile, isPersistent: true),
+            learningEnabled: true, now: KeyboardDiagnosticsFixture.now)
+        return try XCTUnwrap(readout.statistics)
     }
 
     @MainActor

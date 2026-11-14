@@ -110,13 +110,17 @@ struct DiagnosticsBarChart: View {
         .accessibilityHidden(true)
     }
 
+    /// Exact proportional height: tiny positive counts must not be inflated to a minimum visible bar.
+    func barHeight(for value: Int) -> CGFloat {
+        plotHeight * CGFloat(min(1, max(0, Double(value) / Double(yMax))))
+    }
+
     private func barShape(_ bar: DiagnosticsBar) -> some View {
-        let fraction = min(1, max(0, Double(bar.value) / Double(yMax)))
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             Spacer(minLength: 0)
             RoundedRectangle(cornerRadius: 2)
                 .fill(TyprTheme.agentBlue)
-                .frame(height: max(bar.value > 0 ? 2 : 0, plotHeight * CGFloat(fraction)))
+                .frame(height: barHeight(for: bar.value))
                 .overlay {
                     if bar.isMarked {
                         RoundedRectangle(cornerRadius: 2)
