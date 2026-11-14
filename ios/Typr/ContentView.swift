@@ -24,6 +24,13 @@ private struct AppWarmRemainingLabel: View {
 }
 
 struct ContentView: View {
+    /// Shared by the actual navigation path and tests; ordinary launches keep the existing store-backed page.
+    nonisolated static func learnedWordsUsesFixture(arguments: [String]) -> Bool {
+        if KeyboardDiagnosticsFixture.scene(arguments: arguments) != nil { return true }
+        guard let index = arguments.firstIndex(of: "--snap-state"), index + 1 < arguments.count else { return false }
+        return arguments[index + 1] == "settings-keyboard-learned-words"
+    }
+
     private enum AppStageMode: Equatable {
         case idle
         case recording
@@ -147,17 +154,24 @@ struct ContentView: View {
             settingsOverview
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: SettingsDestination.self) { destination in
-                    if destination == .keyboardDiagnostics {
+                    if let page = destination.diagnosticsPage {
                         // Owns its SettingsPage so pull-to-refresh reaches the scroll view.
-                        KeyboardDiagnosticsView()
+                        // A snapshot process gives every pushed diagnostics page the same synthetic state.
+                        KeyboardDiagnosticsView(
+                            page: page,
+                            context: KeyboardDiagnosticsFixture.context(arguments: ProcessInfo.processInfo.arguments)?
+                                .navigating(to: page))
                     } else if destination == .keyboardLearnedWords {
-                        KeyboardLearnedWordsView()
+                        KeyboardLearnedWordsView(
+                            fixture: Self.learnedWordsUsesFixture(arguments: ProcessInfo.processInfo.arguments))
                     } else {
                         SettingsPage(title: destination.title, subtitle: destination.subtitle) {
                             switch destination {
                             case .keyboard: KeyboardSettingsCard()
                             case .autocorrectLanguages: AutocorrectLanguageSettingsCard()
-                            case .keyboardDiagnostics, .keyboardLearnedWords: EmptyView() // Handled above.
+                            case .keyboardDiagnostics, .keyboardDiagnosticsWordChecks, .keyboardDiagnosticsSpeed,
+                                 .keyboardDiagnosticsLearning, .keyboardLearnedWords:
+                                EmptyView() // Handled above.
                             case .textProcessing: TextProcessingSettingsCard()
                             case .cleanupPrompt: CleanupPromptEditor()
                             case .history: HistorySettingsCard { showingLog = true }

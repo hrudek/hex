@@ -1,34 +1,55 @@
 import SwiftUI
 
+/// Page shell for the typing diagnostics overview and its three detail pages.
+/// Every visible page owns a read adapter, so it refreshes on appear, pull-to-refresh and scene activation.
 @MainActor
 struct KeyboardDiagnosticsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: KeyboardDiagnosticsModel
-    @State private var selectedLayout = ""
     @State private var confirmLearningReset = false
     @State private var confirmStatisticsReset = false
-    private let fixture: Bool
-    private var snapshot: KeyboardLearningSnapshot { model.snapshot }
-    private var diagnostics: KeyboardDiagnostics { snapshot.diagnostics }
+    private let page: KeyboardDiagnosticsPage
+    private let context: KeyboardDiagnosticsFixture.Context?
     private typealias Presentation = KeyboardDiagnosticsPresentation
 
-    init() {
-        let fixture = KeyboardDiagnosticsFixture.isRequested
-        self.fixture = fixture
-        _model = State(initialValue: fixture
-            ? KeyboardDiagnosticsModel(fixture: KeyboardDiagnosticsFixture.snapshot())
-            : KeyboardDiagnosticsModel())
+    /// `context` is set only by snapshot scenes; the model then stays entirely in memory.
+    init(page: KeyboardDiagnosticsPage = .overview, context: KeyboardDiagnosticsFixture.Context? = nil) {
+        self.page = page
+        self.context = context
+        _model = State(initialValue: context.map {
+            KeyboardDiagnosticsModel(fixture: $0.snapshot, learningEnabled: $0.learningEnabled)
+        } ?? KeyboardDiagnosticsModel())
+    }
+
+    private var now: Date { context?.now ?? Date() }
+    private var readout: Presentation.Readout {
+        Presentation.make(snapshot: model.snapshot, learningEnabled: model.learningEnabled, now: now)
+    }
+
+    private var title: String {
+        switch page {
+        case .overview: "Typing diagnostics"
+        case .wordChecks: "Word checks"
+        case .speed: "Speed"
+        case .learning: "Learning"
+        }
     }
 
     var body: some View {
-        SettingsPage(title: "Typing diagnostics", subtitle: "") {
-            status
-            overview
-            decisions
-            feedback
-            speed
-            learning
-            storage
+        SettingsPage(title: title, subtitle: "") {
+            switch page {
+            case .overview:
+                overview(readout)
+            case .wordChecks:
+                detailNotice(readout)
+                KeyboardDiagnosticsWordChecksView(readout: readout)
+            case .speed:
+                detailNotice(readout)
+                KeyboardDiagnosticsSpeedView(readout: readout)
+            case .learning:
+                detailNotice(readout)
+                KeyboardDiagnosticsLearningView(readout: readout, initialLayoutID: context?.removedLayoutID)
+            }
         }
         .refreshable { @MainActor in model.refresh() }
         .onAppear { model.startObserving() }
@@ -48,205 +69,218 @@ struct KeyboardDiagnosticsView: View {
         }
     }
 
-    private var status: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let updated = Presentation.updatedAt(snapshot) {
-                if fixture {
-                    Text("Updated 2 minutes ago")
+    // MARK: Overview
+
+    @ViewBuilder private func overview(_ readout: Presentation.Readout) -> some View {
+        header(readout)
+        atAGlance(readout)
+        wordChecks(readout)
+        afterReplacement(readout)
+        learning(readout)
+        speed(readout)
+        savedData(readout)
+    }
+
+    /// Scope: intro, available period, one last-saved line, at most one notice, reading help.
+    private func header(_ readout: Presentation.Readout) -> some View {
+        let scope = readout.scope
+        return DiagnosticsSection {
+            DiagnosticsNote("Counts of what the Typr keyboard did and what you did next, collected on this iPhone. They show what happened, not whether a correction was right.")
+            if let since = scope.statisticsSince {
+                DiagnosticsNote(DiagnosticsCopy.period(since))
+            }
+            Text(lastSaved(scope))
+                .font(.subheadline)
+                .foregroundStyle(TyprTheme.textBase)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let notice = scope.notice {
+                noticeView(notice)
+            }
+            if !scope.statisticsAvailable && !scope.learningAvailable {
+                DiagnosticsNote(DiagnosticsCopy.noData)
+                DiagnosticsNote(DiagnosticsCopy.requirement)
+            }
+            DiagnosticsDisclosure(title: "How to read this page") { howToRead }
+        }
+    }
+
+    /// Detail pages repeat only the single warning or information notice.
+    @ViewBuilder private func detailNotice(_ readout: Presentation.Readout) -> some View {
+        if let notice = readout.scope.notice {
+            DiagnosticsSection { noticeView(notice) }
+        }
+    }
+
+    private func lastSaved(_ scope: Presentation.Scope) -> String {
+        guard let savedAt = scope.savedAt else { return "No saved file information available" }
+        let relative = DiagnosticsCopy.relative(savedAt, now: now)
+        switch scope.savedTimeSource {
+        case .both: return "Last saved \(relative)"
+        case .statisticsOnly: return "Last saved \(relative) (statistics only)"
+        case .learningOnly: return "Last saved \(relative) (learning data only)"
+        case .none: return "No saved file information available"
+        }
+    }
+
+    /// Unreadable data is a warning; a stale file is neutral information. Both say what they mean in text.
+    @ViewBuilder private func noticeView(_ notice: Presentation.Scope.Notice) -> some View {
+        switch notice {
+        case .unreadable:
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(TyprTheme.warmMic)
+                    .accessibilityHidden(true)
+                Text(notice.text)
+                    .font(.subheadline)
+                    .foregroundStyle(TyprTheme.textBase)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+        case .stale:
+            DiagnosticsNote(notice.text)
+        }
+    }
+
+    @ViewBuilder private var howToRead: some View {
+        DiagnosticsNote("A count shows how often something was recorded. 0 means none was recorded, not that everything works or that nothing happened.")
+        DiagnosticsNote("Counts cover the available statistics period shown here. Saved learning data can cover a different period. A 0 can also mean the counter didn't exist yet when the statistics period began. Small counts can change a lot with a few more events.")
+        DiagnosticsNote("Typr can't tell whether an automatic replacement was right. It only sees some actions afterwards, such as an immediate undo.")
+        DiagnosticsNote("This page shows only what the keyboard has saved. It can't show anything the keyboard hasn't saved yet, and it can't tell whether Full Access is on right now.")
+        DiagnosticsNote("File information and a successful read do not confirm that every saved file was usable. The available statistics period may come from an empty replacement for missing or unusable data, not from a reset.")
+        DiagnosticsNote(DiagnosticsCopy.requirement)
+    }
+
+    private func atAGlance(_ readout: Presentation.Readout) -> some View {
+        DiagnosticsSection(title: "At a glance") {
+            if let statistics = readout.statistics {
+                let population = statistics.decisions.population
+                DiagnosticsValueRow(label: "Words checked", value: Presentation.integer(population))
+                DiagnosticsNote("Words Typr checked for autocorrection at a word boundary. Not every word you typed.")
+                Self.automaticComparison(statistics)
+                DiagnosticsNote("Words Typr changed by itself, by any method.")
+            } else {
+                DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
+            }
+        }
+    }
+
+    private func wordChecks(_ readout: Presentation.Readout) -> some View {
+        DiagnosticsSection(title: "Word checks") {
+            if let statistics = readout.statistics {
+                Self.recordedDecisions(statistics)
+            } else {
+                DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
+            }
+            DiagnosticsDestinationLink(title: "Word checks in detail", destination: .keyboardDiagnosticsWordChecks)
+        }
+    }
+
+    // Keep these actual overview components testable, including N = 0 with nonzero decisions.
+    static func automaticComparison(_ statistics: KeyboardDiagnosticsPresentation.Statistics) -> DiagnosticsComparisonRow {
+        DiagnosticsComparisonRow(
+            label: "Replaced automatically", comparison: statistics.automatic, unit: "words",
+            numeratorLabel: "Automatic replacements", emptyText: DiagnosticsCopy.noWordChecks)
+    }
+
+    static func recordedDecisions(_ statistics: KeyboardDiagnosticsPresentation.Statistics) -> DiagnosticsDecisions {
+        DiagnosticsDecisions(partition: statistics.decisions, heading: "Recorded decisions",
+                             scale: "Full bar = all words checked.")
+    }
+
+    private func afterReplacement(_ readout: Presentation.Readout) -> some View {
+        DiagnosticsSection(title: "After an automatic replacement") {
+            if let statistics = readout.statistics {
+                DiagnosticsUndoSummary(statistics: statistics)
+            } else {
+                DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
+            }
+        }
+    }
+
+    private func learning(_ readout: Presentation.Readout) -> some View {
+        DiagnosticsSection(title: "Learning") {
+            DiagnosticsValueRow(label: "Learn from my typing", value: readout.learningEnabled ? "On" : "Off")
+            DiagnosticsNote(readout.learningExplanation)
+            if let learning = readout.learning {
+                DiagnosticsSubheading("Saved now")
+                DiagnosticsNote("A limited set of saved entries, not lifetime totals.")
+                DiagnosticsValueRow(label: "Words with a saved count", value: Presentation.integer(learning.countedWords))
+                DiagnosticsValueRow(label: "Kept words", value: Presentation.integer(learning.keptWords))
+                DiagnosticsValueRow(label: "Next-word links", value: Presentation.integer(learning.storedPairs))
+                DiagnosticsValueRow(label: "Rejected corrections", value: Presentation.integer(learning.rejectedCorrections))
+                if let layout = learning.selectedLayout(id: nil) {
+                    DiagnosticsNote(layout.coverageText())
                 } else {
-                    Text("Updated \(updated.formatted(.relative(presentation: .named)))")
+                    DiagnosticsNote("No saved tap map to show.")
                 }
             } else {
-                Text("No saved snapshot yet")
+                DiagnosticsUnavailable(area: .learning, scope: readout.scope, showsRequirement: false)
             }
-            if let note = Presentation.availability(snapshot, now: fixture ? KeyboardDiagnosticsFixture.now : Date()) {
-                Text(note)
-            }
-            Text("Saved snapshots are not live permission checks. The app cannot confirm whether Full Access is currently on.")
-        }
-        .font(.footnote).foregroundStyle(TyprTheme.textMuted)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-    }
-
-    private var overview: some View {
-        section("Overview") {
-            metric("Words checked", diagnostics[.boundaries].formatted())
-            note("Since \(diagnostics.since.formatted(date: .abbreviated, time: .shortened)). Counted at word boundaries, not every keystroke.")
-            metric("Touch evidence complete", Presentation.share(diagnostics[.evidenceComplete], of: diagnostics[.boundaries]))
-            DisclosureGroup("Missing touch evidence") {
-                counterRows([.evidenceMissing, .evidenceLengthOutOfRange, .evidenceUnsupported])
-            }
+            DiagnosticsDestinationLink(title: "Learning in detail", destination: .keyboardDiagnosticsLearning)
         }
     }
 
-    private var decisions: some View {
-        section("Decisions") {
-            note("Automatic replacements by path, and words left unchanged.")
-            counterBars(Presentation.decisions)
-            metric("Reattributed letter taps", diagnostics[.reattributedTaps].formatted())
-            note("Near-boundary letter taps attributed using learned aim and the current prefix. Not a measure of accuracy.")
-            DisclosureGroup("Paths that declined to replace") {
-                counterBars(Presentation.refusals)
-                note("A later path may still have replaced the word. These are not additional word boundaries.")
+    private func speed(_ readout: Presentation.Readout) -> some View {
+        DiagnosticsSection(title: "Speed") {
+            if let statistics = readout.statistics {
+                DiagnosticsNote("Measured inside the keyboard on this iPhone. This is not typing speed.")
+                DiagnosticsLatencySummary(title: "Word check time", latency: statistics.wordCheckTime)
+                DiagnosticsLatencySummary(title: "Suggestion search time", latency: statistics.suggestionTime)
+            } else {
+                DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
             }
+            DiagnosticsDestinationLink(title: "Speed in detail", destination: .keyboardDiagnosticsSpeed)
         }
     }
 
-    private var feedback: some View {
-        section("Your feedback") {
-            metric("Undone after automatic replacement",
-                   Presentation.share(Presentation.undoTotal(diagnostics), of: Presentation.automaticTotal(diagnostics)))
-            note("Observed undo share, not accuracy. A replacement without an undo is not proof it was correct. Spatial undo counts combine same-length and letter-edit paths.")
-            counterRows(Presentation.feedback)
-        }
-    }
+    // MARK: Saved data and reset
 
-    private var speed: some View {
-        section("Speed") {
-            Text("Word decision").font(.subheadline.weight(.medium))
-            histogram(diagnostics.boundaryMs)
-            Text("Suggestions").font(.subheadline.weight(.medium))
-            histogram(diagnostics.suggestionMs)
-            metric("Suggestion searches", diagnostics[.suggestionDecodes].formatted())
-            note("Measured in the keyboard on this device. Background word-data preparation is excluded. Bars show the number of measurements in each latency bucket, not words per minute.")
-        }
-    }
-
-    private var learning: some View {
-        section("Learning") {
-            metric("Learn from my typing", model.learningEnabled ? "On" : "Off")
-            note(model.learningEnabled
-                ? "Adapts to your taps, chosen words and what follows one or two words. Without Full Access, learning lasts for the keyboard session only; that session cannot be shown here."
-                : "No new touch, word-count or word-context learning, and no personal influence. Retained aggregates stay; explicit keep protection still works.")
-            metric("Storage", snapshot.isPersistent ? "Shared storage available" : "This session only")
-            note("Saved on this iPhone when the keyboard has Full Access. Shared storage availability in the app does not prove keyboard access.")
-            DisclosureGroup("Trusted touch labels by source") {
-                ForEach(TouchLabelSource.allCases, id: \.rawValue) { source in
-                    metric(Presentation.sourceLabel(source), (snapshot.diagnostics.acceptedBySource[source.rawValue] ?? 0).formatted())
-                }
-                note("Automatic replacements alone never teach touch labels, word counts or word contexts.")
-            }
-            DisclosureGroup("Rejected touch labels") {
-                ForEach(TouchLabelRejection.allCases, id: \.rawValue) { reason in
-                    metric(Presentation.rejectionLabel(reason), (snapshot.diagnostics.rejectedByReason[reason.rawValue] ?? 0).formatted())
-                }
-            }
-            counterRows([.wordsCounted, .wordsKept, .correctionsRejected])
-            note("The event counts above cover the statistics period. Retained learning below may cover a different period and is bounded.")
-            metric("Retained counted words", snapshot.model.countedWords.formatted())
-            metric("Retained word-count total", snapshot.model.wordCountTotal.formatted())
-            metric("Retained next-word associations", snapshot.model.storedPairs.formatted())
-            metric("Next-word context storage (bound)", Presentation.fileSize(snapshot.model.pairByteBound))
-            NavigationLink("Manage learned words", value: SettingsDestination.keyboardLearnedWords)
-            metric("Retained kept words", snapshot.model.keptWords.formatted())
-            metric("Retained rejected corrections", snapshot.model.rejectedCorrections.formatted())
-            touchModel
-        }
-    }
-
-    @ViewBuilder private var touchModel: some View {
-        if snapshot.model.layouts.isEmpty {
-            note("No saved touch model yet. Trusted labels build a separate model for each keyboard layout.")
-        } else {
-            Text("Touch model").font(.subheadline.weight(.medium))
-            if snapshot.model.layouts.count > 1 {
-                Picker("Stored layout", selection: Binding(get: {
-                    snapshot.model.layouts.first(where: { $0.signature.id == selectedLayout })?.signature.id
-                        ?? snapshot.model.layouts.first?.signature.id ?? ""
-                }, set: { selectedLayout = $0 })) {
-                    ForEach(snapshot.model.layouts, id: \.signature.id) { layout in
-                        Text(KeyboardTouchGeometry.title(layout.signature)).tag(layout.signature.id)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-            if let layout = snapshot.model.layouts.first(where: { $0.signature.id == selectedLayout }) ?? snapshot.model.layouts.first {
-                Text(KeyboardTouchGeometry.title(layout.signature))
-                    .font(.footnote).foregroundStyle(TyprTheme.textMuted)
-                KeyboardTouchModelView(summary: layout)
-            }
-        }
-    }
-
-    private var storage: some View {
-        section("Stored data & reset") {
-            note("Aggregated counters, per-key offset statistics, kept words, word counts, next-word contexts and rejected corrections. Followers after one or two words, including accepted suggestions: short phrases may be revealed. No sentence archive, apps, websites or raw taps.")
-            note("Kept words, word counts, next-word contexts and rejected word pairs are personal data. They never leave this iPhone and are excluded from backup.")
-            note("Optional contacts and dictation imports use a separate bounded word list. Manage those sources in Personal names and terms. Reset learning deletes that list and turns off both imports.")
-            metric("Learning file", Presentation.fileSize(snapshot.learningFile.bytes))
-            metric("Statistics file", Presentation.fileSize(snapshot.diagnosticsFile.bytes))
-            note("Location: Typr's shared app group on this iPhone.")
-            counterRows([.storeCorruptDiscarded, .storeWriteFailed, .storeLoadDeferred])
-            if diagnostics[.storeCorruptDiscarded] > 0 {
-                note("Invalid saved data was discarded. Some aggregates may be unavailable until the keyboard saves again.")
-            }
+    private func savedData(_ readout: Presentation.Readout) -> some View {
+        DiagnosticsSection(title: "Saved data and reset") {
+            DiagnosticsNote("Typr stores aggregated counters, per-key tap statistics, kept words, word counts, next-word contexts and rejected corrections. Contexts after one or two words, including accepted suggestions, can reveal short phrases. No sentence archive, apps, websites or raw taps are stored.")
+            DiagnosticsNote("Kept words, word counts, next-word contexts and rejected word pairs are personal data. They stay on this iPhone and are excluded from backup.")
+            DiagnosticsNote("Optional contacts and dictation imports use a separate bounded word list. Manage those sources in Personal names and terms. Reset learning deletes that list and turns off both imports without deleting their sources.")
+            // The separate word list has its own synthetic content in snapshot scenes.
+            DiagnosticsDestinationLink(title: DiagnosticsCopy.manageWords, destination: .keyboardLearnedWords)
+            fileRow("Learning file", readout.scope.learningFile)
+            fileRow("Statistics file", readout.scope.statisticsFile)
+            DiagnosticsNote("Location: Typr's shared app group on this iPhone.")
+            DiagnosticsDisclosure(title: "Saving and loading") { saving(readout) }
             if let problem = model.resetProblem {
-                Text(problem).font(.subheadline).foregroundStyle(TyprTheme.warmMic)
+                Text(problem)
+                    .font(.subheadline)
+                    .foregroundStyle(TyprTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             Button("Reset learning", role: .destructive) { confirmLearningReset = true }
-                .foregroundStyle(.red)
-                .tint(.red)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .frame(minHeight: 44, alignment: .leading)
             Button("Reset statistics", role: .destructive) { confirmStatisticsReset = true }
-                .foregroundStyle(.red)
-                .tint(.red)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .frame(minHeight: 44, alignment: .leading)
         }
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        SettingsSection(title: title) {
-            VStack(alignment: .leading, spacing: 16, content: content).padding(16)
-        }
-        .foregroundStyle(TyprTheme.textBase)
-        .tint(TyprTheme.success)
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text).font(.footnote).foregroundStyle(TyprTheme.textMuted)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func metric(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Text(value).monospacedDigit().foregroundStyle(TyprTheme.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .font(.subheadline)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func counterRows(_ counters: [KeyboardDiagnostics.Counter]) -> some View {
-        ForEach(counters, id: \.rawValue) { counter in
-            metric(Presentation.label(counter), diagnostics[counter].formatted())
+    private func fileRow(_ label: String, _ file: Presentation.File) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            DiagnosticsValueRow(label: label, value: file.sizeText())
+            DiagnosticsNote(file.modifiedAt.map { "Saved \(DiagnosticsCopy.relative($0, now: now))" }
+                ?? "No saved file information available")
         }
     }
 
-    private func counterBars(_ counters: [KeyboardDiagnostics.Counter]) -> some View {
-        let maximum = counters.map { diagnostics[$0] }.max() ?? 0
-        return ForEach(counters, id: \.rawValue) { counter in
-            bar(Presentation.label(counter), count: diagnostics[counter], maximum: maximum)
-        }
-    }
-
-    private func histogram(_ counts: [Int]) -> some View {
-        ForEach(Presentation.histogramLabels.indices, id: \.self) { index in
-            bar(Presentation.histogramLabels[index], count: counts[index], maximum: counts.max() ?? 0)
-        }
-    }
-
-    private func bar(_ title: String, count: Int, maximum: Int) -> some View {
-        VStack(spacing: 6) {
-            metric(title, count.formatted())
-            GeometryReader { geometry in
-                Capsule().fill(TyprTheme.layer01)
-                Capsule().fill(TyprTheme.success.opacity(0.7))
-                    .frame(width: geometry.size.width * CGFloat(Presentation.barShare(count, maximum: maximum)))
+    @ViewBuilder private func saving(_ readout: Presentation.Readout) -> some View {
+        if let statistics = readout.statistics {
+            ForEach(statistics.storageEvents) { row in
+                DiagnosticsValueRow(label: row.label, value: Presentation.integer(row.count))
             }
-            .frame(height: 5).accessibilityHidden(true)
+            if let text = statistics.historicalStorageText() {
+                DiagnosticsNote(text)
+            }
+            DiagnosticsNote("These are recorded events, not a current storage check or a count of distinct files. The same data can be counted more than once. These counters can only be saved when saving works. 0 doesn't prove saving is fine.")
+        } else {
+            DiagnosticsUnavailable(area: .statistics, scope: readout.scope, showsRequirement: false)
         }
     }
 }
