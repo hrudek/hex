@@ -318,14 +318,26 @@ final class DictationLogControllerTests: XCTestCase {
     func testWarmSessionEndDuringAcceptedCleanupStillFinishes() async throws {
         let f = LogControllerFixture()
         f.model.suspend = true
-        f.controller.prepareModel(); try await f.settle()
-        f.controller.selectWarmDuration(.fifteenMinutes); try await f.settle()
-        f.controller.startRecording(keyboardJobID: "warm"); try await f.settle()
-        f.controller.finishRecording(); try await f.settle()
-        XCTAssertEqual(f.env.store.entries.first?.status, .transcribing)
+        try await f.waitUntil("Expected the isolated log archive to finish loading") { !f.env.store.isLoading }
+        f.controller.prepareModel()
+        try await f.waitUntil("Expected the injected transcriber to be ready") { f.controller.phase == .ready }
+        f.controller.selectWarmDuration(.fifteenMinutes)
+        try await f.waitUntil("Expected the warm session to start") { f.controller.keyboardSessionEnabled }
+        f.controller.startRecording(keyboardJobID: "warm")
+        try await f.waitUntil("Expected recording to start") { f.controller.phase == .recording }
+        f.controller.finishRecording()
+        try await f.waitUntil("Expected accepted cleanup to suspend") { f.model.gate != nil }
+        let accepted = try XCTUnwrap(f.env.store.entries.first)
+        XCTAssertEqual(accepted.status, .transcribing)
         f.controller.endWarmSession()
-        f.model.resume(); try await f.settle()
-        XCTAssertEqual(f.env.store.entries.first?.status, .finished)
+        XCTAssertFalse(f.controller.keyboardSessionEnabled)
+        XCTAssertNotNil(f.model.gate, "Ending the warm session must preserve accepted cleanup")
+        XCTAssertEqual(f.env.store.entries.first?.status, .transcribing)
+        f.model.resume()
+        try await f.waitUntilFinished()
+        XCTAssertEqual(f.env.store.entries.first?.id, accepted.id)
+        XCTAssertEqual(f.env.store.entries.first?.aiAnswer?.text, f.model.result)
+        XCTAssertEqual(f.env.store.entries.first?.answerUse, "accepted")
         XCTAssertEqual(f.env.store.entries.first?.finalText?.text, f.controller.transcript)
         try await f.dispose()
     }
