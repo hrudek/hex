@@ -70,7 +70,7 @@ private final class LogControllerFixture {
     let controller: DictationController
     let bridge: KeyboardBridge
 
-    init(injectLog: Bool = true) {
+    init(injectLog: Bool = true, statistics: UsageDictationRecorder? = nil) {
         bridge = KeyboardBridge(defaults: env.defaults)
         let deps = TranscriptCleanupDependencies(cleaner: CleanupTestCleaner(session: model), language: CleanupTestLanguage(),
             background: background, isEnabled: { true }, sleep: sleeper.sleep)
@@ -78,7 +78,7 @@ private final class LogControllerFixture {
         controller = DictationController(audio: audio, keyboardBridge: bridge, transcriber: activeASR,
             transcriberFactory: { activeASR }, autoPrepareOnInit: false,
             customVocabularySettings: CustomVocabularySettings(defaults: env.defaults),
-            cleanup: deps, dictationLog: injectLog ? env.store : nil)
+            cleanup: deps, dictationLog: injectLog ? env.store : nil, statistics: statistics)
     }
 
     func settle() async throws {
@@ -454,6 +454,58 @@ final class DictationLogControllerTests: XCTestCase {
         XCTAssertEqual(f.env.store.entries.first?.status, .finished)
         XCTAssertNotNil(f.env.store.storageProblem)
         try await f.dispose()
+    }
+
+    func testUsageCountsSuccessfulKeyboardDictationWithoutHistoryOrRepeatedStop() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = UsageStatisticsStore(directory: root)
+        let f = LogControllerFixture(injectLog: false, statistics: UsageDictationRecorder(store: store))
+        try await f.start()
+        f.controller.finishRecording(); f.controller.finishRecording()
+        try await f.waitUntil("Expected successful result without an archive") { f.controller.phase == .ready }
+        let totals = try store.snapshot().totals(lastDays: 90, at: Date())
+        XCTAssertEqual(totals.dictations, 1)
+        XCTAssertEqual(totals.dictatedWords, 6) // Raw recognition, not cleanup's spelling/style output.
+        XCTAssertEqual(totals.recordingSeconds, 1.5)
+        XCTAssertTrue(f.env.store.entries.isEmpty)
+        try await f.dispose()
+    }
+
+    func testUsageResetDuringRecordingOrSuspendedASRDoesNotReviveOldCapture() async throws {
+        for duringASR in [false, true] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let store = UsageStatisticsStore(directory: root)
+            let f = LogControllerFixture(statistics: UsageDictationRecorder(store: store))
+            try await f.start()
+            if duringASR {
+                await f.asr.arm(); f.controller.finishRecording()
+                try await f.waitUntilASRIsSuspended()
+            }
+            _ = try store.reset()
+            if duringASR { await f.asr.resume() } else { f.controller.finishRecording() }
+            try await f.waitUntilFinished()
+            XCTAssertTrue(try store.snapshot().days.isEmpty)
+            try await f.dispose()
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    func testUsageDoesNotCountFailedOrCancelledDictation() async throws {
+        for cancelled in [false, true] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let store = UsageStatisticsStore(directory: root)
+            let f = LogControllerFixture(statistics: UsageDictationRecorder(store: store))
+            try await f.start()
+            if cancelled { f.controller.cancelCurrentJob() }
+            else {
+                await f.asr.fail(); f.controller.finishRecording()
+                try await f.waitUntil("Expected failed ASR") { f.controller.phase == .failed }
+            }
+            XCTAssertTrue(try store.snapshot().days.isEmpty)
+            try await f.dispose()
+            try? FileManager.default.removeItem(at: root)
+        }
     }
 
     func testExplicitExportsIncludeEvidenceButNoInternalKeysOrErrorPayload() async throws {

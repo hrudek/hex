@@ -60,9 +60,16 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// What the feedback panel shows, for tests; `nil` while the keys are up.
     var shownPanelContent: TyprFeedbackPanel.Content? { panelContent }
 
-    init(model: KeyboardViewModel, target: KeyboardTextTarget, autocorrect: AutocorrectEngine? = nil) {
+    init(model: KeyboardViewModel, target: KeyboardTextTarget, autocorrect: AutocorrectEngine? = nil,
+         statistics: UsageStatisticsSession? = nil) {
         self.model = model
-        engine = FullKeyboardEngine(target: target, autocorrect: autocorrect)
+        engine = FullKeyboardEngine(target: target, autocorrect: autocorrect, statistics: statistics)
+        engine.autocorrect.learning.onValidatedLabel = { [weak statistics] label, layout in
+            statistics?.validatedLabel(label, layout: layout)
+        }
+        engine.autocorrect.learning.onLabelsInvalidated = { [weak statistics] in
+            statistics?.clearRecentLabels()
+        }
         plane = KeyboardKeyPlaneView(engine: engine)
         super.init(frame: .zero)
         backgroundColor = .clear
@@ -243,6 +250,8 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
     /// Writes pending learning and diagnostics now (dismissal, memory warning, remount).
     func flushLearning() {
         engine.autocorrect.learning.flush()
+        engine.endStatisticsSession()
+        engine.statistics?.flush()
     }
 
     /// A late worker or warmup completion must not read a hidden host's document proxy.
@@ -258,6 +267,7 @@ final class FullKeyboardView: UIView, UIInputViewAudioFeedback {
 
     /// Selection changes and keyboard dismissal must not retain current-word taps.
     func discardTouchEvidence() {
+        engine.endStatisticsSession()
         engine.discardTouchEvidence()
     }
 

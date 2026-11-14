@@ -301,14 +301,17 @@ final class KeyboardLearningStore {
     }
 }
 
+typealias KeyboardLearningObserver = StoreChangeObserver
+
 /// Snapshot refresh lifecycle adapted from AVGVSTVS96/iikb
 /// Packages/KeyboardModules/Sources/KeyboardStore/MemoryStore.swift (MIT).
 @MainActor
-final class KeyboardLearningObserver {
+final class StoreChangeObserver {
     private let registration: Registration
 
-    init(_ changed: @escaping @MainActor @Sendable () -> Void) {
-        registration = Registration(changed)
+    init(notificationName: String = KeyboardLearningStore.changedNotification,
+         _ changed: @escaping @MainActor @Sendable () -> Void) {
+        registration = Registration(notificationName: notificationName, changed)
     }
 
     func invalidate() { registration.invalidate() }
@@ -320,7 +323,7 @@ final class KeyboardLearningObserver {
         private let lock = NSLock()
         private var active = true
 
-        init(_ changed: @escaping @MainActor @Sendable () -> Void) {
+        init(notificationName: String, _ changed: @escaping @MainActor @Sendable () -> Void) {
             self.changed = changed
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                 Unmanaged.passUnretained(self).toOpaque(), { _, observer, _, _, _ in
@@ -330,7 +333,7 @@ final class KeyboardLearningObserver {
                         guard let registration, registration.isActive else { return }
                         registration.changed()
                     }
-                }, KeyboardLearningStore.changedNotification as CFString, nil, .deliverImmediately)
+                }, notificationName as CFString, nil, .deliverImmediately)
         }
 
         private var isActive: Bool { lock.lock(); defer { lock.unlock() }; return active }

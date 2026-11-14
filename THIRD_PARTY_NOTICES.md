@@ -230,6 +230,15 @@ learned/neural model or resources. The existing iikb MIT notice above
 [pinned LICENSE](https://github.com/AVGVSTVS96/iikb/blob/08df5aa1e698d8587b6dcaef53f5e555ba1fac2a/LICENSE),
 also covers these adaptations; it is not duplicated here.
 
+The local usage-statistics store reuses Typr's existing Darwin snapshot-observer
+adaptation, now shared as `StoreChangeObserver`. Its upstream reference is
+`Packages/KeyboardModules/Sources/KeyboardStore/MemoryStore.swift` at
+[iikb `cf50492d150278e9b1184b4158515170ce485481`](https://github.com/AVGVSTVS96/iikb/blob/cf50492d150278e9b1184b4158515170ce485481/Packages/KeyboardModules/Sources/KeyboardStore/MemoryStore.swift).
+The **MIT, Copyright (c) 2026 Bassim Shahidy** license was verified against that
+revision's LICENSE; the full notice above covers this reuse. The new text-free tally,
+raster aggregates, reset generations and additive store are Typr implementations;
+no additional iikb code, resources or accuracy formula were copied for this change.
+
 Typr additionally translates bounded best-first prefix enumeration, physical
 held-letter mapping and personal (kept or repeatedly typed) word completions from
 `Correction/Lexicon.swift`, `Correction/LetterKeys.swift` and `Correction/TypingMemory.swift`

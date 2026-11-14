@@ -324,7 +324,8 @@ final class PersonalTypingModel {
     }
 
     @discardableResult
-    func learn(_ labels: [TouchLabel], layout: KeyboardLayout, source: TouchLabelSource) -> LearnOutcome {
+    func learn(_ labels: [TouchLabel], layout: KeyboardLayout, source: TouchLabelSource,
+               accepted: ((TouchLabel) -> Void)? = nil) -> LearnOutcome {
         guard isLearningEnabled else {
             return LearnOutcome(rejected: labels.isEmpty ? [:] : [.learningOff: labels.count])
         }
@@ -367,6 +368,7 @@ final class PersonalTypingModel {
                     stats.lastUpdated = now()
                     state.layouts[signature.id] = stats
                     outcome.accepted += 1
+                    accepted?(label)
                 }
             } else { rejection = .unknownKey }
             if let rejection { outcome.rejected[rejection, default: 0] += 1 }

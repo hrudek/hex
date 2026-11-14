@@ -10,7 +10,8 @@ final class DictationController {
     static let shared = DictationController(
         autoPrepareOnInit: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
         cleanup: TranscriptCleanupProduction.dependencies(),
-        dictationLog: .shared
+        dictationLog: .shared,
+        statistics: UsageDictationRecorder(store: UsageStatisticsStore())
     )
 
     private static let minCaptureDuration: TimeInterval = 0.30
@@ -55,6 +56,7 @@ final class DictationController {
     }
 
     private struct ActiveCaptureSession {
+        let statisticsToken: UsageCaptureToken?
         let generation: UInt64
         let capture: any ActiveAudioCapture
         let startedAt: TimeInterval
@@ -104,6 +106,7 @@ final class DictationController {
     private let cleanupCoordinator = CleanupCoordinator()
     /// This session's recent results, in memory only, as cleanup context when the keyboard sent none.
     private let cleanupHistory = CleanupContextHistory()
+    private let statistics: UsageDictationRecorder?
     private let languageSettings: TyprSettings
     private var pendingCleanupJob: CleanupJob?
     private var cleanupHeartbeat: Task<Void, Never>?
@@ -219,6 +222,7 @@ final class DictationController {
         customVocabularySettings: CustomVocabularySettings = CustomVocabularySettings(),
         cleanup: TranscriptCleanupDependencies? = nil,
         dictationLog: DictationLogStore? = nil,
+        statistics: UsageDictationRecorder? = nil,
         languageSettings: TyprSettings = TyprSettings(),
         engineProvider: (any SpeechEngineProviding)? = nil,
         audioActivationRetryDelays: [Duration] = DictationController.audioActivationRetryDelays
@@ -232,6 +236,7 @@ final class DictationController {
 
         self.cleanup = cleanup
         self.dictationLog = dictationLog
+        self.statistics = statistics
         self.languageSettings = languageSettings
         self.dictationLanguage = languageSettings.dictationLanguage
         self.audio = resolvedAudio
@@ -966,6 +971,7 @@ final class DictationController {
                     }
                 }
                 activeCapture = ActiveCaptureSession(
+                    statisticsToken: statistics?.beginCapture(),
                     generation: captureGeneration,
                     capture: capture,
                     startedAt: startedAt,
@@ -1142,6 +1148,8 @@ final class DictationController {
                     await self.dictationLog?.waitForFeedbackReadiness()
                     guard self.jobGeneration == captureGeneration, !Task.isCancelled else { return }
                 }
+                self.statistics?.success(session.statisticsToken, recognized: rawText,
+                                         delivered: formatted, seconds: finalDuration)
                 recording?.finish(text: formatted, beforeSpelling: beforeSpelling, spellingPass: secondPass)
                 self.cleanupHistory.record(formatted, at: self.now())
                 self.recordingDuration = 0
