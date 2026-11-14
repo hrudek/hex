@@ -1,8 +1,9 @@
 # Local usage statistics
 
 The data layer collects new, text-free measurements. It does not reconstruct history
-from the learning model, diagnostics or transcript archive. There is not yet a
-Statistics screen. Learning and technical-counter resets do not reset usage data.
+from the learning model, diagnostics or transcript archive. Statistics is reachable
+from the main page and currently contains Taps only; Overview, Typing and Dictation
+will be added separately. Learning and technical-counter resets do not reset usage data.
 
 ## Populations
 
@@ -86,8 +87,10 @@ invalidatable Darwin-notification observer; views should also refresh on activat
 The keyboard observes generation changes and checks again when configuring a field.
 `reset()` atomically replaces the envelope/generation, repairing corrupt/oversized
 v1 data. Old pending batches and captures cannot revive pre-reset measurements.
-Learning files, imports and technical counters are unchanged. No usage-reset button
-is exposed until there is a usable Statistics screen.
+Learning files, imports and technical counters are unchanged. Statistics exposes a
+confirmed usage reset and reports failure without pretending the data was cleared.
+Its confirmation explicitly states that saved aim estimates survive; Reset learning
+remains in Keyboard settings.
 
 ## Heat, saved model and recent labels are different
 
@@ -100,9 +103,11 @@ normalizes over the actual board height/width and separates orientation, rounded
 explicitly unsupported rather than silently mixed. At most four most-recently-used
 layouts are stored; old Heat is not historical word/tap lifetime data.
 
-Saved `PersonalTypingModel` means/covariances are unchanged. Estimated on-target
-probability must be calculated separately using real geometry in the presentation
-phase. Heat is neither intended-key evidence nor measured accuracy.
+Saved `PersonalTypingModel` means/covariances are unchanged. The read-only
+`physicalTouch` summary option exposes the bounded, prior-shrunk slow physical
+model **before** decoder tempering/clamping. The default summary and inference
+are unchanged; inverting a clamped decoder covariance would be incorrect.
+Heat is neither intended-key evidence nor measured accuracy.
 
 The model calls the optional accepted-label hook only after all existing learning,
 layout, lowercase-key, finite-coordinate, normalized-distance and outlier validation
@@ -113,14 +118,68 @@ switch/reset/deferred model reload and usage reset. These are labels accepted by
 learning pipeline, not independent ground truth. Do not derive a trend by comparing
 them to the saved model or by hit-testing a key against its own assigned tap.
 
+## Taps presentation
+
+`StatisticsView` has Heat / Aim / Accuracy, layout selection, letter selection,
+a magnified detail card, keyboard halves and model-predicted neighboring deviations.
+Only finished content is navigable; there are no placeholder statistics tabs.
+The most recently updated available layout is the default, with explicit selection
+across the union of Heat and saved-model signatures. No orientations/widths are pooled.
+
+`TapStatistics` reconstructs `KeyboardLayout` at the signature's 8-pt bucket midpoint,
+letter/text layer, zero inset, recorded strip/globe/orientation. It uses shared keycap
+frames and **hit frames**, including extended edge targets and modifier regions.
+Original widths were not persisted: reconstruction differs by up to 4 pt and can
+cross a portrait side-margin breakpoint. Heat cells are drawn over the full board
+using normalized coordinates, not snapped to keys. This is a bucket reconstruction,
+not an exact replay of historical geometry. Saved learning predates the zero-inset
+Heat policy and has no inset provenance; its pitch-normalized distribution is
+projected onto the displayed zero-inset layout, not claimed as an exact historical
+landing rate. No schema migration or synthesized observations were added.
+
+Aim converts means and full covariance from **key pitches** (keycap width + gap,
+keycap height + row gap) to points. The blue oval is a one-sigma Gaussian model
+contour, not a point cloud, confidence region or observed tap history. Orange marks
+the saved aim and displacement from the physical key center. Detail shows the
+actual shared hit region with a dashed outline and numerical direction/spread.
+
+Estimated on target integrates that Gaussian on a 49 × 49 Cholesky lattice out to
+3.5 sigma. This integration adapts iikb's `Aim.swift`, but includes off-board and
+modifier mass in the denominator rather than conditioning on a successful board
+hit. Only ≥20-effective-sample keys receive percentages; smaller keys are neutral.
+The headline and halves weight eligible keys by capped effective sample count.
+Mean center offset separately weights all saved per-key centers. Model counts cap
+at 256 per key and have bounded adaptive updates/priors: they are not lifetime taps.
+The statistic describes the saved model, not fast session drift or a counted error
+rate. Neighbor shares are estimated per source key, not actual mistakes or global
+frequency. No recent comparison or trend is fabricated.
+
+Heat uses log-relative intensity across raster cells; it is neither key frequency
+nor a model density. Heat and model counts are labeled separately. Session-only
+recent learning points cannot be read across the app/extension process boundary;
+the app explicitly says they are unavailable and does not persist or replace them.
+Usage read failures remove the old usage snapshot and show unavailable, not zero
+history. The learning read path additionally flags corrupt/rejected model data so
+Statistics does not present it as a valid empty model. Refresh runs on Darwin
+notifications and scene activation.
+
+The key menu provides accessible selection alongside board hit targets; detail
+values and accuracy percentages do not rely on color. Layout menus include all
+signature dimensions. Small-width and large-text hosting tests are only layout
+smoke tests, not VoiceOver or visual approval. Simulator-only launch fixtures:
+`settings-statistics-empty`, `-sparse`, `-populated`, `-unavailable` (each with the
+`settings-statistics-` prefix) are synthetic RAM data and never seed shared files
+or preferences. Ordinary `settings-statistics` reads the real stores.
+
 ## Verification
 
 Simulator test sources: `UsageStatisticsTests`, `UsageStatisticsStoreTests`,
 `UsageStatisticsEngineTests`, plus usage integration cases in
-`DictationLogControllerTests`. Targeted macOS execution:
+`DictationLogControllerTests`, and presentation/math/fixture cases in
+`TapStatisticsTests` and `SettingsPresentationTests`. Targeted macOS execution:
 
 ```sh
-bash .github/typr/agent-test.sh TyprTests/UsageStatisticsTests,TyprTests/UsageStatisticsStoreTests,TyprTests/UsageStatisticsEngineTests,TyprTests/DictationLogControllerTests
+bash .github/typr/agent-test.sh TyprTests/UsageStatisticsTests,TyprTests/UsageStatisticsStoreTests,TyprTests/UsageStatisticsEngineTests,TyprTests/DictationLogControllerTests,TyprTests/TapStatisticsTests,TyprTests/SettingsPresentationTests
 ```
 
 Linux checks and a tree-sitter syntax pass do not compile Swift or execute these

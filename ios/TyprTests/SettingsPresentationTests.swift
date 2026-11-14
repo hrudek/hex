@@ -13,7 +13,7 @@ final class SettingsPresentationTests: XCTestCase {
             )
         }
         XCTAssertEqual(Set(SettingsDestination.allCases.map(\.title)),
-                       ["Keyboard", "Autocorrect languages",
+                       ["Keyboard", "Statistics", "Autocorrect languages",
                         "Manage learned words", "AI & vocabulary", "History & feedback", "Speech engine", "Style", "Language", "Cleanup prompt"])
     }
 
@@ -100,7 +100,8 @@ final class SettingsPresentationTests: XCTestCase {
             }
         }
         XCTAssertFalse(SettingsDestination.allCases.contains { $0.rawValue.contains("diagnostics") })
-        XCTAssertFalse(SettingsDestination.allCases.contains { $0.rawValue.contains("statistics") })
+        XCTAssertEqual(SettingsDestination.snapshotDestination(arguments:
+            ["Typr", "--snap-state", "settings-statistics"]), .statistics)
         XCTAssertTrue(ContentView.learnedWordsUsesFixture(
             arguments: ["Typr", "--snap-state", "settings-keyboard-learned-words"]))
         for arguments in [[], ["Typr"], ["--snap-state"], ["settings-keyboard-learned-words"],

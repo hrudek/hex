@@ -505,11 +505,13 @@ final class PersonalTypingModel {
 
     var summary: Summary { Self.summarize(state) }
 
-    static func summarize(_ state: State) -> Summary {
+    /// Statistics use the bounded physical saved density, not the decoder's tempered likelihood.
+    static func summarize(_ state: State, physicalTouch: Bool = false) -> Summary {
         let layouts = state.layouts.values.sorted { $0.signature.id < $1.signature.id }.map { layout in
             LayoutSummary(signature: layout.signature, lastUpdated: layout.lastUpdated,
                 keys: layout.keys.sorted { $0.key < $1.key }.map { letter, stats in
-                    let key = tempered(slowKey(letter, in: layout))
+                    let slow = slowKey(letter, in: layout)
+                    let key = physicalTouch ? slow : tempered(slow)
                     return KeySummary(letter: letter, n: stats.n, offsetX: key.offsetX, offsetY: key.offsetY,
                                       sigmaX: key.sigmaX, sigmaY: key.sigmaY, covarianceXY: key.covarianceXY)
                 })

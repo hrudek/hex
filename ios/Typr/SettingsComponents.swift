@@ -3,6 +3,7 @@ import SwiftUI
 /// Parsing snapshot routes is read-only. Dedicated simulator fixtures seed their own preferences.
 enum SettingsDestination: String, CaseIterable, Hashable {
     case keyboard
+    case statistics
     case autocorrectLanguages = "autocorrect-languages"
     case keyboardLearnedWords = "keyboard-learned-words"
     // Keep the existing simulator scene name; this is not a persisted user setting.
@@ -16,6 +17,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
     var title: String {
         switch self {
         case .keyboard: "Keyboard"
+        case .statistics: "Statistics"
         case .autocorrectLanguages: "Autocorrect languages"
         case .keyboardLearnedWords: "Manage learned words"
         case .textProcessing: "AI & vocabulary"
@@ -29,7 +31,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
 
     var subtitle: String {
         switch self {
-        case .keyboard, .keyboardLearnedWords, .textProcessing, .history, .cleanupPrompt: ""
+        case .keyboard, .statistics, .keyboardLearnedWords, .textProcessing, .history, .cleanupPrompt: ""
         case .speechEngine: "Automatic chooses an engine until you select one. Audio stays on this iPhone."
         case .style: "Choose how Typr formats your dictations. You can also change style from the keyboard."
         case .autocorrectLanguages: "Choose one or more languages for autocorrect. These choices do not change your dictation language."
@@ -41,6 +43,7 @@ enum SettingsDestination: String, CaseIterable, Hashable {
         guard let index = arguments.firstIndex(of: "--snap-state"), index + 1 < arguments.count else { return nil }
         let scene = arguments[index + 1]
         if scene == "settings-keyboard-typing" { return .keyboard }
+        if StatisticsFixture.launchFixture(arguments: arguments) != nil { return .statistics }
         guard scene.hasPrefix("settings-") else { return nil }
         return Self(rawValue: String(scene.dropFirst("settings-".count)))
     }

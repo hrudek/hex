@@ -92,6 +92,18 @@ Their notices are reproduced below.
 
 ### iikb
 
+The Taps statistics presentation additionally adapts the summary / Heat–Aim–Accuracy /
+key-detail / keyboard-halves structure of `App/Stats/TapsPage.swift` and the
+Gaussian Cholesky lattice integration in
+`Packages/KeyboardModules/Sources/KeyboardCore/Correction/Aim.swift` from
+[AVGVSTVS96/iikb at `cf50492d150278e9b1184b4158515170ce485481`](https://github.com/AVGVSTVS96/iikb/tree/cf50492d150278e9b1184b4158515170ce485481).
+License verified at that revision: **MIT, Copyright (c) 2026 Bassim Shahidy**;
+the full iikb MIT notice below applies. Typr uses its own shared keyboard geometry,
+physical saved-model summary and measured raster, includes off-board/modifier mass
+in the probability denominator, suppresses sparse estimates, and does not adopt
+upstream model memories, raw points, resources, sync or navigation. New/adapted
+files: `ios/Typr/{TapStatistics,TapStatisticsBoard,StatisticsView}.swift`.
+
 R2-10 adds evaluation-only independent interpretation of HXN1 layout/LSTM math
 from `KeyboardCore/Correction/Network.swift` and reads the training/provenance
 notices at `09a2e9cdfbe851adff6c4646333c0a3f74ba8765` (MIT © 2026 Bassim
